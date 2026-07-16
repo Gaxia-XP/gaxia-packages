@@ -1,0 +1,12 @@
+std = "roblox"
+
+# Vendored third-party module (loleris/MadStudio ProfileService, MIT) — do not lint
+# upstream code; we keep it byte-for-byte so it tracks the official release.
+exclude = ["**/DataManager/ProfileService.lua"]
+
+# The framework uses the lazy __index loader pattern + intentional globals; relax
+# the noisiest lints so CI signal stays meaningful. Tighten later as desired.
+[lints]
+global_usage = "allow"
+multiple_statements = "allow"
+if_same_then_else = "allow"

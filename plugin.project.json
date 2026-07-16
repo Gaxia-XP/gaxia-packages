@@ -1,0 +1,42 @@
+{
+  "name": "GaxiaCompanion",
+  "tree": {
+    "$path": "plugin/src",
+    "Payload": {
+      "$className": "Folder",
+      "Gaxia_Packages": {
+        "$className": "Folder",
+        "init": { "$path": "src/ReplicatedStorage/Gaxia_Packages/loader.lua" },
+        "Shared": { "$path": "src/ReplicatedStorage/Gaxia_Packages/Shared" },
+        "Client": { "$path": "src/ReplicatedStorage/Gaxia_Packages/Client" }
+      },
+      "Gaxia_Packages_Server": {
+        "$className": "Folder",
+        "init": { "$path": "src/ServerStorage/Gaxia_Packages_Server/loader.lua" },
+        "Config": { "$path": "src/ServerStorage/Gaxia_Packages_Server/Config.lua" },
+        "Lib": { "$path": "src/ServerStorage/Gaxia_Packages_Server/Lib" },
+        "AntiCheat": {
+          "$className": "Folder",
+          "init": { "$path": "src/ServerStorage/Gaxia_Packages_Server/AntiCheat/loader.lua" },
+          "AnimationGuard": { "$path": "src/ServerStorage/Gaxia_Packages_Server/AntiCheat/AnimationGuard.lua" },
+          "BackpackGuard": { "$path": "src/ServerStorage/Gaxia_Packages_Server/AntiCheat/BackpackGuard.lua" },
+          "CombatGuard": { "$path": "src/ServerStorage/Gaxia_Packages_Server/AntiCheat/CombatGuard.lua" },
+          "ExploitSignatureScanner": { "$path": "src/ServerStorage/Gaxia_Packages_Server/AntiCheat/ExploitSignatureScanner.lua" },
+          "FlyDetector": { "$path": "src/ServerStorage/Gaxia_Packages_Server/AntiCheat/FlyDetector.lua" },
+          "HeartbeatGuard": { "$path": "src/ServerStorage/Gaxia_Packages_Server/AntiCheat/HeartbeatGuard.lua" },
+          "HeuristicDetector": { "$path": "src/ServerStorage/Gaxia_Packages_Server/AntiCheat/HeuristicDetector.lua" },
+          "HumanoidStateGuard": { "$path": "src/ServerStorage/Gaxia_Packages_Server/AntiCheat/HumanoidStateGuard.lua" },
+          "NoClipDetector": { "$path": "src/ServerStorage/Gaxia_Packages_Server/AntiCheat/NoClipDetector.lua" },
+          "RemoteRateLimiter": { "$path": "src/ServerStorage/Gaxia_Packages_Server/AntiCheat/RemoteRateLimiter.lua" },
+          "SpeedDetector": { "$path": "src/ServerStorage/Gaxia_Packages_Server/AntiCheat/SpeedDetector.lua" },
+          "StatGuard": { "$path": "src/ServerStorage/Gaxia_Packages_Server/AntiCheat/StatGuard.lua" },
+          "TeleportDetector": { "$path": "src/ServerStorage/Gaxia_Packages_Server/AntiCheat/TeleportDetector.lua" },
+          "ToolDuplicationGuard": { "$path": "src/ServerStorage/Gaxia_Packages_Server/AntiCheat/ToolDuplicationGuard.lua" },
+          "WorldBoundsDetector": { "$path": "src/ServerStorage/Gaxia_Packages_Server/AntiCheat/WorldBoundsDetector.lua" }
+        }
+      },
+      "Gaxia_ServerBootstrap": { "$path": "src/ServerScriptService/Gaxia_ServerBootstrap.server.lua" },
+      "Gaxia_ClientBootstrap": { "$path": "src/StarterPlayer/StarterPlayerScripts/Gaxia_ClientBootstrap.client.lua" }
+    }
+  }
+}

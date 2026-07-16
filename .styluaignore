@@ -1,0 +1,3 @@
+# Vendored third-party module (loleris/MadStudio ProfileService, MIT) — keep it
+# byte-for-byte as shipped upstream; do not reformat.
+**/DataManager/ProfileService.lua

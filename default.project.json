@@ -1,0 +1,38 @@
+{
+  "name": "GaxiaPackages",
+  "globIgnorePaths": ["**/*.spec.lua", "**/*.spec.luau"],
+  "tree": {
+    "$className": "DataModel",
+
+    "ReplicatedStorage": {
+      "$ignoreUnknownInstances": true,
+      "Gaxia_Packages": {
+        "$path": "src/ReplicatedStorage/Gaxia_Packages",
+        "$ignoreUnknownInstances": true
+      }
+    },
+
+    "ServerStorage": {
+      "$ignoreUnknownInstances": true,
+      "Gaxia_Packages_Server": {
+        "$path": "src/ServerStorage/Gaxia_Packages_Server",
+        "$ignoreUnknownInstances": true
+      }
+    },
+
+    "ServerScriptService": {
+      "$ignoreUnknownInstances": true,
+      "Gaxia_ServerBootstrap": { "$path": "src/ServerScriptService/Gaxia_ServerBootstrap.server.lua" }
+    },
+
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "$ignoreUnknownInstances": true,
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "$ignoreUnknownInstances": true,
+        "Gaxia_ClientBootstrap": { "$path": "src/StarterPlayer/StarterPlayerScripts/Gaxia_ClientBootstrap.client.lua" }
+      }
+    }
+  }
+}

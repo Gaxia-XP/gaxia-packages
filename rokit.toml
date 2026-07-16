@@ -1,0 +1,6 @@
+# Rokit toolchain manifest — `rokit install` pulls these pinned tools.
+# (Rokit is the modern successor to Aftman/Foreman.)
+[tools]
+rojo = "rojo-rbx/rojo@7.7.0-rc.1"     # file <-> Studio sync + .rbxm/.rbxl build (match Studio plugin protocol 5)
+stylua = "JohnnyMorganz/StyLua@0.20.0" # Luau formatter (config: stylua.toml)
+selene = "Kampfkarren/selene@0.27.1"   # Luau linter (config: selene.toml)
