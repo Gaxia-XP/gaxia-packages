@@ -16,15 +16,13 @@
 		}
 	Flag = { reason: string, severity: "soft" | "hard" }
 ]]
-game:GetService("CollectionService"):AddTag(script, "Gaxia_Packages")
-
 
 -- ── Services ──
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- ── Shared ──
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages"):WaitForChild("init")) :: any
+local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
 local Signal    = SharedPkg.Signal
 
 -- ── Server config ──
@@ -33,13 +31,13 @@ local Signal    = SharedPkg.Signal
 -- yields → "attempt to yield across metamethod/C-call boundary". Config sits at
 -- the package ROOT (sibling of the AntiCheat folder), so script.Parent.Parent is
 -- Gaxia_Packages_Server. Its body is a pure table (no yields), so require is safe.
-local Config = require(script.Parent.Parent:FindFirstChild("Config") :: ModuleScript) :: any
+local Config = require(script.Parent:FindFirstChild("Config") :: ModuleScript) :: any
 local AntiCheatConfig = Config.AntiCheat
 
 -- EffectiveConfig resolver (runtime Flag override <- static Config default). Same
 -- no-yield require pattern as Config: FindFirstChild (Lib is present at boot), and
 -- EffectiveConfig's body does not yield (Flags state is resolved lazily at use).
-local EConfig = require((script.Parent.Parent:FindFirstChild("Lib") :: Instance):FindFirstChild("EffectiveConfig") :: ModuleScript) :: any
+local EConfig = require((script.Parent:FindFirstChild("Lib") :: Instance):FindFirstChild("EffectiveConfig") :: ModuleScript) :: any
 
 local SAMPLER_INTERVAL  : number = (AntiCheatConfig.SamplerInterval   :: any) or 0.5
 local SOFT_THRESHOLD    : number = (AntiCheatConfig.SoftFlagThreshold :: any) or 3

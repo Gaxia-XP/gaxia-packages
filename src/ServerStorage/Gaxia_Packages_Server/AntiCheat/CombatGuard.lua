@@ -22,7 +22,7 @@
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages"):WaitForChild("init")) :: any
+local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
 local Maid      = SharedPkg.Maid
 
 -- ── Config (server-side, see ServerStorage/Gaxia_Packages_Server/Config) ──

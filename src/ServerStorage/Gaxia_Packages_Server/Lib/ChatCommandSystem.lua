@@ -12,7 +12,7 @@ local Players           = game:GetService("Players")
 local TextChatService   = game:GetService("TextChatService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages"):WaitForChild("init")) :: any
+local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
 local Signal    = SharedPkg.Signal
 
 -- Config-driven command prefix (default "/"). FindFirstChild: no-yield require.

@@ -31,7 +31,7 @@ local Players           = game:GetService("Players")
 local TweenService      = game:GetService("TweenService")
 
 local LocalPlayer : Player = Players.LocalPlayer
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages"):WaitForChild("init")) :: any
+local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
 local Promise = SharedPkg.Promise
 local Maid    = SharedPkg.Maid
 

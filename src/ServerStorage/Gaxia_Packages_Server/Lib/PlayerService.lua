@@ -13,7 +13,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage     = game:GetService("ServerStorage")
 
 -- ── Shared ──
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages"):WaitForChild("init")) :: any
+local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
 local Signal    = SharedPkg.Signal
 local Util      = SharedPkg.Util
 
@@ -23,7 +23,7 @@ local function server(): any
 	if not _server then
 		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
 		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server"):WaitForChild("init")
+		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
 		_server = require(serverInit :: any)
 	end
 	return _server
@@ -138,7 +138,7 @@ local function getAntiCheat(): any
 	if _antiCheatRef ~= nil then return _antiCheatRef end
 	local serverPkg = script.Parent.Parent  -- Lib → Gaxia_Packages_Server
 	local acFolder = serverPkg:FindFirstChild("AntiCheat")
-	local acInit = acFolder and acFolder:FindFirstChild("init")
+	local acInit = acFolder and acFolder
 	if acInit and acInit:IsA("ModuleScript") then
 		local ok, mod = pcall(require, acInit)
 		if ok then _antiCheatRef = mod end

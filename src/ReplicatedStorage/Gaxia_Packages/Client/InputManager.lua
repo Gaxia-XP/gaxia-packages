@@ -44,7 +44,7 @@ end
 -- Resolve via the master init so we get the lazy-loaded singletons every other
 -- module sees. `any` cast keeps the typechecker happy without dragging the full
 -- GaxiaPackage type into this file.
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages"):WaitForChild("init")) :: any
+local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
 local Signal    = SharedPkg.Signal
 
 -- ── State ──

@@ -21,7 +21,7 @@ local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage     = game:GetService("ServerStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages"):WaitForChild("init")) :: any
+local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
 local Signal = SharedPkg.Signal
 
 local GaxiaServer: any = nil
@@ -35,7 +35,7 @@ local function server(): any
 		-- "cyclic module dependency" (runtime is acyclic: the loader resolves services
 		-- lazily via __index, and this require runs lazily at call-time). Type-only cast,
 		-- zero runtime change.
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server"):WaitForChild("init")
+		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
 		GaxiaServer = require(serverInit :: any)
 	end
 	return GaxiaServer

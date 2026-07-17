@@ -23,7 +23,7 @@ local Players            = game:GetService("Players")
 local ReplicatedStorage  = game:GetService("ReplicatedStorage")
 local ServerStorage      = game:GetService("ServerStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages"):WaitForChild("init")) :: any
+local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
 local Signal = SharedPkg.Signal
 
 local RECEIPTS_KEY : string = "ProcessedReceipts"  -- Profile.Data key: { [purchaseId]=true }
@@ -42,7 +42,7 @@ local function getData(): any
 	if not GaxiaServer then
 		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
 		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server"):WaitForChild("init")
+		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
 		GaxiaServer = require(serverInit :: any)
 	end
 	return GaxiaServer.Data

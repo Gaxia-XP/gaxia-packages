@@ -21,14 +21,14 @@ local function server(): any
 	if not _server then
 		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
 		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server"):WaitForChild("init")
+		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
 		_server = require(serverInit :: any)
 	end
 	return _server
 end
 
 -- ── Shared lib (Signal/Maid) ──
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages"):WaitForChild("init")) :: any
+local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
 local Signal    = SharedPkg.Signal
 
 -- ── Lazy direct-path service refs (avoid require recursion) ──
@@ -207,7 +207,7 @@ local function getAntiCheat(): any
 	if _antiCheatRef ~= nil then return _antiCheatRef end
 	local pkgRoot = (script.Parent :: any).Parent     -- Gaxia_Packages_Server
 	local acFolder = pkgRoot and pkgRoot:FindFirstChild("AntiCheat")
-	local initMod  = acFolder and acFolder:FindFirstChild("init")
+	local initMod  = acFolder and acFolder
 	if initMod and initMod:IsA("ModuleScript") then
 		local ok, m = pcall(require, initMod)
 		if ok then _antiCheatRef = m end

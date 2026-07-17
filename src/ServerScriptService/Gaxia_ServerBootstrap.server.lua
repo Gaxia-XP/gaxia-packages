@@ -91,7 +91,7 @@ end
 local AntiCheat = require(
 	ServerStorage:WaitForChild("Gaxia_Packages_Server")
 		:WaitForChild("AntiCheat")
-		:WaitForChild("init")
+		
 ) :: any
 
 -- ── Default OnAction handler ──────────────────────────────────

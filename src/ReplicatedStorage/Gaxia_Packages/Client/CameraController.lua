@@ -33,7 +33,7 @@ if not RunService:IsClient() then
 end
 
 -- ── Shared deps ──
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages"):WaitForChild("init")) :: any
+local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
 local Signal    = SharedPkg.Signal
 
 -- ── Constants ──

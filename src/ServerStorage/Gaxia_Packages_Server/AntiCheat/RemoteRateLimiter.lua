@@ -12,7 +12,7 @@
 
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages"):WaitForChild("init")) :: any
+local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
 local Constants = SharedPkg.Constants or {}
 
 -- Rate limits stay in Shared/Constants: NetService (shared, runs on the client too)

@@ -110,7 +110,7 @@ local function getAntiCheat(): any
 	local pkg = ServerStorage:FindFirstChild("Gaxia_Packages_Server")
 	if not pkg then return nil end
 	local acFolder = pkg:FindFirstChild("AntiCheat")
-	local acInit = acFolder and acFolder:FindFirstChild("init")
+	local acInit = acFolder and acFolder
 	if acInit and acInit:IsA("ModuleScript") then
 		local ok, mod = pcall(require, acInit)
 		if ok then _antiCheatRef = mod end

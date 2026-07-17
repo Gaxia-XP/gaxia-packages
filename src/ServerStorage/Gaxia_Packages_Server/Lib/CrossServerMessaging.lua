@@ -14,7 +14,7 @@ local MessagingService = game:GetService("MessagingService")
 local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages"):WaitForChild("init")) :: any
+local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
 local Signal = SharedPkg.Signal
 
 -- ── Lazy server (Config + EConfig) — resolved at CALL-TIME, never module load ──
@@ -24,7 +24,7 @@ local function server(): any
 	if not _server then
 		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
 		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server"):WaitForChild("init")
+		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
 		_server = require(serverInit :: any)
 	end
 	return _server

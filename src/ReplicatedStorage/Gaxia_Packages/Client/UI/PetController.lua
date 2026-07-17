@@ -33,7 +33,7 @@ local UIController = require(script.Parent:WaitForChild("UIController"))
 local Toast        = require(script.Parent:WaitForChild("Toast"))
 -- Net via the shared package (Gaxia_Packages/init), same as every server service
 -- consumes it — survives a Shared/ folder move that a hand-counted path would not.
-local SharedPkg    = require(script.Parent.Parent.Parent:WaitForChild("init")) :: any
+local SharedPkg    = require(script.Parent.Parent.Parent) :: any
 local Net          = SharedPkg.Net
 
 -- ── Constants ──
