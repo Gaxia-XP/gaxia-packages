@@ -1,5 +1,9 @@
 # Project place file
 /GaxiaPackages.rbxlx
+/GaxiaPackages.rbxl
+
+# Built plugin artifact (regenerate with: rojo build plugin.project.json)
+/GaxiaCompanion.rbxmx
 
 # Roblox Studio lock files
 /*.rbxlx.lock
