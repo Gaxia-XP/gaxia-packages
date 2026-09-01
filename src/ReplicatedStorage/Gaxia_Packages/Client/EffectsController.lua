@@ -5,7 +5,7 @@
 -- Purpose:  Spawn-pool for ParticleEmitter / Beam / Trail bursts.
 --           Game code typically wants to "play a hit-flash at this
 --           CFrame" without thinking about cleanup. This module
---           owns a Maid of every spawned effect so a single
+--           owns a Janitor for every spawned effect so a single
 --           ClearAll() (e.g. on respawn / scene transition) can
 --           wipe in-flight effects without leaking instances.
 -- ─────────────────────────────────────────────────────────────
@@ -34,7 +34,7 @@ end
 
 -- ── Shared deps ──
 local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Maid      = SharedPkg.Maid
+local Janitor = SharedPkg.Janitor
 
 -- ── Constants ──
 local FX_FOLDER_NAME      : string = "Gaxia_EffectsHost"  -- workspace folder for emitter parts
@@ -60,20 +60,20 @@ end
 
 local hostFolder : Folder = ensureHost()
 
--- One Maid tracks every effect we spawn — ClearAll() just calls DoCleaning on
--- it. We swap the Maid on ClearAll (rather than reusing) so any tasks added
+-- One Janitor tracks every effect we spawn — ClearAll() just calls Cleanup on
+-- it. We swap the Janitor on ClearAll (rather than reusing) so any tasks added
 -- mid-cleanup don't get silently discarded.
-local fxMaid : any = Maid.new()
+local fxJanitor : any = Janitor.new()
 
 local EffectsController = {}
 
 -- ── Helpers ──
 
--- Schedule destruction via Debris so it survives if our Maid is cleared.
--- Returns nothing — the Maid + Debris together cover cleanup paths.
+-- Schedule destruction via Debris so it survives if our Janitor is cleared.
+-- Returns nothing — the Janitor + Debris together cover cleanup paths.
 local function scheduleDestroy(inst: Instance, lifetime: number): ()
 	Debris:AddItem(inst, lifetime)
-	fxMaid:GiveTask(inst)
+	fxJanitor:Add(inst)
 end
 
 -- ── EmitParticle ──
@@ -156,13 +156,13 @@ function EffectsController.SpawnTrail(
 end
 
 -- ── ClearAll ──
--- Wipe every effect we've spawned. We swap the Maid before calling
--- DoCleaning so new spawns triggered from within cleanup callbacks attach to
--- the FRESH maid and don't get mid-iteration mutated.
+-- Wipe every effect we've spawned. We swap the Janitor before calling
+-- Cleanup so new spawns triggered from within cleanup callbacks attach to
+-- the fresh Janitor and don't get mid-iteration mutated.
 function EffectsController.ClearAll(): ()
-	local old = fxMaid
-	fxMaid = Maid.new()
-	old:DoCleaning()
+	local old = fxJanitor
+	fxJanitor = Janitor.new()
+	old:Cleanup()
 end
 
 return EffectsController :: EffectsControllerType

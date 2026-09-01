@@ -8,6 +8,20 @@ this framework uses a single rolling version until a public release cut.
 
 ## Unreleased
 
+### Changed — open-source dependencies are pinned with Wally
+- `Promise`, `Signal`, `Janitor`, `Trove`, `Component`, and `Comm` now resolve
+  through compatibility modules into the versions pinned by `wally.lock`.
+- Runtime cleanup consumers use Janitor directly. `Gaxia.Maid` remains as a
+  deprecated, LIFO-compatible facade so downstream games can migrate gradually.
+- Replaced the incomplete vendored `Comm` copy with its upstream Wally package,
+  including the missing `Option` dependency. The lazy public `ComponentLegacy`
+  path remains intact for downstream compatibility.
+- Builds now require `wally install`. Both the distributable model and
+  Companion plugin include the generated package tree.
+- Promise now follows the published `evaera/promise@4.0.0` scheduler semantics;
+  cancellation and timing-sensitive dialog/cutscene flows should be smoke-tested
+  in Studio before release.
+
 ### Added — Pet Coins multiplier wired into the Idle & Quest faucets
 `PetService.GetCoinMultiplier` (built in the Pet MVP) was previously **dead** — no
 faucet consumed it, so equipped pets had no in-game effect. The two **generated**

@@ -17,7 +17,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage     = game:GetService("ServerStorage")
 
 local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Maid      = SharedPkg.Maid
+local Janitor = SharedPkg.Janitor
 
 -- ── Config (server-side, see ServerStorage/Gaxia_Packages_Server/Config) ──
 -- FindFirstChild (not WaitForChild): detectors are required THROUGH the server
@@ -36,7 +36,7 @@ local StatGuard = {}
 StatGuard.Name = "Stat"
 
 local orchestratorRef: any = nil
-local playerMaids: { [Player]: any } = {}
+local playerJanitors: { [Player]: any } = {}
 
 -- Hook one ValueObject: any change away from the EXPECTED_ATTR cached value
 -- is a violation, except increases of <= 0 (set/spend lowers balance freely).
@@ -47,8 +47,8 @@ local function hookValue(player: Player, stat: Instance)
 	-- write does not trip the guard.
 	stat:SetAttribute(EXPECTED_ATTR, s.Value)
 
-	local maid = playerMaids[player]
-	maid:GiveTask(stat:GetPropertyChangedSignal("Value"):Connect(function()
+	local janitor = playerJanitors[player]
+	janitor:Add(stat:GetPropertyChangedSignal("Value"):Connect(function()
 		local expected = stat:GetAttribute(EXPECTED_ATTR)
 		if typeof(expected) == "number" and s.Value == expected then
 			-- Matches what EconomyService (or whoever) just wrote — pass.
@@ -67,16 +67,16 @@ local function hookValue(player: Player, stat: Instance)
 end
 
 local function attachPlayer(player: Player)
-	if playerMaids[player] then return end
-	local maid = Maid.new()
-	playerMaids[player] = maid
+	if playerJanitors[player] then return end
+	local janitor = Janitor.new()
+	playerJanitors[player] = janitor
 
 	-- Hook current leaderstats children, and any added later.
 	local function hookFolder(folder: Folder)
 		for _, child in ipairs(folder:GetChildren()) do
 			hookValue(player, child)
 		end
-		maid:GiveTask(folder.ChildAdded:Connect(function(child)
+		janitor:Add(folder.ChildAdded:Connect(function(child)
 			hookValue(player, child)
 		end))
 	end
@@ -85,7 +85,7 @@ local function attachPlayer(player: Player)
 	if existing then hookFolder(existing :: Folder) end
 
 	-- leaderstats may not yet exist at PlayerAdded; watch for it.
-	maid:GiveTask(player.ChildAdded:Connect(function(child)
+	janitor:Add(player.ChildAdded:Connect(function(child)
 		if child.Name == LEADERSTATS_NAME and child:IsA("Folder") then
 			hookFolder(child :: Folder)
 		end
@@ -93,10 +93,10 @@ local function attachPlayer(player: Player)
 end
 
 local function detachPlayer(player: Player)
-	local maid = playerMaids[player]
-	if maid then
-		maid:DoCleaning()
-		playerMaids[player] = nil
+	local janitor = playerJanitors[player]
+	if janitor then
+		janitor:Cleanup()
+		playerJanitors[player] = nil
 	end
 end
 

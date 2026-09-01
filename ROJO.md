@@ -23,9 +23,12 @@ the exact Folder+`init` structure the code expects — **no code refactor needed
 ## One-time setup
 ```sh
 # 1. install the toolchain (rokit reads rokit.toml)
-rokit install            # or: aftman install  (if you use aftman)
+rokit install
 
-# 2. VERIFY the tree WITHOUT touching your real place — build a throwaway file:
+# 2. install the exact dependency graph pinned in wally.lock
+wally install
+
+# 3. VERIFY the tree WITHOUT touching your real place — build a throwaway file:
 rojo build default.project.json --output GaxiaTest.rbxl
 #    open GaxiaTest.rbxl in Studio and confirm:
 #      ReplicatedStorage.Gaxia_Packages  is a FOLDER with children: init, Shared, Client
@@ -41,6 +44,7 @@ Then in your real place: **Plugins → Rojo → Connect**. Files now sync into S
 live; edit in your editor (VS Code / Cursor with the Rojo + luau-lsp extensions).
 
 - `stylua src/` — format    ·    `selene src/` — lint
+- `wally install` — restore the dependency graph pinned in `wally.lock`
 - `rojo build default.project.json -o GaxiaPackages.rbxm` — build a distributable model
 
 ## Note on the MCP plugin

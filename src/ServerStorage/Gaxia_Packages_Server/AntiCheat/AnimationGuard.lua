@@ -15,7 +15,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage     = game:GetService("ServerStorage")
 
 local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Maid      = SharedPkg.Maid
+local Janitor = SharedPkg.Janitor
 
 -- ── Config (server-side, see ServerStorage/Gaxia_Packages_Server/Config) ──
 -- FindFirstChild (not WaitForChild): detectors are required THROUGH the server
@@ -29,7 +29,7 @@ AnimationGuard.Name = "Animation"
 -- AnimationId (rbxassetid://N) → true. Anything outside this set fires a flag.
 local whitelistedIds: { [string]: boolean } = {}
 local orchestratorRef: any = nil
-local playerMaids: { [Player]: any } = {}
+local playerJanitors: { [Player]: any } = {}
 
 -- Roblox sometimes returns Animation ids in different formats; normalise to
 -- the rbxassetid://N canonical form (numeric tail with full scheme).
@@ -75,9 +75,9 @@ local function isWhitelistActive(): boolean
 end
 
 local function attachHumanoid(player: Player, humanoid: Humanoid)
-	local maid = playerMaids[player]
-	if not maid then return end
-	maid:GiveTask(humanoid.AnimationPlayed:Connect(function(track: AnimationTrack)
+	local janitor = playerJanitors[player]
+	if not janitor then return end
+	janitor:Add(humanoid.AnimationPlayed:Connect(function(track: AnimationTrack)
 		-- Skip enforcement entirely while the whitelist is empty. This is the
 		-- only safe default — otherwise EVERY animation is "unknown" and a
 		-- freshly-spawned R15 character racks up flags from idle/walk/run.
@@ -96,9 +96,9 @@ local function attachHumanoid(player: Player, humanoid: Humanoid)
 end
 
 local function attachPlayer(player: Player)
-	if playerMaids[player] then return end
-	local maid = Maid.new()
-	playerMaids[player] = maid
+	if playerJanitors[player] then return end
+	local janitor = Janitor.new()
+	playerJanitors[player] = janitor
 
 	local function hookCharacter(character: Model)
 		local hum = character:WaitForChild("Humanoid", 5) :: Humanoid?
@@ -106,14 +106,14 @@ local function attachPlayer(player: Player)
 	end
 
 	if player.Character then hookCharacter(player.Character) end
-	maid:GiveTask(player.CharacterAdded:Connect(hookCharacter))
+	janitor:Add(player.CharacterAdded:Connect(hookCharacter))
 end
 
 local function detachPlayer(player: Player)
-	local maid = playerMaids[player]
-	if maid then
-		maid:DoCleaning()
-		playerMaids[player] = nil
+	local janitor = playerJanitors[player]
+	if janitor then
+		janitor:Cleanup()
+		playerJanitors[player] = nil
 	end
 end
 
