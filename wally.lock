@@ -10,7 +10,7 @@ dependencies = []
 [[package]]
 name = "gaxia-xp/gaxia-packages"
 version = "1.0.0"
-dependencies = [["Comm", "sleitnick/comm@1.0.1"], ["Component", "sleitnick/component@2.4.8"], ["Janitor", "howmanysmall/janitor@1.18.3"], ["Promise", "evaera/promise@4.0.0"], ["Signal", "sleitnick/signal@2.0.3"], ["Trove", "sleitnick/trove@1.8.0"], ["ZonePlus", "mattschrubb/zoneplus@3.2.0"], ["ProfileStore", "lm-loleris/profilestore@1.0.3"]]
+dependencies = [["Comm", "sleitnick/comm@1.0.1"], ["Component", "sleitnick/component@2.4.8"], ["Janitor", "howmanysmall/janitor@1.18.3"], ["Promise", "evaera/promise@4.0.0"], ["Signal", "sleitnick/signal@2.0.3"], ["Symbol", "sleitnick/symbol@2.0.1"], ["Trove", "sleitnick/trove@1.8.0"], ["ZonePlus", "mattschrubb/zoneplus@3.2.0"], ["ProfileStore", "lm-loleris/profilestore@1.0.3"]]
 
 [[package]]
 name = "howmanysmall/janitor"

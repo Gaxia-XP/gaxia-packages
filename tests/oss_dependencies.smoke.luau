@@ -25,6 +25,7 @@ local function run()
 	local Promise = require(shared:WaitForChild("Promise"))
 	local PackagePromise = require(packages:WaitForChild("Promise"))
 	local ZonePlus = require(packages:WaitForChild("ZonePlus"))
+	local PackageSymbol = require(packages:WaitForChild("Symbol"))
 	local ProfileStore = require(serverPackages:WaitForChild("ProfileStore"))
 	local Janitor = require(shared:WaitForChild("Janitor"))
 	expect(type(ZonePlus.new) == "function", "ZonePlus package is unavailable")
@@ -92,7 +93,7 @@ local function run()
 	expect(type(ComponentLegacy.Bind) == "function", "ComponentLegacy public path is missing Bind")
 
 	local Symbol = require(shared:WaitForChild("Symbol"))
-	expect(type(Symbol.new) == "function", "local Symbol.new compatibility API is missing")
+	expect(Symbol == PackageSymbol, "Gaxia.Symbol did not resolve to the Wally package")
 	expect(Symbol("smoke") ~= Symbol("smoke"), "Symbol calls must produce unique values")
 
 	-- The compatibility snapshot and tagged Wally copy deliberately coexist.
