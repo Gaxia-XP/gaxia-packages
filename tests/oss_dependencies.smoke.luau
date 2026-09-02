@@ -26,6 +26,7 @@ local function run()
 	local PackagePromise = require(packages:WaitForChild("Promise"))
 	local ZonePlus = require(packages:WaitForChild("ZonePlus"))
 	local PackageSymbol = require(packages:WaitForChild("Symbol"))
+	local PackageTableUtil = require(packages:WaitForChild("TableUtil"))
 	local ProfileStore = require(serverPackages:WaitForChild("ProfileStore"))
 	local Janitor = require(shared:WaitForChild("Janitor"))
 	expect(type(ZonePlus.new) == "function", "ZonePlus package is unavailable")
@@ -95,6 +96,48 @@ local function run()
 	local Symbol = require(shared:WaitForChild("Symbol"))
 	expect(Symbol == PackageSymbol, "Gaxia.Symbol did not resolve to the Wally package")
 	expect(Symbol("smoke") ~= Symbol("smoke"), "Symbol calls must produce unique values")
+
+	local Table = require(shared:WaitForChild("Util"):WaitForChild("Table"))
+	expect(type(PackageTableUtil.Reconcile) == "function", "TableUtil package is unavailable")
+	local cyclic = { value = 1 }
+	cyclic.self = cyclic
+	local cyclicCopy = Table.DeepCopy(cyclic)
+	expect(
+		cyclicCopy ~= cyclic and cyclicCopy.self == cyclicCopy,
+		"Table.DeepCopy lost cycle safety"
+	)
+	local nested = { existing = true }
+	local target = { nested = nested }
+	local template = { nested = { existing = false, added = true }, other = { value = 1 } }
+	expect(Table.Reconcile(target, template) == target, "Table.Reconcile replaced the root table")
+	expect(
+		target.nested == nested and target.nested.added == true,
+		"Table.Reconcile replaced nested identity"
+	)
+	expect(target.other ~= template.other, "Table.Reconcile retained a template table reference")
+	local sparse = { [1] = "keep", [3] = "also keep" }
+	local filtered = Table.Filter(sparse, function()
+		return true
+	end)
+	expect(
+		filtered[1] == "keep" and filtered[3] == "also keep",
+		"Table.Filter compacted sparse keys"
+	)
+	expect(Table.Count(sparse) == 2, "Table.Count skipped sparse keys")
+	local reduced = Table.Reduce(sparse, function(result, value)
+		return result .. value
+	end, "")
+	expect(
+		string.find(reduced, "keep", 1, true) ~= nil,
+		"Table.Reduce skipped the first sparse value"
+	)
+	expect(string.find(reduced, "also keep", 1, true) ~= nil, "Table.Reduce skipped a sparse value")
+	local shuffled = { 1, 2, 3 }
+	expect(Table.Shuffle(shuffled) == shuffled, "Table.Shuffle no longer mutates in place")
+	expect(Table.Contains(shuffled, 2), "Table.Contains failed through TableUtil")
+	expect(Table.Count(shuffled) == 3, "Table.Count failed through TableUtil")
+	local flattened = Table.Flatten({ 1, { 2, { 3 } } })
+	expect(#flattened == 3 and flattened[3] == 3, "Table.Flatten lost its recursive default")
 
 	-- The compatibility snapshot and tagged Wally copy deliberately coexist.
 	-- Both versions duck-type Promise objects, so cross-copy adoption must work.

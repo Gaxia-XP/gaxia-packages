@@ -18,8 +18,8 @@ intentionally left alone.
 
 - **Merged:** none.
 - **Parked:** the ProfileStore/ZonePlus implementation is pushed to the existing
-  PR. The follow-up Symbol migration is local-only in commit `1f970bf` because
-  the user requested no push; inspect it after waking before publishing.
+  PR. The follow-up Symbol migration (`1f970bf`) and TableUtil migration are
+  local-only because the user requested no push; inspect them before publishing.
 - **Why parked:** this diff changes dependencies/lockfiles, removes large vendored
   source bodies, and changes the persistence session adapter. Those are stop-list
   changes for unattended work, so they are ready for human review but were not
@@ -37,6 +37,7 @@ intentionally left alone.
   - `evaera/promise@4.0.0`
   - `sleitnick/signal@2.0.3`
   - `sleitnick/symbol@2.0.1`
+  - `sleitnick/table-util@1.2.1`
   - `sleitnick/trove@1.8.0`
   - `mattschrubb/zoneplus@3.2.0` (exact; runtime source matches upstream tag)
 - Pinned server-only `lm-loleris/profilestore@1.0.3` (exact).
@@ -51,6 +52,9 @@ intentionally left alone.
 - Replaced the local `Symbol` implementation with the pinned community
   `sleitnick/symbol@2.0.1` package; the public callable `Symbol("Name")` API is
   preserved and the smoke test now verifies the shared path resolves to Wally.
+- Reworked `Gaxia.Util.Table` as a compatibility facade over
+  `sleitnick/table-util@1.2.1`. Public names and legacy mutation semantics remain
+  covered while common copy/map/reduce/find/list operations come from RbxUtil.
 - Preserved `Gaxia.ComponentLegacy` after review proved that the loader's exact
   child fallback makes it a lazy public path.
 - Replaced ZoneService's custom spatial sampler with a ZonePlus-backed
@@ -88,8 +92,9 @@ Passing:
   session/reconcile/final-save/reload coverage.
 - ✅ Codex Security diff scan `6147c714-9478-41dc-a317-194db3b4bb28` — completed
   with 0 reportable findings across 6 reviewed surfaces.
-- ✅ Follow-up Symbol migration smoke rerun — `[OSS_SMOKE] PASS`; direct Wally
-  alias and callable uniqueness are verified in `tests/oss_dependencies.smoke.luau`.
+- ✅ Follow-up Symbol/TableUtil migration smoke rerun — `[OSS_SMOKE] PASS`;
+  direct Wally aliases plus legacy table semantics are verified in
+  `tests/oss_dependencies.smoke.luau`.
 
 Failing or unavailable:
 
@@ -144,16 +149,17 @@ rojo build plugin.project.json --output GaxiaCompanion.rbxmx
 ```
 
 The Studio dependency smoke test and final security review pass for the pushed
-branch. The additional Symbol migration is local-only and was not included in
-the pushed PR or the completed security scan; review its small dependency/wrapper
-diff before publishing it.
+branch. The additional Symbol and TableUtil migrations are local-only and were
+not included in the pushed PR or completed security scan; review their small
+dependency/wrapper diffs before publishing them.
 
 ## Continue with
 
 - Review the dependency/lockfile, ProfileStore session behavior, and generated
   model in the pull request.
 - Review the local-only Symbol migration (`wally.toml`, `wally.lock`,
-  `Shared/Symbol.lua`, and the smoke assertion) before pushing it.
+  `Shared/Symbol.lua`, `Shared/Util/Table.lua`, and the smoke assertions) before
+  pushing it.
 - Before production rollout, run the same smoke flow in a staging place with
   Roblox Studio API access enabled so real DataStore behavior is exercised.
 - Merge only after that human review; no implementation handoff remains.

@@ -15,6 +15,7 @@ They remain licensed by their respective authors:
 | sleitnick/option | 1.0.5 | MIT | https://github.com/Sleitnick/RbxUtil |
 | sleitnick/signal | 2.0.3 | MIT | https://github.com/Sleitnick/RbxUtil |
 | sleitnick/symbol | 2.0.1 | MIT | https://github.com/Sleitnick/RbxUtil |
+| sleitnick/table-util | 1.2.1 | MIT | https://github.com/Sleitnick/RbxUtil |
 | sleitnick/trove | 1.8.0 | MIT | https://github.com/Sleitnick/RbxUtil |
 | 1ForeverHD/ZonePlus (Wally port by mattschrubb) | 3.2.0 | MIT | https://github.com/1ForeverHD/ZonePlus |
 
@@ -119,7 +120,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-## sleitnick/comm, sleitnick/component, sleitnick/option, sleitnick/signal, sleitnick/symbol, and sleitnick/trove
+## sleitnick/comm, sleitnick/component, sleitnick/option, sleitnick/signal, sleitnick/symbol, sleitnick/table-util, and sleitnick/trove
 
 Copyright © 2025 Stephen Leitnick
 

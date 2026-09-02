@@ -22,6 +22,10 @@ this framework uses a single rolling version until a public release cut.
   share the official `evaera/promise@4.0.0` dependency separately.
 - `Gaxia.Symbol` now resolves directly to the pinned community
   `sleitnick/symbol@2.0.1` package; its callable `Symbol("Name")` API is unchanged.
+- `Gaxia.Util.Table` now delegates common operations to the pinned community
+  `sleitnick/table-util@1.2.1` package through a compatibility facade. Existing
+  Gaxia names, cycle-safe deep copies, key-preserving filters, mutating reconcile,
+  in-place shuffle, and recursive flatten defaults are preserved.
 - Runtime cleanup consumers use Janitor directly. `Gaxia.Maid` remains as a
   deprecated, LIFO-compatible facade so downstream games can migrate gradually.
 - Replaced the incomplete vendored `Comm` copy with its upstream Wally package,
