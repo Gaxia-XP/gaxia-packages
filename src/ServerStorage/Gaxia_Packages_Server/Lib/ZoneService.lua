@@ -2,26 +2,19 @@
 --[[
 	Module : ZoneService
 	Location: ServerStorage.Gaxia_Packages_Server.Lib.ZoneService
-	Purpose : Trigger zones. Wraps a BasePart region with Enter/Left signals
-	          via OBB containment sampled at Constants.SAMPLER_INTERVAL (0.5s).
+	Purpose : Preserve Gaxia's zone API while delegating spatial detection to
+	          the open-source ZonePlus package.
 ]]
 
-
--- ── Services ──
-local Players           = game:GetService("Players")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService        = game:GetService("RunService")
 
--- ── Shared ──
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal    = SharedPkg.Signal
-local Janitor   = SharedPkg.Janitor
+local SharedRoot = ReplicatedStorage:WaitForChild("Gaxia_Packages")
+local SharedPkg = require(SharedRoot) :: any
+local ZonePlus = require(SharedRoot:WaitForChild("Packages"):WaitForChild("ZonePlus")) :: any
+local Signal = SharedPkg.Signal
+local Janitor = SharedPkg.Janitor
 
--- Constants is a frozen table; fall back to defaults if missing.
-local Constants = SharedPkg.Constants or {}
-local SAMPLER_INTERVAL : number = (Constants.SAMPLER_INTERVAL :: any) or 0.5
-
--- ── Types ──
 export type Zone = {
 	Name: string,
 	Region: BasePart,
@@ -32,74 +25,40 @@ export type Zone = {
 	Destroy: (self: Zone) -> (),
 }
 
--- ── Module ──
 local ZoneService = {}
-
 local zonesByName: { [string]: Zone } = {}
-
--- ── OBB containment helper ──
--- Returns true if world-space `pos` is inside the BasePart's local box.
--- Uses :PointToObjectSpace to handle rotated parts without manual matrix math.
-local function pointInRegion(region: BasePart, pos: Vector3): boolean
-	local local_ = region.CFrame:PointToObjectSpace(pos)
-	local hx = region.Size.X * 0.5
-	local hy = region.Size.Y * 0.5
-	local hz = region.Size.Z * 0.5
-	return math.abs(local_.X) <= hx
-		and math.abs(local_.Y) <= hy
-		and math.abs(local_.Z) <= hz
-end
-
--- ── Zone factory ──
 
 local Zone = {}
 Zone.__index = Zone
 
 local function newZone(name: string, region: BasePart): Zone
+	local zonePlus = ZonePlus.new(region)
 	local self = setmetatable({
-		Name      = name,
-		Region    = region,
+		Name = name,
+		Region = region,
 		OnEntered = Signal.new(),
-		OnLeft    = Signal.new(),
-		_inside   = {} :: { [Player]: boolean },
-		_janitor  = Janitor.new(),
+		OnLeft = Signal.new(),
+		_inside = {} :: { [Player]: boolean },
+		_janitor = Janitor.new(),
+		_zonePlus = zonePlus,
 	}, Zone)
 
-	-- Heartbeat-style polling. Sampling instead of Touched events because
-	-- Touched fires *many* times per frame and is unreliable for players
-	-- standing still on a thin trigger.
 	local s = self :: any
-	task.spawn(function()
-		while s.Region and s.Region.Parent do
-			for _, player in ipairs(Players:GetPlayers()) do
-				local char = player.Character
-				local hrp = char and (char :: any):FindFirstChild("HumanoidRootPart")
-				if hrp then
-					local nowInside = pointInRegion(s.Region, hrp.Position)
-					local wasInside = s._inside[player] == true
-					if nowInside and not wasInside then
-						s._inside[player] = true
-						s.OnEntered:Fire(player)
-					elseif (not nowInside) and wasInside then
-						s._inside[player] = nil
-						s.OnLeft:Fire(player)
-					end
-				elseif s._inside[player] then
-					-- Character lost (death / leave) — emit Left so listener cleans up.
-					s._inside[player] = nil
-					s.OnLeft:Fire(player)
-				end
-			end
-			task.wait(SAMPLER_INTERVAL)
+	s._janitor:Add(zonePlus.playerEntered:Connect(function(player: Player)
+		if not s._inside[player] then
+			s._inside[player] = true
+			s.OnEntered:Fire(player)
 		end
-	end)
-
-	-- Fire OnLeft when a tracked player leaves the game so external state stays consistent.
-	s._janitor:Add(Players.PlayerRemoving:Connect(function(player)
+	end))
+	s._janitor:Add(zonePlus.playerExited:Connect(function(player: Player)
 		if s._inside[player] then
 			s._inside[player] = nil
-			-- Emit Left when a tracked player disconnects so listeners
-			-- (e.g. cleanup of per-player zone state) get a final signal.
+			s.OnLeft:Fire(player)
+		end
+	end))
+	s._janitor:Add(Players.PlayerRemoving:Connect(function(player: Player)
+		if s._inside[player] then
+			s._inside[player] = nil
 			s.OnLeft:Fire(player)
 		end
 	end))
@@ -123,8 +82,12 @@ end
 
 function Zone:Destroy(): ()
 	local s = self :: any
+	if not s._zonePlus then
+		return
+	end
 	s._janitor:Cleanup()
-	-- Drop the BasePart reference so the sampler loop exits naturally.
+	s._zonePlus:destroy()
+	s._zonePlus = nil
 	s.Region = nil
 	s.OnEntered:DisconnectAll()
 	s.OnLeft:DisconnectAll()
@@ -134,12 +97,9 @@ function Zone:Destroy(): ()
 	end
 end
 
--- ── Public API ──
-
 function ZoneService.Create(name: string, region: BasePart): Zone
 	assert(typeof(name) == "string" and #name > 0, "name must be non-empty string")
 	assert(typeof(region) == "Instance" and region:IsA("BasePart"), "region must be a BasePart")
-	-- Replace an existing zone of the same name to avoid two samplers racing.
 	if zonesByName[name] then
 		zonesByName[name]:Destroy()
 	end
@@ -153,8 +113,10 @@ function ZoneService.Get(name: string): Zone?
 end
 
 function ZoneService.Destroy(name: string): ()
-	local z = zonesByName[name]
-	if z then z:Destroy() end
+	local zone = zonesByName[name]
+	if zone then
+		zone:Destroy()
+	end
 end
 
 return ZoneService

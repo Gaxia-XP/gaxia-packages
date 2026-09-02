@@ -21,7 +21,9 @@ local function run()
 	local Gaxia = require(root)
 	local Promise = require(shared:WaitForChild("Promise"))
 	local PackagePromise = require(packages:WaitForChild("Promise"))
+	local ZonePlus = require(packages:WaitForChild("ZonePlus"))
 	local Janitor = require(shared:WaitForChild("Janitor"))
+	expect(type(ZonePlus.new) == "function", "ZonePlus package is unavailable")
 
 	expect(Gaxia.Promise == Promise, "Gaxia.Promise did not preserve the public compatibility path")
 	expect(
@@ -127,6 +129,15 @@ local function run()
 		cleanupOrder[1] == 2 and cleanupOrder[2] == 1,
 		"Maid facade did not preserve LIFO cleanup"
 	)
+
+	local region = Instance.new("Part")
+	region.Anchored = true
+	region.Size = Vector3.new(8, 8, 8)
+	region.Parent = workspace
+	local zone = ZonePlus.new(region)
+	expect(#zone:getPlayers() == 0, "new ZonePlus zone unexpectedly contains players")
+	zone:destroy()
+	region:Destroy()
 end
 
 local startedRunService = not RunService:IsRunning()

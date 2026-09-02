@@ -11,6 +11,8 @@ this framework uses a single rolling version until a public release cut.
 ### Changed — open-source dependencies are pinned with Wally
 - `Signal`, `Janitor`, `Trove`, `Component`, and `Comm` now resolve
   through compatibility modules into the versions pinned by `wally.lock`.
+- `ZoneService` preserves its existing public API while delegating player
+  boundary detection to the pinned ZonePlus 3.2.0 package.
 - `Gaxia.Promise` keeps the existing upstream post-tag snapshot at commit
   `031d429c82ee458a849e79fa523523bd349d7695` because the published Wally
   release has older scheduler and `finally` behavior. Wally-managed libraries
@@ -22,7 +24,8 @@ this framework uses a single rolling version until a public release cut.
   path remains intact for downstream compatibility.
 - Builds now require `wally install`. Both the distributable model and
   Companion plugin include the generated package tree.
-- Added a Roblox Studio CLI smoke test for package aliases, cross-copy Promise
+- Added a Roblox Studio CLI smoke test for package aliases, ZonePlus lifecycle,
+  cross-copy Promise
   adoption/cancellation, Janitor interop, Promise timing/error propagation, and
   the Maid LIFO compatibility facade.
 

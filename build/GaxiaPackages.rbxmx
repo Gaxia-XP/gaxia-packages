@@ -8364,8 +8364,6 @@ local Constants : { [string]: any } = table.freeze({
 	-- MOVED to ServerStorage/Gaxia_Packages_Server/Config.AntiCheat — kept
 	-- server-private (NOT replicated) so cheat clients cannot read tolerances
 	-- to tune around them. Detectors + orchestrator require() that Config now.
-	-- (ZoneService still reads SAMPLER_INTERVAL via a graceful `or 0.5` fallback;
-	--  repoint it at Config.AntiCheat.SamplerInterval in a follow-up.)
 
 	-- ── UI ───────────────────────────────────────────────────
 	NOTIFICATION_DEFAULT_DURATION = 3,    -- seconds a notification stays visible
@@ -13969,15 +13967,22 @@ return Table
 ]]></string>
             </Properties>
           </Item>
-          <Item class="Folder" referent="83">
+          <Item class="ModuleScript" referent="83">
+            <Properties>
+              <string name="Name">ZonePlus</string>
+              <string name="Source"><![CDATA[return require(script.Parent._Index["mattschrubb_zoneplus@3.2.0"]["zoneplus"])
+]]></string>
+            </Properties>
+          </Item>
+          <Item class="Folder" referent="84">
             <Properties>
               <string name="Name">_Index</string>
             </Properties>
-            <Item class="Folder" referent="84">
+            <Item class="Folder" referent="85">
               <Properties>
                 <string name="Name">evaera_promise@4.0.0</string>
               </Properties>
-              <Item class="ModuleScript" referent="85">
+              <Item class="ModuleScript" referent="86">
                 <Properties>
                   <string name="Name">promise</string>
                   <string name="Source"><![CDATA[--[[
@@ -16052,18 +16057,18 @@ return Promise
                 </Properties>
               </Item>
             </Item>
-            <Item class="Folder" referent="86">
+            <Item class="Folder" referent="87">
               <Properties>
                 <string name="Name">howmanysmall_janitor@1.18.3</string>
               </Properties>
-              <Item class="ModuleScript" referent="87">
+              <Item class="ModuleScript" referent="88">
                 <Properties>
                   <string name="Name">Promise</string>
                   <string name="Source"><![CDATA[return require(script.Parent.Parent["howmanysmall_typed-promise@4.0.6"]["typed-promise"])
 ]]></string>
                 </Properties>
               </Item>
-              <Item class="ModuleScript" referent="88">
+              <Item class="ModuleScript" referent="89">
                 <Properties>
                   <string name="Name">janitor</string>
                   <string name="Source"><![CDATA[--!optimize 2
@@ -17067,7 +17072,7 @@ end
 return Janitor :: Static
 ]]></string>
                 </Properties>
-                <Item class="ModuleScript" referent="89">
+                <Item class="ModuleScript" referent="90">
                   <Properties>
                     <string name="Name">FastDefer</string>
                     <string name="Source"><![CDATA[--!native
@@ -17106,7 +17111,7 @@ return FastDefer
 ]]></string>
                   </Properties>
                 </Item>
-                <Item class="ModuleScript" referent="90">
+                <Item class="ModuleScript" referent="91">
                   <Properties>
                     <string name="Name">Promise</string>
                     <string name="Source"><![CDATA[--!optimize 2
@@ -17271,25 +17276,25 @@ return Promise :: PromiseStatic?
 ]]></string>
                   </Properties>
                 </Item>
-                <Item class="Folder" referent="91">
+                <Item class="Folder" referent="92">
                   <Properties>
                     <string name="Name">__tests__</string>
                   </Properties>
                 </Item>
               </Item>
             </Item>
-            <Item class="Folder" referent="92">
+            <Item class="Folder" referent="93">
               <Properties>
                 <string name="Name">howmanysmall_typed-promise@4.0.6</string>
               </Properties>
-              <Item class="ModuleScript" referent="93">
+              <Item class="ModuleScript" referent="94">
                 <Properties>
                   <string name="Name">Promise</string>
                   <string name="Source"><![CDATA[return require(script.Parent.Parent["evaera_promise@4.0.0"]["promise"])
 ]]></string>
                 </Properties>
               </Item>
-              <Item class="ModuleScript" referent="94">
+              <Item class="ModuleScript" referent="95">
                 <Properties>
                   <string name="Name">typed-promise</string>
                   <string name="Source"><![CDATA[--!optimize 2
@@ -17457,32 +17462,2603 @@ return Promise :: PromiseStatic
                 </Properties>
               </Item>
             </Item>
-            <Item class="Folder" referent="95">
+            <Item class="Folder" referent="96">
+              <Properties>
+                <string name="Name">mattschrubb_zoneplus@3.2.0</string>
+              </Properties>
+              <Item class="ModuleScript" referent="97">
+                <Properties>
+                  <string name="Name">zoneplus</string>
+                  <string name="Source">-- LOCAL
+local players = game:GetService("Players")
+local runService = game:GetService("RunService")
+local heartbeat = runService.Heartbeat
+local localPlayer = runService:IsClient() and players.LocalPlayer
+local replicatedStorage = game:GetService("ReplicatedStorage")
+local httpService = game:GetService("HttpService")
+local Enum_ = require(script.Enum)
+local enum = Enum_.enums
+local Janitor = require(script.Janitor)
+local Signal = require(script.Signal)
+local ZonePlusReference = require(script.ZonePlusReference)
+local referenceObject = ZonePlusReference.getObject()
+local zoneControllerModule = script.ZoneController
+local trackerModule = zoneControllerModule.Tracker
+local collectiveWorldModelModule = zoneControllerModule.CollectiveWorldModel
+local ZoneController = require(zoneControllerModule)
+local referenceLocation = (game:GetService("RunService"):IsClient() and "Client") or "Server"
+local referencePresent = referenceObject and referenceObject:FindFirstChild(referenceLocation)
+if referencePresent then
+	return require(referenceObject.Value)
+end
+
+local Zone = {}
+Zone.__index = Zone
+if not referencePresent then
+	ZonePlusReference.addToReplicatedStorage()
+end
+Zone.enum = enum
+
+
+
+-- CONSTRUCTORS
+function Zone.new(container)
+	local self = {}
+	setmetatable(self, Zone)
+	
+	-- Validate container
+	local INVALID_TYPE_WARNING = "The zone container must be a model, folder, basepart or table!"
+	local containerType = typeof(container)
+	if not(containerType == "table" or containerType == "Instance") then
+		error(INVALID_TYPE_WARNING)
+	end
+
+	-- Configurable
+	self.accuracy = enum.Accuracy.High
+	self.autoUpdate = true
+	self.respectUpdateQueue = true
+	--self.maxPartsAddition = 20
+	--self.ignoreRecommendedMaxParts = false
+
+	-- Variable
+	local janitor = Janitor.new()
+	self.janitor = janitor
+	self._updateConnections = janitor:add(Janitor.new(), "destroy")
+	self.container = container
+	self.zoneParts = {}
+	self.overlapParams = {}
+	self.region = nil
+	self.volume = nil
+	self.boundMin = nil
+	self.boundMax = nil
+	self.recommendedMaxParts = nil
+	self.zoneId = httpService:GenerateGUID()
+	self.activeTriggers = {}
+	self.occupants = {}
+	self.trackingTouchedTriggers = {}
+	self.enterDetection = enum.Detection.Centre
+	self.exitDetection = enum.Detection.Centre
+	self._currentEnterDetection = nil -- This will update automatically internally
+	self._currentExitDetection = nil -- This will also update automatically internally
+	self.totalPartVolume = 0
+	self.allZonePartsAreBlocks = true
+	self.trackedItems = {}
+	self.settingsGroupName = nil
+	self.worldModel = workspace
+	self.onItemDetails = {}
+	self.itemsToUntrack = {}
+
+	-- This updates _currentEnterDetection and _currentExitDetection right away to prevent nil comparisons
+	ZoneController.updateDetection(self)
+
+	-- Signals
+	self.updated = janitor:add(Signal.new(), "destroy")
+	local triggerTypes = {
+		"player",
+		"part",
+		"localPlayer",
+		"item"
+	}
+	local triggerEvents = {
+		"entered",
+		"exited",
+	}
+	for _, triggerType in pairs(triggerTypes) do
+		local activeConnections = 0
+		local previousActiveConnections = 0
+		for i, triggerEvent in pairs(triggerEvents) do
+			-- this enables us to determine when a developer connects to an event
+			-- so that we can act accoridngly (i.e. begin or end a checker loop)
+			local signal = janitor:add(Signal.new(true), "destroy")
+			local triggerEventUpper = triggerEvent:sub(1,1):upper()..triggerEvent:sub(2)
+			local signalName = triggerType..triggerEventUpper
+			self[signalName] = signal
+			signal.connectionsChanged:Connect(function(increment)
+				if triggerType == "localPlayer" and not localPlayer and increment == 1 then
+					error(("Can only connect to 'localPlayer%s' on the client!"):format(triggerEventUpper))
+				end
+				previousActiveConnections = activeConnections
+				activeConnections += increment
+				if previousActiveConnections == 0 and activeConnections &gt; 0 then
+					-- At least 1 connection active, begin loop
+					ZoneController._registerConnection(self, triggerType, triggerEventUpper)
+				elseif previousActiveConnections &gt; 0 and activeConnections == 0 then
+					-- All connections have disconnected, end loop
+					ZoneController._deregisterConnection(self, triggerType)
+				end
+			end)
+		end
+	end
+
+	-- Setup touched receiver functions where applicable
+	Zone.touchedConnectionActions = {}
+	for _, triggerType in pairs(triggerTypes) do
+		local methodName = ("_%sTouchedZone"):format(triggerType)
+		local correspondingMethod = self[methodName]
+		if correspondingMethod then
+			self.trackingTouchedTriggers[triggerType] = {}
+			Zone.touchedConnectionActions[triggerType] = function(touchedItem)
+				correspondingMethod(self, touchedItem)
+			end
+		end
+	end
+
+	-- This constructs the zones boundaries, region, etc
+	self:_update()
+
+	-- Register/deregister zone
+	ZoneController._registerZone(self)
+	janitor:add(function()
+		ZoneController._deregisterZone(self)
+	end, true)
+	
+	return self
+end
+
+function Zone.fromRegion(cframe, size)
+	local MAX_PART_SIZE = 2024
+	local container = Instance.new("Model")
+	local function createCube(cubeCFrame, cubeSize)
+		if cubeSize.X &gt; MAX_PART_SIZE or cubeSize.Y &gt; MAX_PART_SIZE or cubeSize.Z &gt; MAX_PART_SIZE then
+			local quarterSize = cubeSize * 0.25
+			local halfSize = cubeSize * 0.5
+			createCube(cubeCFrame * CFrame.new(-quarterSize.X, -quarterSize.Y, -quarterSize.Z), halfSize)
+			createCube(cubeCFrame * CFrame.new(-quarterSize.X, -quarterSize.Y, quarterSize.Z), halfSize)
+			createCube(cubeCFrame * CFrame.new(-quarterSize.X, quarterSize.Y, -quarterSize.Z), halfSize)
+			createCube(cubeCFrame * CFrame.new(-quarterSize.X, quarterSize.Y, quarterSize.Z), halfSize)
+			createCube(cubeCFrame * CFrame.new(quarterSize.X, -quarterSize.Y, -quarterSize.Z), halfSize)
+			createCube(cubeCFrame * CFrame.new(quarterSize.X, -quarterSize.Y, quarterSize.Z), halfSize)
+			createCube(cubeCFrame * CFrame.new(quarterSize.X, quarterSize.Y, -quarterSize.Z), halfSize)
+			createCube(cubeCFrame * CFrame.new(quarterSize.X, quarterSize.Y, quarterSize.Z), halfSize)
+		else
+			local part = Instance.new("Part")
+			part.CFrame = cubeCFrame
+			part.Size = cubeSize
+			part.Anchored = true
+			part.Parent = container
+		end
+	end
+	createCube(cframe, size)
+	local zone = Zone.new(container)
+	zone:relocate()
+	return zone
+end
+
+
+
+-- PRIVATE METHODS
+function Zone:_calculateRegion(tableOfParts, dontRound)
+	local bounds = {["Min"] = {}, ["Max"] = {}}
+	for boundType, details in pairs(bounds) do
+		details.Values = {}
+		function details.parseCheck(v, currentValue)
+			if boundType == "Min" then
+				return (v &lt;= currentValue)
+			elseif boundType == "Max" then
+				return (v &gt;= currentValue)
+			end
+		end
+		function details:parse(valuesToParse)
+			for i,v in pairs(valuesToParse) do
+				local currentValue = self.Values[i] or v
+				if self.parseCheck(v, currentValue) then
+					self.Values[i] = v
+				end
+			end
+		end
+	end
+	for _, part in pairs(tableOfParts) do
+		local sizeHalf = part.Size * 0.5
+		local corners = {
+			part.CFrame * CFrame.new(-sizeHalf.X, -sizeHalf.Y, -sizeHalf.Z),
+			part.CFrame * CFrame.new(-sizeHalf.X, -sizeHalf.Y, sizeHalf.Z),
+			part.CFrame * CFrame.new(-sizeHalf.X, sizeHalf.Y, -sizeHalf.Z),
+			part.CFrame * CFrame.new(-sizeHalf.X, sizeHalf.Y, sizeHalf.Z),
+			part.CFrame * CFrame.new(sizeHalf.X, -sizeHalf.Y, -sizeHalf.Z),
+			part.CFrame * CFrame.new(sizeHalf.X, -sizeHalf.Y, sizeHalf.Z),
+			part.CFrame * CFrame.new(sizeHalf.X, sizeHalf.Y, -sizeHalf.Z),
+			part.CFrame * CFrame.new(sizeHalf.X, sizeHalf.Y, sizeHalf.Z),
+		}
+		for _, cornerCFrame in pairs(corners) do
+			local x, y, z = cornerCFrame:GetComponents()
+			local values = {x, y, z}
+			bounds.Min:parse(values)
+			bounds.Max:parse(values)
+		end
+	end
+	local minBound = {}
+	local maxBound = {}
+	-- Rounding a regions coordinates to multiples of 4 ensures the region optimises the region
+	-- by ensuring it aligns on the voxel grid
+	local function roundToFour(to_round)
+		local ROUND_TO = 4
+		local divided = (to_round+ROUND_TO/2) / ROUND_TO
+		local rounded = ROUND_TO * math.floor(divided)
+		return rounded
+	end
+	for boundName, boundDetail in pairs(bounds) do
+		for _, v in pairs(boundDetail.Values) do
+			local newTable = (boundName == "Min" and minBound) or maxBound
+			local newV = v
+			if not dontRound then
+				local roundOffset = (boundName == "Min" and -2) or 2
+				newV = roundToFour(v+roundOffset) -- +-2 to ensures the zones region is not rounded down/up
+			end
+			table.insert(newTable, newV)
+		end
+	end
+	local boundMin = Vector3.new(unpack(minBound))
+	local boundMax = Vector3.new(unpack(maxBound))
+	local region = Region3.new(boundMin, boundMax)
+	return region, boundMin, boundMax
+end
+
+function Zone:_displayBounds()
+	if not self.displayBoundParts then
+		self.displayBoundParts = true
+		local boundParts = {BoundMin = self.boundMin, BoundMax = self.boundMax}
+		for boundName, boundCFrame in pairs(boundParts) do
+			local part = Instance.new("Part")
+			part.Anchored = true
+			part.CanCollide = false
+			part.Transparency = 0.5
+			part.Size = Vector3.new(1,1,1)
+			part.Color = Color3.fromRGB(255,0,0)
+			part.CFrame = CFrame.new(boundCFrame)
+			part.Name = boundName
+			part.Parent = workspace
+			self.janitor:add(part, "Destroy")
+		end
+	end
+end
+
+function Zone:_update()
+	local container = self.container
+	local zoneParts = {}
+	local updateQueue = 0
+	self._updateConnections:clean()
+
+	local containerType = typeof(container)
+	local holders = {}
+	local INVALID_TYPE_WARNING = "The zone container must be a model, folder, basepart or table!"
+	if containerType == "table" then
+		for _, part in pairs(container) do
+			if part:IsA("BasePart") then
+				table.insert(zoneParts, part)
+			end
+		end
+	elseif containerType == "Instance" then
+		if container:IsA("BasePart") then
+			table.insert(zoneParts, container)
+		else
+			table.insert(holders, container)
+			for _, part in pairs(container:GetDescendants()) do
+				if part:IsA("BasePart") then
+					table.insert(zoneParts, part)
+				else
+					table.insert(holders, part)
+				end
+			end
+		end
+	end
+	self.zoneParts = zoneParts
+	self.overlapParams = {}
+	
+	local allZonePartsAreBlocksNew = true
+	for _, zonePart in pairs(zoneParts) do
+		local success, shapeName = pcall(function() return zonePart.Shape.Name end)
+		if shapeName ~= "Block" then
+			allZonePartsAreBlocksNew = false
+		end
+	end
+	self.allZonePartsAreBlocks = allZonePartsAreBlocksNew
+	
+	local zonePartsWhitelist = OverlapParams.new()
+	zonePartsWhitelist.FilterType = Enum.RaycastFilterType.Whitelist
+	zonePartsWhitelist.MaxParts = #zoneParts
+	zonePartsWhitelist.FilterDescendantsInstances = zoneParts
+	self.overlapParams.zonePartsWhitelist = zonePartsWhitelist
+
+	local zonePartsIgnorelist = OverlapParams.new()
+	zonePartsIgnorelist.FilterType = Enum.RaycastFilterType.Blacklist
+	zonePartsIgnorelist.FilterDescendantsInstances = zoneParts
+	self.overlapParams.zonePartsIgnorelist = zonePartsIgnorelist
+	
+	-- this will call update on the zone when the container parts size or position changes, and when a
+	-- child is removed or added from a holder (anything which isn't a basepart)
+	local function update()
+		if self.autoUpdate then
+			local executeTime = os.clock()
+			if self.respectUpdateQueue then
+				updateQueue += 1
+				executeTime += 0.1
+			end
+			local updateConnection
+			updateConnection = runService.Heartbeat:Connect(function()
+				if os.clock() &gt;= executeTime then
+					updateConnection:Disconnect()
+					if self.respectUpdateQueue then
+						updateQueue -= 1
+					end
+					if updateQueue == 0 and self.zoneId then
+						self:_update()
+					end
+				end
+			end)
+		end
+	end
+	local partProperties = {"Size", "Position"}
+	local function verifyDefaultCollision(instance)
+		if instance.CollisionGroupId ~= 0 then
+			error("Zone parts must belong to the 'Default' (0) CollisionGroup! Consider using zone:relocate() if you wish to move zones outside of workspace to prevent them interacting with other parts.")
+		end
+	end
+	for _, part in pairs(zoneParts) do
+		for _, prop in pairs(partProperties) do
+			self._updateConnections:add(part:GetPropertyChangedSignal(prop):Connect(update), "Disconnect")
+		end
+		verifyDefaultCollision(part)
+		self._updateConnections:add(part:GetPropertyChangedSignal("CollisionGroupId"):Connect(function()
+			verifyDefaultCollision(part)
+		end), "Disconnect")
+	end
+	local containerEvents = {"ChildAdded", "ChildRemoved"}
+	for _, holder in pairs(holders) do
+		for _, event in pairs(containerEvents) do
+			self._updateConnections:add(self.container[event]:Connect(function(child)
+				if child:IsA("BasePart") then
+					update()
+				end
+			end), "Disconnect")
+		end
+	end
+	
+	local region, boundMin, boundMax = self:_calculateRegion(zoneParts)
+	local exactRegion, _, _ = self:_calculateRegion(zoneParts, true)
+	self.region = region
+	self.exactRegion = exactRegion
+	self.boundMin = boundMin
+	self.boundMax = boundMax
+	local rSize = region.Size
+	self.volume = rSize.X*rSize.Y*rSize.Z
+	
+	-- Update: I was going to use this for the old part detection until the CanTouch property was released
+	-- everything below is now irrelevant however I'll keep just in case I use again for future
+	-------------------------------------------------------------------------------------------------
+	-- When a zones region is determined, we also check for parts already existing within the zone
+	-- these parts are likely never to move or interact with the zone, so we set the number of these
+	-- to the baseline MaxParts value. 'recommendMaxParts' is then determined through the sum of this
+	-- and maxPartsAddition. This ultimately optimises region checks as they can be generated with
+	-- minimal MaxParts (i.e. recommendedMaxParts can be used instead of math.huge every time)
+	--[[
+	local result = self.worldModel:FindPartsInRegion3(region, nil, math.huge)
+	local maxPartsBaseline = #result
+	self.recommendedMaxParts = maxPartsBaseline + self.maxPartsAddition
+	--]]
+	
+	self:_updateTouchedConnections()
+	
+	self.updated:Fire()
+end
+
+function Zone:_updateOccupants(trackerName, newOccupants)
+	local previousOccupants = self.occupants[trackerName]
+	if not previousOccupants then
+		previousOccupants = {}
+		self.occupants[trackerName] = previousOccupants
+	end
+	local signalsToFire = {}
+	for occupant, prevItem in pairs(previousOccupants) do
+		local newItem = newOccupants[occupant]
+		if newItem == nil or newItem ~= prevItem then
+			previousOccupants[occupant] = nil
+			if not signalsToFire.exited then
+				signalsToFire.exited = {}
+			end
+			table.insert(signalsToFire.exited, occupant)
+		end
+	end
+	for occupant, _ in pairs(newOccupants) do
+		if previousOccupants[occupant] == nil then
+			local isAPlayer = occupant:IsA("Player")
+			previousOccupants[occupant] = (isAPlayer and occupant.Character) or true
+			if not signalsToFire.entered then
+				signalsToFire.entered = {}
+			end
+			table.insert(signalsToFire.entered, occupant)
+		end
+	end 
+	return signalsToFire
+end
+
+function Zone:_formTouchedConnection(triggerType)
+	local touchedJanitorName = "_touchedJanitor"..triggerType
+	local touchedJanitor = self[touchedJanitorName]
+	if touchedJanitor then
+		touchedJanitor:clean()
+	else
+		touchedJanitor = self.janitor:add(Janitor.new(), "destroy")
+		self[touchedJanitorName] = touchedJanitor
+	end
+	self:_updateTouchedConnection(triggerType)
+end
+
+function Zone:_updateTouchedConnection(triggerType)
+	local touchedJanitorName = "_touchedJanitor"..triggerType
+	local touchedJanitor = self[touchedJanitorName]
+	if not touchedJanitor then return end
+	for _, basePart in pairs(self.zoneParts) do
+		touchedJanitor:add(basePart.Touched:Connect(self.touchedConnectionActions[triggerType], self), "Disconnect")
+	end
+end
+
+function Zone:_updateTouchedConnections()
+	for triggerType, _ in pairs(self.touchedConnectionActions) do
+		local touchedJanitorName = "_touchedJanitor"..triggerType
+		local touchedJanitor = self[touchedJanitorName]
+		if touchedJanitor then
+			touchedJanitor:cleanup()
+			self:_updateTouchedConnection(triggerType)
+		end
+	end
+end
+
+function Zone:_disconnectTouchedConnection(triggerType)
+	local touchedJanitorName = "_touchedJanitor"..triggerType
+	local touchedJanitor = self[touchedJanitorName]
+	if touchedJanitor then
+		touchedJanitor:cleanup()
+		self[touchedJanitorName] = nil
+	end
+end
+
+local function round(number, decimalPlaces)
+	return math.round(number * 10^decimalPlaces) * 10^-decimalPlaces
+end
+function Zone:_partTouchedZone(part)
+	local trackingDict = self.trackingTouchedTriggers["part"]
+	if trackingDict[part] then return end
+	local nextCheck = 0
+	local verifiedEntrance = false
+	local enterPosition = part.Position
+	local enterTime = os.clock()
+	local partJanitor = self.janitor:add(Janitor.new(), "destroy")
+	trackingDict[part] = partJanitor
+	local instanceClassesToIgnore = {Seat = true, VehicleSeat = true}
+	local instanceNamesToIgnore = {HumanoidRootPart = true}
+	if not (instanceClassesToIgnore[part.ClassName] or not instanceNamesToIgnore[part.Name])  then
+		part.CanTouch = false
+	end
+	--
+	local partVolume = round((part.Size.X * part.Size.Y * part.Size.Z), 5)
+	self.totalPartVolume += partVolume
+	--
+	partJanitor:add(heartbeat:Connect(function()
+		local clockTime = os.clock()
+		if clockTime &gt;= nextCheck then
+			----
+			local cooldown = enum.Accuracy.getProperty(self.accuracy)
+			nextCheck = clockTime + cooldown
+			----
+
+			-- We initially perform a singular point check as this is vastly more lightweight than a large part check
+			-- If the former returns false, perform a whole part check in case the part is on the outer bounds.
+			local withinZone = self:findPoint(part.CFrame)
+			if not withinZone then
+				withinZone = self:findPart(part)
+			end
+			if not verifiedEntrance then
+				if withinZone then
+					verifiedEntrance = true
+					self.partEntered:Fire(part)
+				elseif (part.Position - enterPosition).Magnitude &gt; 1.5 and clockTime - enterTime &gt;= cooldown then
+					-- Even after the part has exited the zone, we track it for a brief period of time based upon the criteria
+					-- in the line above to ensure the .touched behaviours are not abused
+					partJanitor:cleanup()
+				end
+			elseif not withinZone then
+				verifiedEntrance = false
+				enterPosition = part.Position
+				enterTime = os.clock()
+				self.partExited:Fire(part)
+			end
+		end
+	end), "Disconnect")
+	partJanitor:add(function()
+		trackingDict[part] = nil
+		part.CanTouch = true
+		self.totalPartVolume = round((self.totalPartVolume - partVolume), 5)
+	end, true)
+end
+
+local partShapeActions = {
+	["Ball"] = function(part)
+		return "GetPartBoundsInRadius", {part.Position, part.Size.X}
+	end,
+	["Block"] = function(part)
+		return "GetPartBoundsInBox", {part.CFrame, part.Size}
+	end,
+	["Other"] = function(part)
+		return "GetPartsInPart", {part}
+	end,
+}
+function Zone:_getRegionConstructor(part, overlapParams)
+	local success, shapeName = pcall(function() return part.Shape.Name end)
+	local methodName, args
+	if success and self.allZonePartsAreBlocks then
+		local action = partShapeActions[shapeName]
+		if action then
+			methodName, args = action(part)
+		end
+	end
+	if not methodName then
+		methodName, args = partShapeActions.Other(part)
+	end
+	if overlapParams then
+		table.insert(args, overlapParams)
+	end
+	return methodName, args
+end
+
+
+
+-- PUBLIC METHODS
+function Zone:findLocalPlayer()
+	if not localPlayer then
+		error("Can only call 'findLocalPlayer' on the client!")
+	end
+	return self:findPlayer(localPlayer)
+end
+
+function Zone:_find(trackerName, item)
+	ZoneController.updateDetection(self)
+	local tracker = ZoneController.trackers[trackerName]
+	local touchingZones = ZoneController.getTouchingZones(item, false, self._currentEnterDetection, tracker)
+	for _, zone in pairs(touchingZones) do
+		if zone == self then
+			return true
+		end
+	end
+	return false
+end
+
+function Zone:findPlayer(player)
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		return false
+	end
+	return self:_find("player", player.Character)
+end
+
+function Zone:findItem(item)
+	return self:_find("item", item)
+end
+
+function Zone:findPart(part)
+	local methodName, args = self:_getRegionConstructor(part, self.overlapParams.zonePartsWhitelist)
+	local touchingZoneParts = self.worldModel[methodName](self.worldModel, unpack(args))
+	--local touchingZoneParts = self.worldModel:GetPartsInPart(part, self.overlapParams.zonePartsWhitelist)
+	if #touchingZoneParts &gt; 0 then
+		return true, touchingZoneParts
+	end
+	return false
+end
+
+function Zone:getCheckerPart()
+	local checkerPart = self.checkerPart
+	if not checkerPart then
+		checkerPart = self.janitor:add(Instance.new("Part"), "Destroy")
+		checkerPart.Size = Vector3.new(0.1, 0.1, 0.1)
+		checkerPart.Name = "ZonePlusCheckerPart"
+		checkerPart.Anchored = true
+		checkerPart.Transparency = 1
+		checkerPart.CanCollide = false
+		self.checkerPart = checkerPart
+	end
+	local checkerParent = self.worldModel
+	if checkerParent == workspace then
+		checkerParent = ZoneController.getWorkspaceContainer()
+	end
+	if checkerPart.Parent ~= checkerParent then
+		checkerPart.Parent = checkerParent
+	end
+	return checkerPart
+end
+
+function Zone:findPoint(positionOrCFrame)
+	local cframe = positionOrCFrame
+	if typeof(positionOrCFrame) == "Vector3" then
+		cframe = CFrame.new(positionOrCFrame)
+	end
+	local checkerPart = self:getCheckerPart()
+	checkerPart.CFrame = cframe
+	--checkerPart.Parent = self.worldModel
+	local methodName, args = self:_getRegionConstructor(checkerPart, self.overlapParams.zonePartsWhitelist)
+	local touchingZoneParts = self.worldModel[methodName](self.worldModel, unpack(args))
+	--local touchingZoneParts = self.worldModel:GetPartsInPart(self.checkerPart, self.overlapParams.zonePartsWhitelist)
+	if #touchingZoneParts &gt; 0 then
+		return true, touchingZoneParts
+	end
+	return false
+end
+
+function Zone:_getAll(trackerName)
+	ZoneController.updateDetection(self)
+	local itemsArray = {}
+	local zonesAndOccupants = ZoneController._getZonesAndItems(trackerName, {self = true}, self.volume, false, self._currentEnterDetection)
+	local occupantsDict = zonesAndOccupants[self]
+	if occupantsDict then
+		for item, _ in pairs(occupantsDict) do
+			table.insert(itemsArray, item)
+		end
+	end
+	return itemsArray
+end
+
+function Zone:getPlayers()
+	return self:_getAll("player")
+end
+
+function Zone:getItems()
+	return self:_getAll("item")
+end
+
+function Zone:getParts()
+	-- This is designed for infrequent 'one off' use
+	-- If you plan on checking for parts within a zone frequently, it's recommended you
+	-- use the .partEntered and .partExited events instead.
+	local partsArray = {}
+	if self.activeTriggers["part"] then
+		local trackingDict = self.trackingTouchedTriggers["part"]
+		for part, _ in pairs(trackingDict) do
+			table.insert(partsArray, part)
+		end
+		return partsArray
+	end
+	local partsInRegion = self.worldModel:GetPartBoundsInBox(self.region.CFrame, self.region.Size, self.overlapParams.zonePartsIgnorelist)
+	for _, part in pairs(partsInRegion) do
+		if self:findPart(part) then
+			table.insert(partsArray, part)
+		end
+	end
+	return partsArray
+end
+
+function Zone:getRandomPoint()
+	local region = self.exactRegion
+	local size = region.Size
+	local cframe = region.CFrame
+	local random = Random.new()
+	local randomCFrame
+	local success, touchingZoneParts
+	local pointIsWithinZone
+	repeat
+		randomCFrame = cframe * CFrame.new(random:NextNumber(-size.X/2,size.X/2), random:NextNumber(-size.Y/2,size.Y/2), random:NextNumber(-size.Z/2,size.Z/2))
+		success, touchingZoneParts = self:findPoint(randomCFrame)
+		if success then
+			pointIsWithinZone = true
+		end
+	until pointIsWithinZone
+	local randomVector = randomCFrame.Position
+	return randomVector, touchingZoneParts
+end
+
+function Zone:setAccuracy(enumIdOrName)
+	local enumId = tonumber(enumIdOrName)
+	if not enumId then
+		enumId = enum.Accuracy[enumIdOrName]
+		if not enumId then
+			error(("'%s' is an invalid enumName!"):format(enumIdOrName))
+		end
+	else
+		local enumName = enum.Accuracy.getName(enumId)
+		if not enumName then
+			error(("%s is an invalid enumId!"):format(enumId))
+		end
+	end
+	self.accuracy = enumId
+end
+
+function Zone:setDetection(enumIdOrName)
+	local enumId = tonumber(enumIdOrName)
+	if not enumId then
+		enumId = enum.Detection[enumIdOrName]
+		if not enumId then
+			error(("'%s' is an invalid enumName!"):format(enumIdOrName))
+		end
+	else
+		local enumName = enum.Detection.getName(enumId)
+		if not enumName then
+			error(("%s is an invalid enumId!"):format(enumId))
+		end
+	end
+	self.enterDetection = enumId
+	self.exitDetection = enumId
+end
+
+function Zone:trackItem(instance)
+	local isBasePart = instance:IsA("BasePart")
+	local isCharacter = false
+	if not isBasePart then
+		isCharacter = instance:FindFirstChildOfClass("Humanoid") and instance:FindFirstChild("HumanoidRootPart")
+	end
+
+	assert(isBasePart or isCharacter, "Only BaseParts or Characters/NPCs can be tracked!")
+
+	if self.trackedItems[instance] then
+		return
+	end
+	if self.itemsToUntrack[instance] then
+		self.itemsToUntrack[instance] = nil
+	end
+
+	local itemJanitor = self.janitor:add(Janitor.new(), "destroy")
+	local itemDetail = {
+		janitor = itemJanitor,
+		item = instance,
+		isBasePart = isBasePart,
+		isCharacter = isCharacter,
+	}
+	self.trackedItems[instance] = itemDetail
+
+	itemJanitor:add(instance.AncestryChanged:Connect(function()
+		if not instance:IsDescendantOf(game) then
+			self:untrackItem(instance)
+		end
+	end), "Disconnect")
+
+	local Tracker = require(trackerModule)
+	Tracker.itemAdded:Fire(itemDetail)
+end
+
+function Zone:untrackItem(instance)
+	local itemDetail = self.trackedItems[instance]
+	if itemDetail then
+		itemDetail.janitor:destroy()
+	end
+	self.trackedItems[instance] = nil
+
+	local Tracker = require(trackerModule)
+	Tracker.itemRemoved:Fire(itemDetail)
+end
+
+function Zone:bindToGroup(settingsGroupName)
+	self:unbindFromGroup()
+	local group = ZoneController.getGroup(settingsGroupName) or ZoneController.setGroup(settingsGroupName)
+	group._memberZones[self.zoneId] = self
+	self.settingsGroupName = settingsGroupName
+end
+
+function Zone:unbindFromGroup()
+	if self.settingsGroupName then
+		local group = ZoneController.getGroup(self.settingsGroupName)
+		if group then
+			group._memberZones[self.zoneId] = nil
+		end
+		self.settingsGroupName = nil
+	end
+end
+
+function Zone:relocate()
+	if self.hasRelocated then
+		return
+	end
+
+	local CollectiveWorldModel = require(collectiveWorldModelModule)
+	local worldModel = CollectiveWorldModel.setupWorldModel(self)
+	self.worldModel = worldModel
+	self.hasRelocated = true
+	
+	local relocationContainer = self.container
+	if typeof(relocationContainer) == "table" then
+		relocationContainer = Instance.new("Folder")
+		for _, zonePart in pairs(self.zoneParts) do
+			zonePart.Parent = relocationContainer
+		end
+	end
+	self.relocationContainer = self.janitor:add(relocationContainer, "Destroy", "RelocationContainer")
+	relocationContainer.Parent = worldModel
+end
+
+function Zone:_onItemCallback(eventName, desiredValue, instance, callbackFunction)
+	local detail = self.onItemDetails[instance]
+	if not detail then
+		detail = {}
+		self.onItemDetails[instance] = detail
+	end
+	if #detail == 0 then
+		self.itemsToUntrack[instance] = true
+	end
+	table.insert(detail, instance)
+	self:trackItem(instance)
+
+	local function triggerCallback()
+		callbackFunction()
+		if self.itemsToUntrack[instance] then
+			self.itemsToUntrack[instance] = nil
+			self:untrackItem(instance)
+		end
+	end
+
+	local inZoneAlready = self:findItem(instance)
+	if inZoneAlready == desiredValue then
+		triggerCallback()
+	else
+		local connection
+		connection = self[eventName]:Connect(function(item)
+			if connection and item == instance then
+				connection:Disconnect()
+				connection = nil
+				triggerCallback()
+			end
+		end)
+		--[[
+		if typeof(expireAfterSeconds) == "number" then
+			task.delay(expireAfterSeconds, function()
+				if connection ~= nil then
+					print("EXPIRE!")
+					connection:Disconnect()
+					connection = nil
+					triggerCallback()
+				end
+			end)
+		end
+		--]]
+	end
+end
+
+function Zone:onItemEnter(...)
+	self:_onItemCallback("itemEntered", true, ...)
+end
+
+function Zone:onItemExit(...)
+	self:_onItemCallback("itemExited", false, ...)
+end
+
+function Zone:destroy()
+	self:unbindFromGroup()
+	self.janitor:destroy()
+end
+Zone.Destroy = Zone.destroy
+
+
+
+return Zone</string>
+                </Properties>
+                <Item class="ModuleScript" referent="98">
+                  <Properties>
+                    <string name="Name">Enum</string>
+                    <string name="Source"><![CDATA[-- Custom enum implementation that provides an effective way to compare, send
+-- and store values. Instead of returning a userdata value, enum items return
+-- their corresponding itemValue (an integer) when indexed. Enum items can
+-- also associate a 'property', specified as the third element, which can be
+-- retrieved by doing ``enum.getProperty(ITEM_NAME_OR_VALUE)``
+-- This ultimately means groups of data can be easily categorised, efficiently
+-- transmitted over networks and saved without throwing errors.
+-- Ben Horton (ForeverHD)
+
+
+
+-- LOCAL
+local Enum = {}
+local enums = {}
+Enum.enums = enums
+
+
+
+-- METHODS
+function Enum.createEnum(enumName, details)
+	assert(typeof(enumName) == "string", "bad argument #1 - enums must be created using a string name!")
+	assert(typeof(details) == "table", "bad argument #2 - enums must be created using a table!")
+	assert(not enums[enumName], ("enum '%s' already exists!"):format(enumName))
+	
+	local enum = {}
+	local usedNames = {}
+	local usedValues = {}
+	local usedProperties = {}
+	local enumMetaFunctions = {
+		getName = function(valueOrProperty)
+			valueOrProperty = tostring(valueOrProperty)
+			local index = usedValues[valueOrProperty]
+			if not index then
+				index = usedProperties[valueOrProperty]
+			end
+			if index then
+				return details[index][1]
+			end
+		end,
+		getValue = function(nameOrProperty)
+			nameOrProperty = tostring(nameOrProperty)
+			local index = usedNames[nameOrProperty]
+			if not index then
+				index = usedProperties[nameOrProperty]
+			end
+			if index then
+				return details[index][2]
+			end
+		end,
+		getProperty = function(nameOrValue)
+			nameOrValue = tostring(nameOrValue)
+			local index = usedNames[nameOrValue]
+			if not index then
+				index = usedValues[nameOrValue]
+			end
+			if index then
+				return details[index][3]
+			end
+		end
+	}
+	for i, detail in pairs(details) do
+		assert(typeof(detail) == "table", ("bad argument #2.%s - details must only be comprised of tables!"):format(i))
+		local name = detail[1]
+		assert(typeof(name) == "string", ("bad argument #2.%s.1 - detail name must be a string!"):format(i))
+		assert(typeof(not usedNames[name]), ("bad argument #2.%s.1 - the detail name '%s' already exists!"):format(i, name))
+		assert(typeof(not enumMetaFunctions[name]), ("bad argument #2.%s.1 - that name is reserved."):format(i, name))
+		usedNames[tostring(name)] = i
+		local value = detail[2]
+		local valueString = tostring(value)
+		--assert(typeof(value) == "number" and math.ceil(value)/value == 1, ("bad argument #2.%s.2 - detail value must be an integer!"):format(i))
+		assert(typeof(not usedValues[valueString]), ("bad argument #2.%s.2 - the detail value '%s' already exists!"):format(i, valueString))
+		usedValues[valueString] = i
+		local property = detail[3]
+		if property then
+			assert(typeof(not usedProperties[property]), ("bad argument #2.%s.3 - the detail property '%s' already exists!"):format(i, tostring(property)))
+			usedProperties[tostring(property)] = i
+		end
+		enum[name] = value
+		setmetatable(enum, {
+			__index = function(_, index)
+				return(enumMetaFunctions[index])
+			end
+		})
+	end
+	
+	enums[enumName] = enum
+	return enum
+end
+
+function Enum.getEnums()
+	return enums
+end
+
+
+
+-- SETUP ENUMS
+local createEnum = Enum.createEnum
+for _, childModule in pairs(script:GetChildren()) do
+	if childModule:IsA("ModuleScript") then
+		local enumDetail = require(childModule)
+		createEnum(childModule.Name, enumDetail)
+	end
+end
+
+--[[
+-- Example enum
+createEnum("Color", {
+	{"White", 1, Color3.fromRGB(255, 255, 255)},
+	{"Black", 2, Color3.fromRGB(0, 0, 0)},
+})
+--]]
+
+
+
+return Enum
+]]></string>
+                  </Properties>
+                  <Item class="ModuleScript" referent="99">
+                    <Properties>
+                      <string name="Name">Accuracy</string>
+                      <string name="Source">-- enumName, enumValue, additionalProperty
+-- in this case, additionalProperty is the delay between each check
+return {
+	{"Low", 	1,	1.0},
+	{"Medium",	2,	0.5},
+	{"High",	3,	0.1},
+	{"Precise",	4,	0.0},
+}</string>
+                    </Properties>
+                  </Item>
+                  <Item class="ModuleScript" referent="100">
+                    <Properties>
+                      <string name="Name">Detection</string>
+                      <string name="Source">-- Important note: Precision checks currently only for 'players' and the 'localplayer', not 'parts'.
+
+-- enumName, enumValue, additionalProperty
+return {
+	{"WholeBody", 1}, -- Multiple checks will be casted over an entire players character
+	{"Centre", 2}, -- A singular check will be performed on the players HumanoidRootPart
+	--{"Automatic", 3}, -- REMOVED DUE TO UNECESSARY COMPLEXITY. ZonePlus will dynamically switch between 'WholeBody' and 'Centre' depending upon the number of players in a server (this typically only occurs for servers with 100+ players when volume checks begin to exceed 0.5% in script performance).
+}</string>
+                    </Properties>
+                  </Item>
+                </Item>
+                <Item class="ModuleScript" referent="101">
+                  <Properties>
+                    <string name="Name">Janitor</string>
+                    <string name="Source">-- Janitor
+-- Original by Validark
+-- Modifications by pobammer
+-- roblox-ts support by OverHash and Validark
+-- LinkToInstance fixed by Elttob.
+
+local RunService = game:GetService("RunService")
+local Heartbeat = RunService.Heartbeat
+
+local IndicesReference = newproxy(true)
+getmetatable(IndicesReference).__tostring = function()
+	return "IndicesReference"
+end
+
+local LinkToInstanceIndex = newproxy(true)
+getmetatable(LinkToInstanceIndex).__tostring = function()
+	return "LinkToInstanceIndex"
+end
+
+local METHOD_NOT_FOUND_ERROR = "Object %s doesn't have method %s, are you sure you want to add it? Traceback: %s"
+--local NOT_A_PROMISE = "Invalid argument #1 to 'Janitor:AddPromise' (Promise expected, got %s (%s))"
+
+local Janitor = {
+	ClassName = "Janitor";
+	__index = {
+		CurrentlyCleaning = true;
+		[IndicesReference] = nil;
+	};
+}
+
+local TypeDefaults = {
+	["function"] = true;
+	RBXScriptConnection = "Disconnect";
+}
+
+--[[**
+	Instantiates a new Janitor object.
+	@returns [t:Janitor]
+**--]]
+function Janitor.new()
+	return setmetatable({
+		CurrentlyCleaning = false;
+		[IndicesReference] = nil;
+	}, Janitor)
+end
+
+--[[**
+	Determines if the passed object is a Janitor.
+	@param [t:any] Object The object you are checking.
+	@returns [t:boolean] Whether or not the object is a Janitor.
+**--]]
+function Janitor.Is(Object)
+	return type(Object) == "table" and getmetatable(Object) == Janitor
+end
+
+Janitor.is = Janitor.Is
+
+--[[**
+	Adds an `Object` to Janitor for later cleanup, where `MethodName` is the key of the method within `Object` which should be called at cleanup time. If the `MethodName` is `true` the `Object` itself will be called instead. If passed an index it will occupy a namespace which can be `Remove()`d or overwritten. Returns the `Object`.
+	@param [t:any] Object The object you want to clean up.
+	@param [t:string|true?] MethodName The name of the method that will be used to clean up. If not passed, it will first check if the object's type exists in TypeDefaults, and if that doesn't exist, it assumes `Destroy`.
+	@param [t:any?] Index The index that can be used to clean up the object manually.
+	@returns [t:any] The object that was passed.
+**--]]
+function Janitor.__index:Add(Object, MethodName, Index)
+	if Index == nil then
+		Index = newproxy(false)
+	end
+
+	if Index then
+		self:Remove(Index)
+
+		local This = self[IndicesReference]
+		if not This then
+			This = {}
+			self[IndicesReference] = This
+		end
+
+		This[Index] = Object
+	end
+	--[[
+	if Promise.is(Object) then
+		local Id = newproxy(false)
+		if Object:getStatus() == Promise.Status.Started then
+			local NewPromise = self:Add(Promise.resolve(Object), "cancel", Id)
+			NewPromise:finallyCall(self.Remove, self, Id)
+			return NewPromise, Id
+		else
+			return Object
+		end
+	end--]]
+
+	MethodName = MethodName or TypeDefaults[typeof(Object)] or "Destroy"
+	if type(Object) ~= "function" and not Object[MethodName] then
+		warn(string.format(METHOD_NOT_FOUND_ERROR, tostring(Object), tostring(MethodName), debug.traceback(nil, 2)))
+	end
+
+	self[Object] = MethodName
+	return Object, Index
+end
+
+Janitor.__index.Give = Janitor.__index.Add
+
+-- My version of Promise has PascalCase, but I converted it to use lowerCamelCase for this release since obviously that's important to do.
+
+--[[**
+	Adds a promise to the janitor. If the janitor is cleaned up and the promise is not completed, the promise will be cancelled.
+	@param [t:Promise] PromiseObject The promise you want to add to the janitor.
+	@returns [t:Promise]
+**--]]
+--[[
+function Janitor.__index:AddPromise(PromiseObject)
+	if not Promise.is(PromiseObject) then
+		error(string.format(NOT_A_PROMISE, typeof(PromiseObject), tostring(PromiseObject)))
+	end
+
+	if PromiseObject:getStatus() == Promise.Status.Started then
+		local Id = newproxy(false)
+		local NewPromise = self:Add(Promise.resolve(PromiseObject), "cancel", Id)
+		NewPromise:finallyCall(self.Remove, self, Id)
+		return NewPromise, Id
+	else
+		return PromiseObject
+	end
+end
+--]]
+
+--Janitor.__index.GivePromise = Janitor.__index.AddPromise
+
+-- This will assume whether or not the object is a Promise or a regular object.
+function Janitor.__index:AddObject(Object)
+	local Id = newproxy(false)
+	--[[
+	if Promise.is(Object) then
+		if Object:getStatus() == Promise.Status.Started then
+			local NewPromise = self:Add(Promise.resolve(Object), "cancel", Id)
+			NewPromise:finallyCall(self.Remove, self, Id)
+			return NewPromise, Id
+		else
+			return Object
+		end
+	else
+		return self:Add(Object, false, Id), Id
+	end---]]
+	return self:Add(Object, false, Id), Id
+end
+
+Janitor.__index.GiveObject = Janitor.__index.AddObject
+
+--[[**
+	Cleans up whatever `Object` was set to this namespace by the 3rd parameter of `:Add()`.
+	@param [t:any] Index The index you want to remove.
+	@returns [t:Janitor] The same janitor, for chaining reasons.
+**--]]
+function Janitor.__index:Remove(Index)
+	local This = self[IndicesReference]
+
+	if This then
+		local Object = This[Index]
+
+		if Object then
+			local MethodName = self[Object]
+
+			if MethodName then
+				if MethodName == true then
+					Object()
+				else
+					local ObjectMethod = Object[MethodName]
+					if ObjectMethod then
+						ObjectMethod(Object)
+					end
+				end
+
+				self[Object] = nil
+			end
+
+			This[Index] = nil
+		end
+	end
+
+	return self
+end
+
+--[[**
+	Gets whatever object is stored with the given index, if it exists. This was added since Maid allows getting the job using `__index`.
+	@param [t:any] Index The index that the object is stored under.
+	@returns [t:any?] This will return the object if it is found, but it won't return anything if it doesn't exist.
+**--]]
+function Janitor.__index:Get(Index)
+	local This = self[IndicesReference]
+	if This then
+		return This[Index]
+	end
+end
+
+--[[**
+	Calls each Object's `MethodName` (or calls the Object if `MethodName == true`) and removes them from the Janitor. Also clears the namespace. This function is also called when you call a Janitor Object (so it can be used as a destructor callback).
+	@returns [t:void]
+**--]]
+function Janitor.__index:Cleanup()
+	if not self.CurrentlyCleaning then
+		self.CurrentlyCleaning = nil
+		for Object, MethodName in next, self do
+			if Object == IndicesReference then
+				continue
+			end
+
+			-- Weird decision to rawset directly to the janitor in Agent. This should protect against it though.
+			local TypeOf = type(Object)
+			if TypeOf == "string" or TypeOf == "number" then
+				self[Object] = nil
+				continue
+			end
+
+			if MethodName == true then
+				Object()
+			else
+				local ObjectMethod = Object[MethodName]
+				if ObjectMethod then
+					ObjectMethod(Object)
+				end
+			end
+
+			self[Object] = nil
+		end
+
+		local This = self[IndicesReference]
+		if This then
+			for Index in next, This do
+				This[Index] = nil
+			end
+
+			self[IndicesReference] = {}
+		end
+
+		self.CurrentlyCleaning = false
+	end
+end
+
+Janitor.__index.Clean = Janitor.__index.Cleanup
+
+--[[**
+	Calls `:Cleanup()` and renders the Janitor unusable.
+	@returns [t:void]
+**--]]
+function Janitor.__index:Destroy()
+	self:Cleanup()
+	--table.clear(self)
+	--setmetatable(self, nil)
+end
+
+Janitor.__call = Janitor.__index.Cleanup
+
+--- Makes the Janitor clean up when the instance is destroyed
+-- @param Instance Instance The Instance the Janitor will wait for to be Destroyed
+-- @returns Disconnectable table to stop Janitor from being cleaned up upon Instance Destroy (automatically cleaned up by Janitor, btw)
+-- @author Corecii
+local Disconnect = {Connected = true}
+Disconnect.__index = Disconnect
+function Disconnect:Disconnect()
+	if self.Connected then
+		self.Connected = false
+		self.Connection:Disconnect()
+	end
+end
+
+function Disconnect:__tostring()
+	return "Disconnect&lt;" .. tostring(self.Connected) .. "&gt;"
+end
+
+--[[**
+	"Links" this Janitor to an Instance, such that the Janitor will `Cleanup` when the Instance is `Destroyed()` and garbage collected. A Janitor may only be linked to one instance at a time, unless `AllowMultiple` is true. When called with a truthy `AllowMultiple` parameter, the Janitor will "link" the Instance without overwriting any previous links, and will also not be overwritable. When called with a falsy `AllowMultiple` parameter, the Janitor will overwrite the previous link which was also called with a falsy `AllowMultiple` parameter, if applicable.
+	@param [t:Instance] Object The instance you want to link the Janitor to.
+	@param [t:boolean?] AllowMultiple Whether or not to allow multiple links on the same Janitor.
+	@returns [t:RbxScriptConnection] A pseudo RBXScriptConnection that can be disconnected.
+**--]]
+function Janitor.__index:LinkToInstance(Object, AllowMultiple)
+	local Connection
+	local IndexToUse = AllowMultiple and newproxy(false) or LinkToInstanceIndex
+	local IsNilParented = Object.Parent == nil
+	local ManualDisconnect = setmetatable({}, Disconnect)
+
+	local function ChangedFunction(_DoNotUse, NewParent)
+		if ManualDisconnect.Connected then
+			_DoNotUse = nil
+			IsNilParented = NewParent == nil
+
+			if IsNilParented then
+				coroutine.wrap(function()
+					Heartbeat:Wait()
+					if not ManualDisconnect.Connected then
+						return
+					elseif not Connection.Connected then
+						self:Cleanup()
+					else
+						while IsNilParented and Connection.Connected and ManualDisconnect.Connected do
+							Heartbeat:Wait()
+						end
+
+						if ManualDisconnect.Connected and IsNilParented then
+							self:Cleanup()
+						end
+					end
+				end)()
+			end
+		end
+	end
+
+	Connection = Object.AncestryChanged:Connect(ChangedFunction)
+	ManualDisconnect.Connection = Connection
+
+	if IsNilParented then
+		ChangedFunction(nil, Object.Parent)
+	end
+
+	Object = nil
+	return self:Add(ManualDisconnect, "Disconnect", IndexToUse)
+end
+
+--[[**
+	Links several instances to a janitor, which is then returned.
+	@param [t:...Instance] ... All the instances you want linked.
+	@returns [t:Janitor] A janitor that can be used to manually disconnect all LinkToInstances.
+**--]]
+function Janitor.__index:LinkToInstances(...)
+	local ManualCleanup = Janitor.new()
+	for _, Object in ipairs({...}) do
+		ManualCleanup:Add(self:LinkToInstance(Object, true), "Disconnect")
+	end
+
+	return ManualCleanup
+end
+
+for FunctionName, Function in next, Janitor.__index do
+	local NewFunctionName = string.sub(string.lower(FunctionName), 1, 1) .. string.sub(FunctionName, 2)
+	Janitor.__index[NewFunctionName] = Function
+end
+
+return Janitor</string>
+                  </Properties>
+                </Item>
+                <Item class="ModuleScript" referent="102">
+                  <Properties>
+                    <string name="Name">OldSignal</string>
+                    <string name="Source">local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+local heartbeat = RunService.Heartbeat
+local Signal = {}
+Signal.__index = Signal
+Signal.ClassName = "Signal"
+Signal.totalConnections = 0
+
+
+
+-- CONSTRUCTOR
+function Signal.new(createConnectionsChangedSignal)
+	local self = setmetatable({}, Signal)
+	
+	if createConnectionsChangedSignal then
+		self.connectionsChanged = Signal.new()
+	end
+
+	self.connections = {}
+	self.totalConnections = 0
+	self.waiting = {}
+	self.totalWaiting = 0
+
+	return self
+end
+
+
+
+-- METHODS
+function Signal:Fire(...)
+	for _, connection in pairs(self.connections) do
+		--connection.Handler(...)
+		task.spawn(connection.Handler, ...)
+	end
+	if self.totalWaiting &gt; 0 then
+		local packedArgs = table.pack(...)
+		for waitingId, _ in pairs(self.waiting) do
+			self.waiting[waitingId] = packedArgs
+		end
+	end
+end
+Signal.fire = Signal.Fire
+
+function Signal:Connect(handler)
+	if not (type(handler) == "function") then
+		error(("connect(%s)"):format(typeof(handler)), 2)
+	end
+	
+	local signal = self
+	local connectionId = HttpService:GenerateGUID(false)
+	local connection = {}
+	connection.Connected = true
+	connection.ConnectionId = connectionId
+	connection.Handler = handler
+	self.connections[connectionId] = connection
+
+	function connection:Disconnect()
+		signal.connections[connectionId] = nil
+		connection.Connected = false
+		signal.totalConnections -= 1
+		if signal.connectionsChanged then
+			signal.connectionsChanged:Fire(-1)
+		end
+	end
+	connection.Destroy = connection.Disconnect
+	connection.destroy = connection.Disconnect
+	connection.disconnect = connection.Disconnect
+	self.totalConnections += 1
+	if self.connectionsChanged then
+		self.connectionsChanged:Fire(1)
+	end
+
+	return connection
+end
+Signal.connect = Signal.Connect
+
+function Signal:Wait()
+	local waitingId = HttpService:GenerateGUID(false)
+	self.waiting[waitingId] = true
+	self.totalWaiting += 1
+	repeat heartbeat:Wait() until self.waiting[waitingId] ~= true
+	self.totalWaiting -= 1
+	local args = self.waiting[waitingId]
+	self.waiting[waitingId] = nil
+	return unpack(args)
+end
+Signal.wait = Signal.Wait
+
+function Signal:Destroy()
+	if self.bindableEvent then
+		self.bindableEvent:Destroy()
+		self.bindableEvent = nil
+	end
+	if self.connectionsChanged then
+		self.connectionsChanged:Fire(-self.totalConnections)
+		self.connectionsChanged:Destroy()
+		self.connectionsChanged = nil
+	end
+	self.totalConnections = 0
+	for connectionId, connection in pairs(self.connections) do
+		self.connections[connectionId] = nil
+	end
+end
+Signal.destroy = Signal.Destroy
+Signal.Disconnect = Signal.Destroy
+Signal.disconnect = Signal.Destroy
+
+
+
+return Signal</string>
+                  </Properties>
+                </Item>
+                <Item class="ModuleScript" referent="103">
+                  <Properties>
+                    <string name="Name">Signal</string>
+                    <string name="Source">--------------------------------------------------------------------------------
+--               Batched Yield-Safe Signal Implementation                     --
+-- This is a Signal class which has effectively identical behavior to a       --
+-- normal RBXScriptSignal, with the only difference being a couple extra      --
+-- stack frames at the bottom of the stack trace when an error is thrown.     --
+-- This implementation caches runner coroutines, so the ability to yield in   --
+-- the signal handlers comes at minimal extra cost over a naive signal        --
+-- implementation that either always or never spawns a thread.                --
+--                                                                            --
+-- API:                                                                       --
+--   local Signal = require(THIS MODULE)                                      --
+--   local sig = Signal.new()                                                 --
+--   local connection = sig:Connect(function(arg1, arg2, ...) ... end)        --
+--   sig:Fire(arg1, arg2, ...)                                                --
+--   connection:Disconnect()                                                  --
+--   sig:DisconnectAll()                                                      --
+--   local arg1, arg2, ... = sig:Wait()                                       --
+--                                                                            --
+-- Licence:                                                                   --
+--   Licenced under the MIT licence.                                          --
+--                                                                            --
+-- Authors:                                                                   --
+--   stravant - July 31st, 2021 - Created the file.                           --
+--------------------------------------------------------------------------------
+
+-- The currently idle thread to run the next handler on
+local freeRunnerThread = nil
+
+-- Function which acquires the currently idle handler runner thread, runs the
+-- function fn on it, and then releases the thread, returning it to being the
+-- currently idle one.
+-- If there was a currently idle runner thread already, that's okay, that old
+-- one will just get thrown and eventually GCed.
+local function acquireRunnerThreadAndCallEventHandler(fn, ...)
+	local acquiredRunnerThread = freeRunnerThread
+	freeRunnerThread = nil
+	fn(...)
+	-- The handler finished running, this runner thread is free again.
+	freeRunnerThread = acquiredRunnerThread
+end
+
+-- Coroutine runner that we create coroutines of. The coroutine can be 
+-- repeatedly resumed with functions to run followed by the argument to run
+-- them with.
+local function runEventHandlerInFreeThread(...)
+	acquireRunnerThreadAndCallEventHandler(...)
+	while true do
+		acquireRunnerThreadAndCallEventHandler(coroutine.yield())
+	end
+end
+
+-- Connection class
+local Connection = {}
+Connection.__index = Connection
+
+function Connection.new(signal, fn)
+	return setmetatable({
+		_connected = true,
+		_signal = signal,
+		_fn = fn,
+		_next = false,
+	}, Connection)
+end
+
+function Connection:Disconnect()
+	assert(self._connected, "Can't disconnect a connection twice.", 2)
+	self._connected = false
+
+	-- Unhook the node, but DON'T clear it. That way any fire calls that are
+	-- currently sitting on this node will be able to iterate forwards off of
+	-- it, but any subsequent fire calls will not hit it, and it will be GCed
+	-- when no more fire calls are sitting on it.
+    local signal = self._signal
+	if signal._handlerListHead == self then
+		signal._handlerListHead = self._next
+	else
+		local prev = signal._handlerListHead
+		while prev and prev._next ~= self do
+			prev = prev._next
+		end
+		if prev then
+			prev._next = self._next
+		end
+	end
+
+    if signal.connectionsChanged then
+		signal.totalConnections -= 1
+        signal.connectionsChanged:Fire(-1)
+    end
+end
+
+-- Make Connection strict
+setmetatable(Connection, {
+	__index = function(tb, key)
+		error(("Attempt to get Connection::%s (not a valid member)"):format(tostring(key)), 2)
+	end,
+	__newindex = function(tb, key, value)
+		error(("Attempt to set Connection::%s (not a valid member)"):format(tostring(key)), 2)
+	end
+})
+
+-- Signal class
+local Signal = {}
+Signal.__index = Signal
+
+function Signal.new(createConnectionsChangedSignal)
+	local self = setmetatable({
+		_handlerListHead = false,	
+	}, Signal)
+    if createConnectionsChangedSignal then
+        self.totalConnections = 0
+		self.connectionsChanged = Signal.new()
+	end
+    return self
+end
+
+function Signal:Connect(fn)
+	local connection = Connection.new(self, fn)
+	if self._handlerListHead then
+		connection._next = self._handlerListHead
+		self._handlerListHead = connection
+	else
+		self._handlerListHead = connection
+	end
+
+	if self.connectionsChanged then
+        self.totalConnections += 1
+		self.connectionsChanged:Fire(1)
+	end
+	return connection
+end
+
+-- Disconnect all handlers. Since we use a linked list it suffices to clear the
+-- reference to the head handler.
+function Signal:DisconnectAll()
+	self._handlerListHead = false
+
+    if self.connectionsChanged then
+		self.connectionsChanged:Fire(-self.totalConnections)
+		self.connectionsChanged:Destroy()
+		self.connectionsChanged = nil
+		self.totalConnections = 0
+	end
+end
+Signal.Destroy = Signal.DisconnectAll
+Signal.destroy = Signal.DisconnectAll
+
+-- Signal:Fire(...) implemented by running the handler functions on the
+-- coRunnerThread, and any time the resulting thread yielded without returning
+-- to us, that means that it yielded to the Roblox scheduler and has been taken
+-- over by Roblox scheduling, meaning we have to make a new coroutine runner.
+function Signal:Fire(...)
+	local item = self._handlerListHead
+	while item do
+		if item._connected then
+			if not freeRunnerThread then
+				freeRunnerThread = coroutine.create(runEventHandlerInFreeThread)
+			end
+			task.spawn(freeRunnerThread, item._fn, ...)
+		end
+		item = item._next
+	end
+end
+
+-- Implement Signal:Wait() in terms of a temporary connection using
+-- a Signal:Connect() which disconnects itself.
+function Signal:Wait()
+	local waitingCoroutine = coroutine.running()
+	local cn;
+	cn = self:Connect(function(...)
+		cn:Disconnect()
+		task.spawn(waitingCoroutine, ...)
+	end)
+	return coroutine.yield()
+end
+
+
+return Signal</string>
+                  </Properties>
+                </Item>
+                <Item class="ModuleScript" referent="104">
+                  <Properties>
+                    <string name="Name">VERSION</string>
+                    <string name="Source">-- v3.2.0</string>
+                  </Properties>
+                </Item>
+                <Item class="ModuleScript" referent="105">
+                  <Properties>
+                    <string name="Name">ZoneController</string>
+                    <string name="Source">-- CONFIG
+local WHOLE_BODY_DETECTION_LIMIT = 729000 -- This is roughly the volume where Region3 checks begin to exceed 0.5% in Script Performance
+
+
+
+-- LOCAL
+local Janitor = require(script.Parent.Janitor)
+local Enum_ = require(script.Parent.Enum)
+local Signal = require(script.Parent.Signal)
+local Tracker = require(script.Tracker)
+local CollectiveWorldModel = require(script.CollectiveWorldModel)
+local enum = Enum_.enums
+local players = game:GetService("Players")
+local activeZones = {}
+local activeZonesTotalVolume = 0
+local activeTriggers = {}
+local registeredZones = {}
+local activeParts = {}
+local activePartToZone = {}
+local allParts = {}
+local allPartToZone = {}
+local activeConnections = 0
+local runService = game:GetService("RunService")
+local heartbeat = runService.Heartbeat
+local heartbeatConnections = {}
+local localPlayer = runService:IsClient() and players.LocalPlayer
+
+
+
+-- PUBLIC
+local ZoneController = {}
+local trackers = {}
+trackers.player = Tracker.new("player")
+trackers.item = Tracker.new("item")
+ZoneController.trackers = trackers
+
+
+
+-- LOCAL FUNCTIONS
+local function dictLength(dictionary)
+	local count = 0
+	for _, _ in pairs(dictionary) do
+		count += 1
+	end
+	return count
+end
+
+local function fillOccupants(zonesAndOccupantsTable, zone, occupant)
+	local occupantsDict = zonesAndOccupantsTable[zone]
+	if not occupantsDict then
+		occupantsDict = {}
+		zonesAndOccupantsTable[zone] = occupantsDict
+	end
+	local prevCharacter = occupant:IsA("Player") and occupant.Character
+	occupantsDict[occupant] = (prevCharacter or true)
+end
+
+local heartbeatActions = {
+	["player"] = function(recommendedDetection)
+		return ZoneController._getZonesAndItems("player", activeZones, activeZonesTotalVolume, true, recommendedDetection)
+	end,
+	["localPlayer"] = function(recommendedDetection)
+		local zonesAndOccupants = {}
+		local character = localPlayer.Character
+		if not character then
+			return zonesAndOccupants
+		end
+		local touchingZones = ZoneController.getTouchingZones(character, true, recommendedDetection, trackers.player)
+		for _, zone in pairs(touchingZones) do
+			if zone.activeTriggers["localPlayer"] then
+				fillOccupants(zonesAndOccupants, zone, localPlayer)
+			end
+		end
+		return zonesAndOccupants
+	end,
+	["item"] = function(recommendedDetection)
+		return ZoneController._getZonesAndItems("item", activeZones, activeZonesTotalVolume, true, recommendedDetection)
+	end,
+}
+
+
+
+-- PRIVATE FUNCTIONS
+function ZoneController._registerZone(zone)
+   	registeredZones[zone] = true
+	local registeredJanitor = zone.janitor:add(Janitor.new(), "destroy")
+	zone._registeredJanitor = registeredJanitor
+	registeredJanitor:add(zone.updated:Connect(function()
+		ZoneController._updateZoneDetails()
+	end), "Disconnect")
+   ZoneController._updateZoneDetails()
+end
+
+function ZoneController._deregisterZone(zone)
+	registeredZones[zone] = nil
+	zone._registeredJanitor:destroy()
+	zone._registeredJanitor = nil
+	ZoneController._updateZoneDetails()
+end
+
+function ZoneController._registerConnection(registeredZone, registeredTriggerType)
+	local originalItems = dictLength(registeredZone.activeTriggers)
+	activeConnections += 1
+	if originalItems == 0 then
+		activeZones[registeredZone] = true
+		ZoneController._updateZoneDetails()
+	end
+	local currentTriggerCount = activeTriggers[registeredTriggerType]
+	activeTriggers[registeredTriggerType] = (currentTriggerCount and currentTriggerCount+1) or 1
+	registeredZone.activeTriggers[registeredTriggerType] = true
+	if registeredZone.touchedConnectionActions[registeredTriggerType] then
+		registeredZone:_formTouchedConnection(registeredTriggerType)
+	end
+	if heartbeatActions[registeredTriggerType] then
+		ZoneController._formHeartbeat(registeredTriggerType)
+	end
+end
+
+-- This decides what to do if detection is 'Automatic'
+-- This is placed in ZoneController instead of the Zone object due to the ZoneControllers all-knowing group-minded logic
+function ZoneController.updateDetection(zone)
+	local detectionTypes = {
+		["enterDetection"] = "_currentEnterDetection",
+		["exitDetection"] = "_currentExitDetection",
+	}
+	for detectionType, currentDetectionName in pairs(detectionTypes) do
+		local detection = zone[detectionType]
+		local combinedTotalVolume = Tracker.getCombinedTotalVolumes()
+		if detection == enum.Detection.Automatic then
+			if combinedTotalVolume &gt; WHOLE_BODY_DETECTION_LIMIT then
+				detection = enum.Detection.Centre
+			else
+				detection = enum.Detection.WholeBody
+			end
+		end
+		zone[currentDetectionName] = detection
+	end
+end
+
+function ZoneController._formHeartbeat(registeredTriggerType)
+	local heartbeatConnection = heartbeatConnections[registeredTriggerType]
+	if heartbeatConnection then return end
+	-- This will only ever connect once per triggerType per server
+	-- This means instead of initiating a loop per-zone we can handle everything within
+	-- a singular connection. This is particularly beneficial for player/item-orinetated
+	-- checking, where a check only needs to be cast once per interval, as apposed
+	-- to every zone per interval
+	-- I utilise heartbeat with os.clock() to provide precision (where needed) and flexibility
+	local nextCheck = 0
+	heartbeatConnection = heartbeat:Connect(function()
+		local clockTime = os.clock()
+		if clockTime &gt;= nextCheck then
+			local lowestAccuracy
+			local lowestDetection
+			for zone, _ in pairs(activeZones) do
+				if zone.activeTriggers[registeredTriggerType] then
+					local zAccuracy = zone.accuracy
+					if lowestAccuracy == nil or zAccuracy &lt; lowestAccuracy then
+						lowestAccuracy = zAccuracy
+					end
+					ZoneController.updateDetection(zone)
+					local zDetection = zone._currentEnterDetection
+					if lowestDetection == nil or zDetection &lt; lowestDetection then
+						lowestDetection = zDetection
+					end
+				end
+			end
+			local highestAccuracy = lowestAccuracy
+			local zonesAndOccupants = heartbeatActions[registeredTriggerType](lowestDetection)
+
+			-- If a zone belongs to a settingsGroup with 'onlyEnterOnceExitedAll = true' , and the occupant already exists in a member group, then
+			-- ignore all incoming occupants for the other zones (preventing the enteredSignal from being fired until the occupant has left
+			-- all other zones within the same settingGroup)
+			local occupantsToBlock = {}
+			local zonesToPotentiallyIgnore = {}
+			for zone, newOccupants in pairs(zonesAndOccupants) do
+				local settingsGroup = (zone.settingsGroupName and ZoneController.getGroup(zone.settingsGroupName))
+				if settingsGroup and settingsGroup.onlyEnterOnceExitedAll == true then
+					--local currentOccupants = zone.occupants[registeredTriggerType]
+					--if currentOccupants then
+						for newOccupant, _ in pairs(newOccupants) do
+							--if currentOccupants[newOccupant] then
+								local groupDetail = occupantsToBlock[zone.settingsGroupName]
+								if not groupDetail then
+									groupDetail = {}
+									occupantsToBlock[zone.settingsGroupName] = groupDetail
+								end
+								groupDetail[newOccupant] = zone
+							--end
+						end
+						zonesToPotentiallyIgnore[zone] = newOccupants
+					--end
+				end
+			end
+			for zone, newOccupants in pairs(zonesToPotentiallyIgnore) do
+				local groupDetail = occupantsToBlock[zone.settingsGroupName]
+				if groupDetail then
+					for newOccupant, _ in pairs(newOccupants) do
+						local occupantToKeepZone = groupDetail[newOccupant]
+						if occupantToKeepZone and occupantToKeepZone ~= zone then
+							newOccupants[newOccupant] = nil
+						end
+					end
+				end
+			end
+
+			-- This deduces what signals should be fired
+			local collectiveSignalsToFire = {{}, {}}
+			for zone, _ in pairs(activeZones) do
+				if zone.activeTriggers[registeredTriggerType] then
+					local zAccuracy = zone.accuracy
+					local occupantsDict = zonesAndOccupants[zone] or {}
+					local occupantsPresent = false
+					for k,v in pairs(occupantsDict) do
+						occupantsPresent = true
+						break
+					end
+					if occupantsPresent and zAccuracy &gt; highestAccuracy then
+						highestAccuracy = zAccuracy
+					end
+					local signalsToFire = zone:_updateOccupants(registeredTriggerType, occupantsDict)
+					collectiveSignalsToFire[1][zone] = signalsToFire.exited
+					collectiveSignalsToFire[2][zone] = signalsToFire.entered
+				end
+			end
+
+			-- This ensures all exited signals and called before entered signals
+			local indexToSignalType = {"Exited", "Entered"}
+			for index, zoneAndOccupants in pairs(collectiveSignalsToFire) do
+				local signalType = indexToSignalType[index]
+				local signalName = registeredTriggerType..signalType
+				for zone, occupants in pairs(zoneAndOccupants) do
+					local signal = zone[signalName]
+					if signal then
+						for _, occupant in pairs(occupants) do
+							signal:Fire(occupant)
+						end
+					end
+				end
+			end
+
+			local cooldown = enum.Accuracy.getProperty(highestAccuracy)
+			nextCheck = clockTime + cooldown
+		end
+	end)
+	heartbeatConnections[registeredTriggerType] = heartbeatConnection
+end
+
+function ZoneController._deregisterConnection(registeredZone, registeredTriggerType)
+	activeConnections -= 1
+	if activeTriggers[registeredTriggerType] == 1 then
+		activeTriggers[registeredTriggerType] = nil
+		local heartbeatConnection = heartbeatConnections[registeredTriggerType]
+		if heartbeatConnection then
+			heartbeatConnections[registeredTriggerType] = nil
+			heartbeatConnection:Disconnect()
+		end
+	else
+		activeTriggers[registeredTriggerType] -= 1
+	end
+	registeredZone.activeTriggers[registeredTriggerType] = nil
+	if dictLength(registeredZone.activeTriggers) == 0 then
+		activeZones[registeredZone] = nil
+		ZoneController._updateZoneDetails()
+	end
+	if registeredZone.touchedConnectionActions[registeredTriggerType] then
+		registeredZone:_disconnectTouchedConnection(registeredTriggerType)
+	end
+end
+
+function ZoneController._updateZoneDetails()
+	activeParts = {}
+	activePartToZone = {}
+	allParts = {}
+	allPartToZone = {}
+	activeZonesTotalVolume = 0
+	for zone, _ in pairs(registeredZones) do
+		local isActive = activeZones[zone]
+		if isActive then
+			activeZonesTotalVolume += zone.volume
+		end
+		for _, zonePart in pairs(zone.zoneParts) do
+			if isActive then
+				table.insert(activeParts, zonePart)
+				activePartToZone[zonePart] = zone
+			end
+			table.insert(allParts, zonePart)
+			allPartToZone[zonePart] = zone
+		end
+	end
+end
+
+function ZoneController._getZonesAndItems(trackerName, zonesDictToCheck, zoneCustomVolume, onlyActiveZones, recommendedDetection)
+	local totalZoneVolume = zoneCustomVolume
+	if not totalZoneVolume then
+		for zone, _ in pairs(zonesDictToCheck) do
+			totalZoneVolume += zone.volume
+		end
+	end
+	local zonesAndOccupants = {}
+	local tracker = trackers[trackerName]
+	if tracker.totalVolume &lt; totalZoneVolume then
+		-- If the volume of all *characters/items* within the server is *less than* the total
+		-- volume of all active zones (i.e. zones which listen for .playerEntered)
+		-- then it's more efficient cast checks within each character and
+		-- then determine the zones they belong to
+		for _, item in pairs(tracker.items) do
+			local touchingZones = ZoneController.getTouchingZones(item, onlyActiveZones, recommendedDetection, tracker)
+			for _, zone in pairs(touchingZones) do
+				if not onlyActiveZones or zone.activeTriggers[trackerName] then
+					local finalItem = item
+					if trackerName == "player" then
+						finalItem = players:GetPlayerFromCharacter(item)
+					end
+					if finalItem then
+						fillOccupants(zonesAndOccupants, zone, finalItem)
+					end
+				end
+			end
+		end
+	else
+		-- If the volume of all *active zones* within the server is *less than* the total
+		-- volume of all characters/items, then it's more efficient to perform the
+		-- checks directly within each zone to determine players inside
+		for zone, _ in pairs(zonesDictToCheck) do
+			if not onlyActiveZones or zone.activeTriggers[trackerName] then
+				local result = CollectiveWorldModel:GetPartBoundsInBox(zone.region.CFrame, zone.region.Size, tracker.whitelistParams)
+				local finalItemsDict = {}
+				for _, itemOrChild in pairs(result) do
+					local correspondingItem = tracker.partToItem[itemOrChild]
+					if not finalItemsDict[correspondingItem] then
+						finalItemsDict[correspondingItem] = true
+					end
+				end
+				for item, _ in pairs(finalItemsDict) do
+					if trackerName == "player" then
+						local player = players:GetPlayerFromCharacter(item)
+						if zone:findPlayer(player) then
+							fillOccupants(zonesAndOccupants, zone, player)
+						end
+					elseif zone:findItem(item) then
+						fillOccupants(zonesAndOccupants, zone, item)
+					end
+				end
+			end
+		end
+	end
+	return zonesAndOccupants
+end
+
+
+
+-- PUBLIC FUNCTIONS
+function ZoneController.getZones()
+	local registeredZonesArray = {}
+	for zone, _ in pairs(registeredZones) do
+		table.insert(registeredZonesArray, zone)
+	end
+	return registeredZonesArray
+end
+
+--[[
+-- the player touched events which utilise active zones at the moment may change to the new CanTouch method for parts in the future
+-- hence im disabling this as it may be depreciated quite soon
+function ZoneController.getActiveZones()
+	local zonesArray = {}
+	for zone, _ in pairs(activeZones) do
+		table.insert(zonesArray, zone)
+	end
+	return zonesArray
+end
+--]]
+
+function ZoneController.getTouchingZones(item, onlyActiveZones, recommendedDetection, tracker)
+	local exitDetection, finalDetection
+	if tracker then
+		exitDetection = tracker.exitDetections[item]
+		tracker.exitDetections[item] = nil
+	end
+	finalDetection = exitDetection or recommendedDetection
+
+	local itemSize, itemCFrame
+	local itemIsBasePart = item:IsA("BasePart")
+	local itemIsCharacter = not itemIsBasePart
+	local bodyPartsToCheck = {}
+	if itemIsBasePart then
+		itemSize, itemCFrame = item.Size, item.CFrame
+		table.insert(bodyPartsToCheck, item)
+	elseif finalDetection == enum.Detection.WholeBody then
+		itemSize, itemCFrame = Tracker.getCharacterSize(item)
+		bodyPartsToCheck = item:GetChildren()
+	else
+		local hrp = item:FindFirstChild("HumanoidRootPart")
+		if hrp then
+			itemSize, itemCFrame = hrp.Size, hrp.CFrame
+			table.insert(bodyPartsToCheck, hrp)
+		end
+	end
+	if not itemSize or not itemCFrame then return {} end
+
+	--[[
+	local part = Instance.new("Part")
+	part.Size = itemSize
+	part.CFrame = itemCFrame
+	part.Anchored = true
+	part.CanCollide = false
+	part.Color = Color3.fromRGB(255, 0, 0)
+	part.Transparency = 0.4
+	part.Parent = workspace
+	game:GetService("Debris"):AddItem(part, 2)
+	--]]
+	local partsTable = (onlyActiveZones and activeParts) or allParts
+	local partToZoneDict = (onlyActiveZones and activePartToZone) or allPartToZone
+
+	local boundParams = OverlapParams.new()
+	boundParams.FilterType = Enum.RaycastFilterType.Whitelist
+	boundParams.MaxParts = #partsTable
+	boundParams.FilterDescendantsInstances = partsTable
+
+	-- This retrieves the bounds (the rough shape) of all parts touching the item/character
+	-- If the corresponding zone is made up of *entirely* blocks then the bound will
+	-- be the actual shape of the part.
+	local touchingPartsDictionary = {}
+	local zonesDict = {}
+	local boundParts = CollectiveWorldModel:GetPartBoundsInBox(itemCFrame, itemSize, boundParams)
+	local boundPartsThatRequirePreciseChecks = {}
+	for _, boundPart in pairs(boundParts) do
+		local correspondingZone = partToZoneDict[boundPart]
+		if correspondingZone and correspondingZone.allZonePartsAreBlocks then
+			zonesDict[correspondingZone] = true
+			touchingPartsDictionary[boundPart] = correspondingZone
+		else
+			table.insert(boundPartsThatRequirePreciseChecks, boundPart)
+		end
+	end
+
+	-- If the bound parts belong to a zone that isn't entirely made up of blocks, then
+	-- we peform additional checks using GetPartsInPart which enables shape
+	-- geometries to be precisely determined for non-block baseparts.
+	local totalRemainingBoundParts = #boundPartsThatRequirePreciseChecks
+	local precisePartsCount = 0
+	if totalRemainingBoundParts &gt; 0 then
+		
+		local preciseParams = OverlapParams.new()
+		preciseParams.FilterType = Enum.RaycastFilterType.Whitelist
+		preciseParams.MaxParts = totalRemainingBoundParts
+		preciseParams.FilterDescendantsInstances = boundPartsThatRequirePreciseChecks
+
+		local character = item
+		for _, bodyPart in pairs(bodyPartsToCheck) do
+			local endCheck = false
+			if not bodyPart:IsA("BasePart") or (itemIsCharacter and Tracker.bodyPartsToIgnore[bodyPart.Name]) then
+				continue
+			end
+			local preciseParts = CollectiveWorldModel:GetPartsInPart(bodyPart, preciseParams)
+			for _, precisePart in pairs(preciseParts) do
+				if not touchingPartsDictionary[precisePart] then
+					local correspondingZone = partToZoneDict[precisePart]
+					if correspondingZone then
+						zonesDict[correspondingZone] = true
+						touchingPartsDictionary[precisePart] = correspondingZone
+						precisePartsCount += 1
+					end
+					if precisePartsCount == totalRemainingBoundParts then
+						endCheck = true
+						break
+					end
+				end
+			end
+			if endCheck then
+				break
+			end
+		end
+	end
+	
+	local touchingZonesArray = {}
+	local newExitDetection
+	for zone, _ in pairs(zonesDict) do
+		if newExitDetection == nil or zone._currentExitDetection &lt; newExitDetection then
+			newExitDetection = zone._currentExitDetection
+		end
+		table.insert(touchingZonesArray, zone)
+	end
+	if newExitDetection and tracker then
+		tracker.exitDetections[item] = newExitDetection
+	end
+	return touchingZonesArray, touchingPartsDictionary
+end
+
+local settingsGroups = {}
+function ZoneController.setGroup(settingsGroupName, properties)
+	local group = settingsGroups[settingsGroupName]
+	if not group then
+		group = {}
+		settingsGroups[settingsGroupName] = group
+	end
+	
+
+	-- PUBLIC PROPERTIES --
+	group.onlyEnterOnceExitedAll = true
+	
+	-- PRIVATE PROPERTIES --
+	group._name = settingsGroupName
+	group._memberZones = {}
+
+
+	if typeof(properties) == "table" then
+		for k, v in pairs(properties) do
+			group[k] = v
+		end
+	end
+	return group
+end
+
+function ZoneController.getGroup(settingsGroupName)
+	return settingsGroups[settingsGroupName]
+end
+
+local workspaceContainer
+local workspaceContainerName = string.format("ZonePlus%sContainer", (runService:IsClient() and "Client") or "Server")
+function ZoneController.getWorkspaceContainer()
+	local container = workspaceContainer or workspace:FindFirstChild(workspaceContainerName)
+	if not container then
+		container = Instance.new("Folder")
+		container.Name = workspaceContainerName
+		container.Parent = workspace
+		workspaceContainer = container
+	end
+	return container
+end
+
+
+
+return ZoneController</string>
+                  </Properties>
+                  <Item class="ModuleScript" referent="106">
+                    <Properties>
+                      <string name="Name">CollectiveWorldModel</string>
+                      <string name="Source">local CollectiveWorldModel = {}
+local worldModel
+local runService = game:GetService("RunService")
+
+
+
+-- FUNCTIONS
+function CollectiveWorldModel.setupWorldModel(zone)
+	if worldModel then
+		return worldModel
+	end
+	local location = (runService:IsClient() and "ReplicatedStorage") or "ServerStorage"
+	worldModel = Instance.new("WorldModel")
+	worldModel.Name = "ZonePlusWorldModel"
+	worldModel.Parent = game:GetService(location)
+	return worldModel
+end
+
+
+
+-- METHODS
+function CollectiveWorldModel:_getCombinedResults(methodName, ...)
+	local results = workspace[methodName](workspace, ...)
+	if worldModel then
+		local additionalResults = worldModel[methodName](worldModel, ...)
+		for _, result in pairs(additionalResults) do
+			table.insert(results, result)
+		end
+	end
+	return results
+end
+
+function CollectiveWorldModel:GetPartBoundsInBox(cframe, size, overlapParams)
+	return self:_getCombinedResults("GetPartBoundsInBox", cframe, size, overlapParams)
+end
+
+function CollectiveWorldModel:GetPartBoundsInRadius(position, radius, overlapParams)
+	return self:_getCombinedResults("GetPartBoundsInRadius", position, radius, overlapParams)
+end
+
+function CollectiveWorldModel:GetPartsInPart(part, overlapParams)
+	return self:_getCombinedResults("GetPartsInPart", part, overlapParams)
+end
+
+
+
+return CollectiveWorldModel</string>
+                    </Properties>
+                  </Item>
+                  <Item class="ModuleScript" referent="107">
+                    <Properties>
+                      <string name="Name">Tracker</string>
+                      <string name="Source">-- This enables data on volumes, HumanoidRootParts, etc to be handled on an event-basis, instead of being retrieved every interval
+
+-- LOCAL
+local players = game:GetService("Players")
+local runService = game:GetService("RunService")
+local heartbeat = runService.Heartbeat
+local Signal = require(script.Parent.Parent.Signal)
+local Janitor = require(script.Parent.Parent.Janitor)
+
+
+
+-- PUBLIC
+local Tracker = {}
+Tracker.__index = Tracker
+local trackers = {}
+Tracker.trackers = trackers
+Tracker.itemAdded = Signal.new()
+Tracker.itemRemoved = Signal.new()
+Tracker.bodyPartsToIgnore = {
+	-- We ignore these due to their insignificance (e.g. we ignore the lower and
+	-- upper torso because the HumanoidRootPart also covers these areas)
+	-- This ultimately reduces the burden on the player region checks
+	UpperTorso = true,
+	LowerTorso = true,
+	Torso = true,
+	LeftHand = true,
+	RightHand = true,
+	LeftFoot = true,
+	RightFoot = true,
+}
+
+
+
+-- FUNCTIONS
+function Tracker.getCombinedTotalVolumes()
+	local combinedVolume = 0
+	for tracker, _ in pairs(trackers) do
+		combinedVolume += tracker.totalVolume
+	end
+	return combinedVolume
+end
+
+function Tracker.getCharacterSize(character)
+	local head = character and character:FindFirstChild("Head")
+	local hrp = character and character:FindFirstChild("HumanoidRootPart")
+	if not(hrp and head) then return nil end
+	if not head:IsA("BasePart") then
+		head = hrp
+	end
+	local headY = head.Size.Y
+	local hrpSize = hrp.Size
+	local charSize = (hrpSize * Vector3.new(2, 2, 1)) + Vector3.new(0, headY, 0)
+	local charCFrame = hrp.CFrame * CFrame.new(0, headY/2 - hrpSize.Y/2, 0)
+	return charSize, charCFrame
+end
+
+
+
+-- CONSTRUCTOR
+function Tracker.new(name)
+	local self = {}
+	setmetatable(self, Tracker)
+	
+	self.name = name
+	self.totalVolume = 0
+	self.parts = {}
+	self.partToItem = {}
+	self.items = {}
+	self.whitelistParams = nil
+	self.characters = {}
+	self.baseParts = {}
+	self.exitDetections = {}
+	self.janitor = Janitor.new()
+
+	if name == "player" then
+		local function updatePlayerCharacters()
+			local characters = {}
+			for _, player in pairs(players:GetPlayers()) do
+				local character = player.Character
+				if character then
+					characters[character] = true
+				end
+			end
+			self.characters = characters
+		end
+		
+		local function playerAdded(player)
+			local function charAdded(character)
+				local humanoid = character:WaitForChild("Humanoid", 3)
+				if humanoid then
+					updatePlayerCharacters()
+					self:update()
+					for _, valueInstance in pairs(humanoid:GetChildren()) do
+						if valueInstance:IsA("NumberValue") then
+							valueInstance.Changed:Connect(function()
+								self:update()
+							end)
+						end
+					end
+				end
+			end
+			if player.Character then
+				charAdded(player.Character)
+			end
+			player.CharacterAdded:Connect(charAdded)
+			player.CharacterRemoving:Connect(function(removingCharacter)
+				self.exitDetections[removingCharacter] = nil
+			end)
+		end
+		
+		players.PlayerAdded:Connect(playerAdded)
+		for _, player in pairs(players:GetPlayers()) do
+			playerAdded(player)
+		end
+		
+		players.PlayerRemoving:Connect(function(player)
+			updatePlayerCharacters()
+			self:update()
+		end)
+
+
+	elseif name == "item" then
+		local function updateItem(itemDetail, newValue)
+			if itemDetail.isCharacter then
+				self.characters[itemDetail.item] = newValue
+			elseif itemDetail.isBasePart then
+				self.baseParts[itemDetail.item] = newValue
+			end
+			self:update()
+		end
+		Tracker.itemAdded:Connect(function(itemDetail)
+			updateItem(itemDetail, true)
+		end)
+		Tracker.itemRemoved:Connect(function(itemDetail)
+			self.exitDetections[itemDetail.item] = nil
+			updateItem(itemDetail, nil)
+		end)
+	end
+
+	trackers[self] = true
+	task.defer(self.update, self)
+	return self
+end
+
+
+
+-- METHODS
+function Tracker:_preventMultiFrameUpdates(methodName, ...)
+	-- This prevents the funtion being called twice within a single frame
+	-- If called more than once, the function will initally be delayed again until the next frame, then all others cancelled
+	self._preventMultiDetails = self._preventMultiDetails or {}
+	local detail = self._preventMultiDetails[methodName]
+	if not detail then
+		detail = {
+			calling = false,
+			callsThisFrame = 0,
+			updatedThisFrame = false,
+		}
+		self._preventMultiDetails[methodName] = detail
+	end
+
+	detail.callsThisFrame += 1
+	if detail.callsThisFrame == 1 then
+		local args = table.pack(...)
+		task.defer(function()
+			local newCallsThisFrame = detail.callsThisFrame
+			detail.callsThisFrame = 0
+			if newCallsThisFrame &gt; 1 then
+				self[methodName](self, unpack(args))
+			end
+		end)
+		return false
+	end
+	return true
+end
+
+function Tracker:update()
+	if self:_preventMultiFrameUpdates("update") then
+		return
+	end
+	
+	self.totalVolume = 0
+	self.parts = {}
+	self.partToItem = {}
+	self.items = {}
+	
+	-- This tracks the bodyparts of a character
+	for character, _ in pairs(self.characters) do
+		local charSize = Tracker.getCharacterSize(character)
+		if not charSize then
+			continue
+		end
+		local rSize = charSize
+		local charVolume = rSize.X*rSize.Y*rSize.Z
+		self.totalVolume += charVolume
+		
+		local characterJanitor = self.janitor:add(Janitor.new(), "destroy", "trackCharacterParts-"..self.name)
+		local function updateTrackerOnParentChanged(instance)
+			characterJanitor:add(instance.AncestryChanged:Connect(function()
+				if not instance:IsDescendantOf(game) then
+					if instance.Parent == nil and characterJanitor ~= nil then
+						characterJanitor:destroy()
+						characterJanitor = nil
+						self:update()
+					end
+				end
+			end), "Disconnect")
+		end
+
+		for _, part in pairs(character:GetChildren()) do
+			if part:IsA("BasePart") and not Tracker.bodyPartsToIgnore[part.Name] then
+				self.partToItem[part] = character
+				table.insert(self.parts, part)
+				updateTrackerOnParentChanged(part)
+			end
+		end
+		updateTrackerOnParentChanged(character)
+		table.insert(self.items, character)
+	end
+
+	-- This tracks any additional baseParts
+	for additionalPart, _ in pairs(self.baseParts) do
+		local rSize = additionalPart.Size
+		local partVolume = rSize.X*rSize.Y*rSize.Z
+		self.totalVolume += partVolume
+		self.partToItem[additionalPart] = additionalPart
+		table.insert(self.parts, additionalPart)
+		table.insert(self.items, additionalPart)
+	end
+	
+	-- This creates the whitelist so that
+	self.whitelistParams = OverlapParams.new()
+	self.whitelistParams.FilterType = Enum.RaycastFilterType.Whitelist
+	self.whitelistParams.MaxParts = #self.parts
+	self.whitelistParams.FilterDescendantsInstances = self.parts
+end
+
+
+
+return Tracker</string>
+                    </Properties>
+                  </Item>
+                </Item>
+                <Item class="ModuleScript" referent="108">
+                  <Properties>
+                    <string name="Name">ZonePlusReference</string>
+                    <string name="Source">-- This module enables you to place Zone wherever you like within the data model while
+-- still enabling third-party applications (such as HDAdmin/Nanoblox) to locate it
+-- This is necessary to prevent two ZonePlus applications initiating at runtime which would
+-- diminish it's overall efficiency
+
+local replicatedStorage = game:GetService("ReplicatedStorage")
+local ZonePlusReference = {}
+
+function ZonePlusReference.addToReplicatedStorage()
+    local existingItem = replicatedStorage:FindFirstChild(script.Name)
+    if existingItem then
+        return false
+    end
+    local objectValue = Instance.new("ObjectValue")
+    objectValue.Name = script.Name
+    objectValue.Value = script.Parent
+    objectValue.Parent = replicatedStorage
+    local locationValue = Instance.new("BoolValue")
+    locationValue.Name = (game:GetService("RunService"):IsClient() and "Client") or "Server"
+    locationValue.Value = true
+    locationValue.Parent = objectValue
+    return objectValue
+end
+
+function ZonePlusReference.getObject()
+    local objectValue = replicatedStorage:FindFirstChild(script.Name)
+    if objectValue then
+        return objectValue
+    end
+    return false
+end
+
+return ZonePlusReference</string>
+                  </Properties>
+                </Item>
+                <Item class="ModuleScript" referent="109">
+                  <Properties>
+                    <string name="Name">wally</string>
+                    <string name="Source">return {
+	dependencies = {
+	},
+	package = {
+		description = "ZonePlus by 1ForeverHD",
+		name = "mattschrubb/zoneplus",
+		realm = "shared",
+		registry = "https://github.com/UpliftGames/wally-index",
+		version = "3.2.0",
+	},
+}</string>
+                  </Properties>
+                </Item>
+              </Item>
+            </Item>
+            <Item class="Folder" referent="110">
               <Properties>
                 <string name="Name">sleitnick_comm@1.0.1</string>
               </Properties>
-              <Item class="ModuleScript" referent="96">
+              <Item class="ModuleScript" referent="111">
                 <Properties>
                   <string name="Name">Option</string>
                   <string name="Source"><![CDATA[return require(script.Parent.Parent["sleitnick_option@1.0.5"]["option"])
 ]]></string>
                 </Properties>
               </Item>
-              <Item class="ModuleScript" referent="97">
+              <Item class="ModuleScript" referent="112">
                 <Properties>
                   <string name="Name">Promise</string>
                   <string name="Source"><![CDATA[return require(script.Parent.Parent["evaera_promise@4.0.0"]["promise"])
 ]]></string>
                 </Properties>
               </Item>
-              <Item class="ModuleScript" referent="98">
+              <Item class="ModuleScript" referent="113">
                 <Properties>
                   <string name="Name">Signal</string>
                   <string name="Source"><![CDATA[return require(script.Parent.Parent["sleitnick_signal@2.0.3"]["signal"])
 ]]></string>
                 </Properties>
               </Item>
-              <Item class="ModuleScript" referent="99">
+              <Item class="ModuleScript" referent="114">
                 <Properties>
                   <string name="Name">comm</string>
                   <string name="Source"><![CDATA[-- Comm
@@ -17522,7 +20098,7 @@ local Comm = {
 return Comm
 ]]></string>
                 </Properties>
-                <Item class="ModuleScript" referent="100">
+                <Item class="ModuleScript" referent="115">
                   <Properties>
                     <string name="Name">Client</string>
                     <string name="Source"><![CDATA[local Util = require(script.Parent.Util)
@@ -17662,7 +20238,7 @@ end
 return Client
 ]]></string>
                   </Properties>
-                  <Item class="ModuleScript" referent="101">
+                  <Item class="ModuleScript" referent="116">
                     <Properties>
                       <string name="Name">ClientComm</string>
                       <string name="Source"><![CDATA[-- ClientComm
@@ -17900,7 +20476,7 @@ return ClientComm
 ]]></string>
                     </Properties>
                   </Item>
-                  <Item class="ModuleScript" referent="102">
+                  <Item class="ModuleScript" referent="117">
                     <Properties>
                       <string name="Name">ClientRemoteProperty</string>
                       <string name="Source"><![CDATA[-- ClientRemoteProperty
@@ -18062,7 +20638,7 @@ return ClientRemoteProperty
 ]]></string>
                     </Properties>
                   </Item>
-                  <Item class="ModuleScript" referent="103">
+                  <Item class="ModuleScript" referent="118">
                     <Properties>
                       <string name="Name">ClientRemoteSignal</string>
                       <string name="Source"><![CDATA[-- ClientRemoteSignal
@@ -18178,7 +20754,7 @@ return ClientRemoteSignal
                     </Properties>
                   </Item>
                 </Item>
-                <Item class="ModuleScript" referent="104">
+                <Item class="ModuleScript" referent="119">
                   <Properties>
                     <string name="Name">Server</string>
                     <string name="Source"><![CDATA[local RemoteProperty = require(script.RemoteProperty)
@@ -18323,7 +20899,7 @@ end
 return Server
 ]]></string>
                   </Properties>
-                  <Item class="ModuleScript" referent="105">
+                  <Item class="ModuleScript" referent="120">
                     <Properties>
                       <string name="Name">RemoteProperty</string>
                       <string name="Source"><![CDATA[-- RemoteProperty
@@ -18624,7 +21200,7 @@ return RemoteProperty
 ]]></string>
                     </Properties>
                   </Item>
-                  <Item class="ModuleScript" referent="106">
+                  <Item class="ModuleScript" referent="121">
                     <Properties>
                       <string name="Name">RemoteSignal</string>
                       <string name="Source"><![CDATA[-- RemoteSignal
@@ -18841,7 +21417,7 @@ return RemoteSignal
 ]]></string>
                     </Properties>
                   </Item>
-                  <Item class="ModuleScript" referent="107">
+                  <Item class="ModuleScript" referent="122">
                     <Properties>
                       <string name="Name">ServerComm</string>
                       <string name="Source"><![CDATA[-- ServerComm
@@ -19059,7 +21635,7 @@ return ServerComm
                     </Properties>
                   </Item>
                 </Item>
-                <Item class="ModuleScript" referent="108">
+                <Item class="ModuleScript" referent="123">
                   <Properties>
                     <string name="Name">Types</string>
                     <string name="Source"><![CDATA[-- Types
@@ -19083,7 +21659,7 @@ return nil
 ]]></string>
                   </Properties>
                 </Item>
-                <Item class="ModuleScript" referent="109">
+                <Item class="ModuleScript" referent="124">
                   <Properties>
                     <string name="Name">Util</string>
                     <string name="Source"><![CDATA[local RunService = game:GetService("RunService")
@@ -19116,7 +21692,7 @@ return Util
 ]]></string>
                   </Properties>
                 </Item>
-                <Item class="ModuleScript" referent="110">
+                <Item class="ModuleScript" referent="125">
                   <Properties>
                     <string name="Name">wally</string>
                     <string name="Source">return {
@@ -19139,39 +21715,39 @@ return Util
                 </Item>
               </Item>
             </Item>
-            <Item class="Folder" referent="111">
+            <Item class="Folder" referent="126">
               <Properties>
                 <string name="Name">sleitnick_component@2.4.8</string>
               </Properties>
-              <Item class="ModuleScript" referent="112">
+              <Item class="ModuleScript" referent="127">
                 <Properties>
                   <string name="Name">Promise</string>
                   <string name="Source"><![CDATA[return require(script.Parent.Parent["evaera_promise@4.0.0"]["promise"])
 ]]></string>
                 </Properties>
               </Item>
-              <Item class="ModuleScript" referent="113">
+              <Item class="ModuleScript" referent="128">
                 <Properties>
                   <string name="Name">Signal</string>
                   <string name="Source"><![CDATA[return require(script.Parent.Parent["sleitnick_signal@2.0.3"]["signal"])
 ]]></string>
                 </Properties>
               </Item>
-              <Item class="ModuleScript" referent="114">
+              <Item class="ModuleScript" referent="129">
                 <Properties>
                   <string name="Name">Symbol</string>
                   <string name="Source"><![CDATA[return require(script.Parent.Parent["sleitnick_symbol@2.0.1"]["symbol"])
 ]]></string>
                 </Properties>
               </Item>
-              <Item class="ModuleScript" referent="115">
+              <Item class="ModuleScript" referent="130">
                 <Properties>
                   <string name="Name">Trove</string>
                   <string name="Source"><![CDATA[return require(script.Parent.Parent["sleitnick_trove@1.8.0"]["trove"])
 ]]></string>
                 </Properties>
               </Item>
-              <Item class="ModuleScript" referent="116">
+              <Item class="ModuleScript" referent="131">
                 <Properties>
                   <string name="Name">component</string>
                   <string name="Source"><![CDATA[-- Component
@@ -19935,7 +22511,7 @@ end
 return Component
 ]]></string>
                 </Properties>
-                <Item class="ModuleScript" referent="117">
+                <Item class="ModuleScript" referent="132">
                   <Properties>
                     <string name="Name">wally</string>
                     <string name="Source">return {
@@ -19959,11 +22535,11 @@ return Component
                 </Item>
               </Item>
             </Item>
-            <Item class="Folder" referent="118">
+            <Item class="Folder" referent="133">
               <Properties>
                 <string name="Name">sleitnick_option@1.0.5</string>
               </Properties>
-              <Item class="ModuleScript" referent="119">
+              <Item class="ModuleScript" referent="134">
                 <Properties>
                   <string name="Name">option</string>
                   <string name="Source"><![CDATA[-- Option
@@ -20457,7 +23033,7 @@ return (Option :: any) :: {
 }
 ]]></string>
                 </Properties>
-                <Item class="ModuleScript" referent="120">
+                <Item class="ModuleScript" referent="135">
                   <Properties>
                     <string name="Name">wally</string>
                     <string name="Source">return {
@@ -20475,11 +23051,11 @@ return (Option :: any) :: {
                 </Item>
               </Item>
             </Item>
-            <Item class="Folder" referent="121">
+            <Item class="Folder" referent="136">
               <Properties>
                 <string name="Name">sleitnick_signal@2.0.3</string>
               </Properties>
-              <Item class="ModuleScript" referent="122">
+              <Item class="ModuleScript" referent="137">
                 <Properties>
                   <string name="Name">signal</string>
                   <string name="Source"><![CDATA[-- -----------------------------------------------------------------------------
@@ -20916,7 +23492,7 @@ return table.freeze({
 })
 ]]></string>
                 </Properties>
-                <Item class="ModuleScript" referent="123">
+                <Item class="ModuleScript" referent="138">
                   <Properties>
                     <string name="Name">wally</string>
                     <string name="Source">return {
@@ -20935,11 +23511,11 @@ return table.freeze({
                 </Item>
               </Item>
             </Item>
-            <Item class="Folder" referent="124">
+            <Item class="Folder" referent="139">
               <Properties>
                 <string name="Name">sleitnick_symbol@2.0.1</string>
               </Properties>
-              <Item class="ModuleScript" referent="125">
+              <Item class="ModuleScript" referent="140">
                 <Properties>
                   <string name="Name">symbol</string>
                   <string name="Source"><![CDATA[-- Symbol
@@ -21000,7 +23576,7 @@ end
 return Symbol
 ]]></string>
                 </Properties>
-                <Item class="ModuleScript" referent="126">
+                <Item class="ModuleScript" referent="141">
                   <Properties>
                     <string name="Name">wally</string>
                     <string name="Source">return {
@@ -21018,11 +23594,11 @@ return Symbol
                 </Item>
               </Item>
             </Item>
-            <Item class="Folder" referent="127">
+            <Item class="Folder" referent="142">
               <Properties>
                 <string name="Name">sleitnick_trove@1.8.0</string>
               </Properties>
-              <Item class="ModuleScript" referent="128">
+              <Item class="ModuleScript" referent="143">
                 <Properties>
                   <string name="Name">trove</string>
                   <string name="Source"><![CDATA[--!strict
@@ -21814,7 +24390,7 @@ return {
 }
 ]]></string>
                 </Properties>
-                <Item class="ModuleScript" referent="129">
+                <Item class="ModuleScript" referent="144">
                   <Properties>
                     <string name="Name">wally</string>
                     <string name="Source">return {
@@ -21836,11 +24412,11 @@ return {
         </Item>
       </Item>
     </Item>
-    <Item class="ServerScriptService" referent="130">
+    <Item class="ServerScriptService" referent="145">
       <Properties>
         <string name="Name">ServerScriptService</string>
       </Properties>
-      <Item class="Script" referent="131">
+      <Item class="Script" referent="146">
         <Properties>
           <string name="Name">Gaxia_ServerBootstrap</string>
           <token name="RunContext">0</token>
@@ -21984,11 +24560,11 @@ print("[Gaxia_ServerBootstrap] complete — services + AntiCheat online")
         </Properties>
       </Item>
     </Item>
-    <Item class="ServerStorage" referent="132">
+    <Item class="ServerStorage" referent="147">
       <Properties>
         <string name="Name">ServerStorage</string>
       </Properties>
-      <Item class="ModuleScript" referent="133">
+      <Item class="ModuleScript" referent="148">
         <Properties>
           <string name="Name">Gaxia_Packages_Server</string>
           <string name="Source"><![CDATA[--!strict
@@ -22349,7 +24925,7 @@ end
 return buildGaxiaServer() :: GaxiaServerPackage
 ]]></string>
         </Properties>
-        <Item class="ModuleScript" referent="134">
+        <Item class="ModuleScript" referent="149">
           <Properties>
             <string name="Name">AntiCheat</string>
             <string name="Source"><![CDATA[--!strict
@@ -22775,7 +25351,7 @@ end
 return AntiCheat
 ]]></string>
           </Properties>
-          <Item class="ModuleScript" referent="135">
+          <Item class="ModuleScript" referent="150">
             <Properties>
               <string name="Name">AnimationGuard</string>
               <string name="Source"><![CDATA[--!strict
@@ -22920,7 +25496,7 @@ return AnimationGuard
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="136">
+          <Item class="ModuleScript" referent="151">
             <Properties>
               <string name="Name">BackpackGuard</string>
               <string name="Source"><![CDATA[--!strict
@@ -23055,7 +25631,7 @@ return BackpackGuard
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="137">
+          <Item class="ModuleScript" referent="152">
             <Properties>
               <string name="Name">CombatGuard</string>
               <string name="Source"><![CDATA[--!strict
@@ -23180,7 +25756,7 @@ return CombatGuard
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="138">
+          <Item class="ModuleScript" referent="153">
             <Properties>
               <string name="Name">ExploitSignatureScanner</string>
               <string name="Source"><![CDATA[--!strict
@@ -23264,7 +25840,7 @@ return ExploitSignatureScanner
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="139">
+          <Item class="ModuleScript" referent="154">
             <Properties>
               <string name="Name">FlyDetector</string>
               <string name="Source"><![CDATA[--!strict
@@ -23338,7 +25914,7 @@ return FlyDetector
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="140">
+          <Item class="ModuleScript" referent="155">
             <Properties>
               <string name="Name">HeartbeatGuard</string>
               <string name="Source"><![CDATA[--!strict
@@ -23438,7 +26014,7 @@ return HeartbeatGuard
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="141">
+          <Item class="ModuleScript" referent="156">
             <Properties>
               <string name="Name">HeuristicDetector</string>
               <string name="Source"><![CDATA[--!strict
@@ -23529,7 +26105,7 @@ return HeuristicDetector
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="142">
+          <Item class="ModuleScript" referent="157">
             <Properties>
               <string name="Name">HumanoidStateGuard</string>
               <string name="Source"><![CDATA[--!strict
@@ -23708,7 +26284,7 @@ return HumanoidStateGuard
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="143">
+          <Item class="ModuleScript" referent="158">
             <Properties>
               <string name="Name">NoClipDetector</string>
               <string name="Source"><![CDATA[--!strict
@@ -23821,7 +26397,7 @@ return NoClipDetector
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="144">
+          <Item class="ModuleScript" referent="159">
             <Properties>
               <string name="Name">RemoteRateLimiter</string>
               <string name="Source"><![CDATA[--!strict
@@ -23957,7 +26533,7 @@ return RemoteRateLimiter
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="145">
+          <Item class="ModuleScript" referent="160">
             <Properties>
               <string name="Name">SpeedDetector</string>
               <string name="Source"><![CDATA[--!strict
@@ -24032,7 +26608,7 @@ return SpeedDetector
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="146">
+          <Item class="ModuleScript" referent="161">
             <Properties>
               <string name="Name">StatGuard</string>
               <string name="Source"><![CDATA[--!strict
@@ -24161,7 +26737,7 @@ return StatGuard
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="147">
+          <Item class="ModuleScript" referent="162">
             <Properties>
               <string name="Name">TeleportDetector</string>
               <string name="Source"><![CDATA[--!strict
@@ -24226,7 +26802,7 @@ return TeleportDetector
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="148">
+          <Item class="ModuleScript" referent="163">
             <Properties>
               <string name="Name">ToolDuplicationGuard</string>
               <string name="Source"><![CDATA[--!strict
@@ -24328,7 +26904,7 @@ return ToolDuplicationGuard
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="149">
+          <Item class="ModuleScript" referent="164">
             <Properties>
               <string name="Name">WorldBoundsDetector</string>
               <string name="Source"><![CDATA[--!strict
@@ -24372,7 +26948,7 @@ return WorldBoundsDetector
             </Properties>
           </Item>
         </Item>
-        <Item class="ModuleScript" referent="150">
+        <Item class="ModuleScript" referent="165">
           <Properties>
             <string name="Name">Config</string>
             <string name="Source"><![CDATA[--!strict
@@ -24416,7 +26992,7 @@ return {
 }
 ]]></string>
           </Properties>
-          <Item class="ModuleScript" referent="151">
+          <Item class="ModuleScript" referent="166">
             <Properties>
               <string name="Name">Admin</string>
               <string name="Source"><![CDATA[--!strict
@@ -24459,7 +27035,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="152">
+          <Item class="ModuleScript" referent="167">
             <Properties>
               <string name="Name">AntiCheat</string>
               <string name="Source"><![CDATA[--!strict
@@ -24511,7 +27087,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="153">
+          <Item class="ModuleScript" referent="168">
             <Properties>
               <string name="Name">Cooldown</string>
               <string name="Source"><![CDATA[--!strict
@@ -24522,7 +27098,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="154">
+          <Item class="ModuleScript" referent="169">
             <Properties>
               <string name="Name">CrossServer</string>
               <string name="Source"><![CDATA[--!strict
@@ -24535,7 +27111,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="155">
+          <Item class="ModuleScript" referent="170">
             <Properties>
               <string name="Name">Daily</string>
               <string name="Source"><![CDATA[--!strict
@@ -24547,7 +27123,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="156">
+          <Item class="ModuleScript" referent="171">
             <Properties>
               <string name="Name">Data</string>
               <string name="Source"><![CDATA[--!strict
@@ -24571,7 +27147,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="157">
+          <Item class="ModuleScript" referent="172">
             <Properties>
               <string name="Name">Economy</string>
               <string name="Source"><![CDATA[--!strict
@@ -24583,7 +27159,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="158">
+          <Item class="ModuleScript" referent="173">
             <Properties>
               <string name="Name">Event</string>
               <string name="Source"><![CDATA[--!strict
@@ -24594,7 +27170,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="159">
+          <Item class="ModuleScript" referent="174">
             <Properties>
               <string name="Name">Idle</string>
               <string name="Source"><![CDATA[--!strict
@@ -24606,7 +27182,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="160">
+          <Item class="ModuleScript" referent="175">
             <Properties>
               <string name="Name">Interaction</string>
               <string name="Source"><![CDATA[--!strict
@@ -24617,7 +27193,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="161">
+          <Item class="ModuleScript" referent="176">
             <Properties>
               <string name="Name">Inventory</string>
               <string name="Source"><![CDATA[--!strict
@@ -24628,7 +27204,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="162">
+          <Item class="ModuleScript" referent="177">
             <Properties>
               <string name="Name">Leaderboard</string>
               <string name="Source"><![CDATA[--!strict
@@ -24640,7 +27216,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="163">
+          <Item class="ModuleScript" referent="178">
             <Properties>
               <string name="Name">Level</string>
               <string name="Source"><![CDATA[--!strict
@@ -24653,7 +27229,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="164">
+          <Item class="ModuleScript" referent="179">
             <Properties>
               <string name="Name">Mail</string>
               <string name="Source"><![CDATA[--!strict
@@ -24664,7 +27240,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="165">
+          <Item class="ModuleScript" referent="180">
             <Properties>
               <string name="Name">Party</string>
               <string name="Source"><![CDATA[--!strict
@@ -24677,7 +27253,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="166">
+          <Item class="ModuleScript" referent="181">
             <Properties>
               <string name="Name">Pets</string>
               <string name="Source"><![CDATA[--!strict
@@ -24691,7 +27267,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="167">
+          <Item class="ModuleScript" referent="182">
             <Properties>
               <string name="Name">Raid</string>
               <string name="Source"><![CDATA[--!strict
@@ -24707,7 +27283,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="168">
+          <Item class="ModuleScript" referent="183">
             <Properties>
               <string name="Name">Runtime</string>
               <string name="Source"><![CDATA[--!strict
@@ -24723,7 +27299,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="169">
+          <Item class="ModuleScript" referent="184">
             <Properties>
               <string name="Name">Social</string>
               <string name="Source"><![CDATA[--!strict
@@ -24756,7 +27332,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="170">
+          <Item class="ModuleScript" referent="185">
             <Properties>
               <string name="Name">Teleport</string>
               <string name="Source"><![CDATA[--!strict
@@ -24767,7 +27343,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="171">
+          <Item class="ModuleScript" referent="186">
             <Properties>
               <string name="Name">Vault</string>
               <string name="Source"><![CDATA[--!strict
@@ -24780,7 +27356,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="172">
+          <Item class="ModuleScript" referent="187">
             <Properties>
               <string name="Name">Webhook</string>
               <string name="Source"><![CDATA[--!strict
@@ -24809,11 +27385,11 @@ return {
             </Properties>
           </Item>
         </Item>
-        <Item class="Folder" referent="173">
+        <Item class="Folder" referent="188">
           <Properties>
             <string name="Name">Lib</string>
           </Properties>
-          <Item class="ModuleScript" referent="174">
+          <Item class="ModuleScript" referent="189">
             <Properties>
               <string name="Name">AIService</string>
               <string name="Source"><![CDATA[--!strict
@@ -24989,7 +27565,7 @@ return AIService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="175">
+          <Item class="ModuleScript" referent="190">
             <Properties>
               <string name="Name">AchievementSystem</string>
               <string name="Source"><![CDATA[--!strict
@@ -25142,7 +27718,7 @@ return AchievementSystem
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="176">
+          <Item class="ModuleScript" referent="191">
             <Properties>
               <string name="Name">AdminCommands</string>
               <string name="Source"><![CDATA[--!strict
@@ -26113,7 +28689,7 @@ return AdminCommands
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="177">
+          <Item class="ModuleScript" referent="192">
             <Properties>
               <string name="Name">AnalyticsService</string>
               <string name="Source"><![CDATA[--!strict
@@ -26217,7 +28793,7 @@ return Analytics
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="178">
+          <Item class="ModuleScript" referent="193">
             <Properties>
               <string name="Name">AnimationService</string>
               <string name="Source"><![CDATA[--!strict
@@ -26353,7 +28929,7 @@ return AnimationService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="179">
+          <Item class="ModuleScript" referent="194">
             <Properties>
               <string name="Name">AntiCheatAdmin</string>
               <string name="Source"><![CDATA[--!strict
@@ -26582,7 +29158,7 @@ return AntiCheatAdmin
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="180">
+          <Item class="ModuleScript" referent="195">
             <Properties>
               <string name="Name">AntiCheatJournal</string>
               <string name="Source"><![CDATA[--!strict
@@ -26719,7 +29295,7 @@ return Journal
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="181">
+          <Item class="ModuleScript" referent="196">
             <Properties>
               <string name="Name">BanService</string>
               <string name="Source"><![CDATA[--!strict
@@ -27066,7 +29642,7 @@ return BanService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="182">
+          <Item class="ModuleScript" referent="197">
             <Properties>
               <string name="Name">ChatCommandSystem</string>
               <string name="Source"><![CDATA[--!strict
@@ -27394,7 +29970,7 @@ return ChatCommandSystem
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="183">
+          <Item class="ModuleScript" referent="198">
             <Properties>
               <string name="Name">CodexService</string>
               <string name="Source"><![CDATA[--!strict
@@ -27601,7 +30177,7 @@ return CodexService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="184">
+          <Item class="ModuleScript" referent="199">
             <Properties>
               <string name="Name">CooldownService</string>
               <string name="Source"><![CDATA[--!strict
@@ -27752,7 +30328,7 @@ return CooldownService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="185">
+          <Item class="ModuleScript" referent="200">
             <Properties>
               <string name="Name">CrossServerMessaging</string>
               <string name="Source"><![CDATA[--!strict
@@ -27908,7 +30484,7 @@ return CrossServerMessaging
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="186">
+          <Item class="ModuleScript" referent="201">
             <Properties>
               <string name="Name">DailyRewardService</string>
               <string name="Source"><![CDATA[--!strict
@@ -28059,7 +30635,7 @@ return DailyRewardService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="187">
+          <Item class="ModuleScript" referent="202">
             <Properties>
               <string name="Name">DataManager</string>
               <string name="Source"><![CDATA[--!strict
@@ -28511,7 +31087,7 @@ end
 return DataManager
 ]]></string>
             </Properties>
-            <Item class="ModuleScript" referent="188">
+            <Item class="ModuleScript" referent="203">
               <Properties>
                 <string name="Name">ProfileService</string>
                 <string name="Source"><![CDATA[-- local Madwork = _G.Madwork
@@ -30935,7 +33511,7 @@ return ProfileService
               </Properties>
             </Item>
           </Item>
-          <Item class="ModuleScript" referent="189">
+          <Item class="ModuleScript" referent="204">
             <Properties>
               <string name="Name">DataMigration</string>
               <string name="Source"><![CDATA[--!strict
@@ -31034,7 +33610,7 @@ return DataMigration
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="190">
+          <Item class="ModuleScript" referent="205">
             <Properties>
               <string name="Name">EconomyService</string>
               <string name="Source"><![CDATA[--!strict
@@ -31185,7 +33761,7 @@ return EconomyService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="191">
+          <Item class="ModuleScript" referent="206">
             <Properties>
               <string name="Name">EffectiveConfig</string>
               <string name="Source"><![CDATA[--!strict
@@ -31251,7 +33827,7 @@ return EConfig
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="192">
+          <Item class="ModuleScript" referent="207">
             <Properties>
               <string name="Name">EventService</string>
               <string name="Source"><![CDATA[--!strict
@@ -31383,7 +33959,7 @@ return EventService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="193">
+          <Item class="ModuleScript" referent="208">
             <Properties>
               <string name="Name">FriendService</string>
               <string name="Source"><![CDATA[--!strict
@@ -31982,7 +34558,7 @@ return Friend
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="194">
+          <Item class="ModuleScript" referent="209">
             <Properties>
               <string name="Name">GuildLock</string>
               <string name="Source"><![CDATA[--!strict
@@ -32097,7 +34673,7 @@ return GuildLock
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="195">
+          <Item class="ModuleScript" referent="210">
             <Properties>
               <string name="Name">GuildService</string>
               <string name="Source"><![CDATA[--!strict
@@ -33125,7 +35701,7 @@ return Guild
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="196">
+          <Item class="ModuleScript" referent="211">
             <Properties>
               <string name="Name">IdleService</string>
               <string name="Source"><![CDATA[--!strict
@@ -33293,7 +35869,7 @@ return IdleService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="197">
+          <Item class="ModuleScript" referent="212">
             <Properties>
               <string name="Name">InteractionService</string>
               <string name="Source"><![CDATA[--!strict
@@ -33407,7 +35983,7 @@ return InteractionService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="198">
+          <Item class="ModuleScript" referent="213">
             <Properties>
               <string name="Name">InventoryService</string>
               <string name="Source"><![CDATA[--!strict
@@ -33632,7 +36208,7 @@ return InventoryService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="199">
+          <Item class="ModuleScript" referent="214">
             <Properties>
               <string name="Name">InviteQueue</string>
               <string name="Source"><![CDATA[--!strict
@@ -33708,7 +36284,7 @@ return InviteQueue
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="200">
+          <Item class="ModuleScript" referent="215">
             <Properties>
               <string name="Name">ItemDefinitionService</string>
               <string name="Source"><![CDATA[--!strict
@@ -33833,7 +36409,7 @@ return ItemDefinitionService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="201">
+          <Item class="ModuleScript" referent="216">
             <Properties>
               <string name="Name">ItemService</string>
               <string name="Source"><![CDATA[--!strict
@@ -33997,7 +36573,7 @@ return ItemService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="202">
+          <Item class="ModuleScript" referent="217">
             <Properties>
               <string name="Name">LeaderboardService</string>
               <string name="Source"><![CDATA[--!strict
@@ -34185,7 +36761,7 @@ return LeaderboardService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="203">
+          <Item class="ModuleScript" referent="218">
             <Properties>
               <string name="Name">LevelSystem</string>
               <string name="Source"><![CDATA[--!strict
@@ -34341,7 +36917,7 @@ return LevelSystem
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="204">
+          <Item class="ModuleScript" referent="219">
             <Properties>
               <string name="Name">LootService</string>
               <string name="Source"><![CDATA[--!strict
@@ -34512,7 +37088,7 @@ return LootService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="205">
+          <Item class="ModuleScript" referent="220">
             <Properties>
               <string name="Name">MailService</string>
               <string name="Source"><![CDATA[--!strict
@@ -34707,7 +37283,7 @@ return MailService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="206">
+          <Item class="ModuleScript" referent="221">
             <Properties>
               <string name="Name">MemoryStore</string>
               <string name="Source"><![CDATA[--!strict
@@ -34956,7 +37532,7 @@ return Memory
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="207">
+          <Item class="ModuleScript" referent="222">
             <Properties>
               <string name="Name">MonetizationService</string>
               <string name="Source"><![CDATA[--!strict
@@ -35092,7 +37668,7 @@ return Monetization
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="208">
+          <Item class="ModuleScript" referent="223">
             <Properties>
               <string name="Name">Motion3DService</string>
               <string name="Source"><![CDATA[--!strict
@@ -35212,7 +37788,7 @@ return Motion3D
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="209">
+          <Item class="ModuleScript" referent="224">
             <Properties>
               <string name="Name">PartyService</string>
               <string name="Source"><![CDATA[--!strict
@@ -35736,7 +38312,7 @@ return PartyService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="210">
+          <Item class="ModuleScript" referent="225">
             <Properties>
               <string name="Name">PetService</string>
               <string name="Source"><![CDATA[--!strict
@@ -36144,7 +38720,7 @@ return PetService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="211">
+          <Item class="ModuleScript" referent="226">
             <Properties>
               <string name="Name">PlacementService</string>
               <string name="Source"><![CDATA[--!strict
@@ -36366,7 +38942,7 @@ return PlacementService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="212">
+          <Item class="ModuleScript" referent="227">
             <Properties>
               <string name="Name">PlayerService</string>
               <string name="Source"><![CDATA[--!strict
@@ -36572,7 +39148,7 @@ return PlayerService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="213">
+          <Item class="ModuleScript" referent="228">
             <Properties>
               <string name="Name">ProtectionService</string>
               <string name="Source"><![CDATA[--!strict
@@ -36660,7 +39236,7 @@ return ProtectionService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="214">
+          <Item class="ModuleScript" referent="229">
             <Properties>
               <string name="Name">QuestSystem</string>
               <string name="Source"><![CDATA[--!strict
@@ -36909,7 +39485,7 @@ return QuestSystem
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="215">
+          <Item class="ModuleScript" referent="230">
             <Properties>
               <string name="Name">RagdollService</string>
               <string name="Source"><![CDATA[--!strict
@@ -37053,7 +39629,7 @@ return RagdollService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="216">
+          <Item class="ModuleScript" referent="231">
             <Properties>
               <string name="Name">RaidService</string>
               <string name="Source"><![CDATA[--!strict
@@ -37281,7 +39857,7 @@ return RaidService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="217">
+          <Item class="ModuleScript" referent="232">
             <Properties>
               <string name="Name">RefineService</string>
               <string name="Source"><![CDATA[--!strict
@@ -37533,7 +40109,7 @@ return RefineService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="218">
+          <Item class="ModuleScript" referent="233">
             <Properties>
               <string name="Name">SFXService</string>
               <string name="Source"><![CDATA[--!strict
@@ -37680,7 +40256,7 @@ return SFXService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="219">
+          <Item class="ModuleScript" referent="234">
             <Properties>
               <string name="Name">ServiceLifecycle</string>
               <string name="Source"><![CDATA[--!strict
@@ -37797,7 +40373,7 @@ return ServiceLifecycle
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="220">
+          <Item class="ModuleScript" referent="235">
             <Properties>
               <string name="Name">SettingsService</string>
               <string name="Source"><![CDATA[--!strict
@@ -37944,7 +40520,7 @@ return SettingsService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="221">
+          <Item class="ModuleScript" referent="236">
             <Properties>
               <string name="Name">ShopService</string>
               <string name="Source"><![CDATA[--!strict
@@ -38066,7 +40642,7 @@ return Shop
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="222">
+          <Item class="ModuleScript" referent="237">
             <Properties>
               <string name="Name">TeleportService</string>
               <string name="Source"><![CDATA[--!strict
@@ -38231,7 +40807,7 @@ return Teleport
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="223">
+          <Item class="ModuleScript" referent="238">
             <Properties>
               <string name="Name">ToolService</string>
               <string name="Source"><![CDATA[--!strict
@@ -38341,7 +40917,7 @@ return ToolService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="224">
+          <Item class="ModuleScript" referent="239">
             <Properties>
               <string name="Name">TradeService</string>
               <string name="Source"><![CDATA[--!strict
@@ -38639,7 +41215,7 @@ return TradeService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="225">
+          <Item class="ModuleScript" referent="240">
             <Properties>
               <string name="Name">VFXService</string>
               <string name="Source"><![CDATA[--!strict
@@ -38780,7 +41356,7 @@ return VFXService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="226">
+          <Item class="ModuleScript" referent="241">
             <Properties>
               <string name="Name">VaultService</string>
               <string name="Source"><![CDATA[--!strict
@@ -38970,7 +41546,7 @@ return VaultService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="227">
+          <Item class="ModuleScript" referent="242">
             <Properties>
               <string name="Name">VisitService</string>
               <string name="Source"><![CDATA[--!strict
@@ -39059,7 +41635,7 @@ return VisitService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="228">
+          <Item class="ModuleScript" referent="243">
             <Properties>
               <string name="Name">WebhookService</string>
               <string name="Source"><![CDATA[--!strict
@@ -39438,33 +42014,26 @@ return Webhook
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="229">
+          <Item class="ModuleScript" referent="244">
             <Properties>
               <string name="Name">ZoneService</string>
               <string name="Source"><![CDATA[--!strict
 --[[
 	Module : ZoneService
 	Location: ServerStorage.Gaxia_Packages_Server.Lib.ZoneService
-	Purpose : Trigger zones. Wraps a BasePart region with Enter/Left signals
-	          via OBB containment sampled at Constants.SAMPLER_INTERVAL (0.5s).
+	Purpose : Preserve Gaxia's zone API while delegating spatial detection to
+	          the open-source ZonePlus package.
 ]]
 
-
--- ── Services ──
-local Players           = game:GetService("Players")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService        = game:GetService("RunService")
 
--- ── Shared ──
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal    = SharedPkg.Signal
-local Janitor   = SharedPkg.Janitor
+local SharedRoot = ReplicatedStorage:WaitForChild("Gaxia_Packages")
+local SharedPkg = require(SharedRoot) :: any
+local ZonePlus = require(SharedRoot:WaitForChild("Packages"):WaitForChild("ZonePlus")) :: any
+local Signal = SharedPkg.Signal
+local Janitor = SharedPkg.Janitor
 
--- Constants is a frozen table; fall back to defaults if missing.
-local Constants = SharedPkg.Constants or {}
-local SAMPLER_INTERVAL : number = (Constants.SAMPLER_INTERVAL :: any) or 0.5
-
--- ── Types ──
 export type Zone = {
 	Name: string,
 	Region: BasePart,
@@ -39475,74 +42044,40 @@ export type Zone = {
 	Destroy: (self: Zone) -> (),
 }
 
--- ── Module ──
 local ZoneService = {}
-
 local zonesByName: { [string]: Zone } = {}
-
--- ── OBB containment helper ──
--- Returns true if world-space `pos` is inside the BasePart's local box.
--- Uses :PointToObjectSpace to handle rotated parts without manual matrix math.
-local function pointInRegion(region: BasePart, pos: Vector3): boolean
-	local local_ = region.CFrame:PointToObjectSpace(pos)
-	local hx = region.Size.X * 0.5
-	local hy = region.Size.Y * 0.5
-	local hz = region.Size.Z * 0.5
-	return math.abs(local_.X) <= hx
-		and math.abs(local_.Y) <= hy
-		and math.abs(local_.Z) <= hz
-end
-
--- ── Zone factory ──
 
 local Zone = {}
 Zone.__index = Zone
 
 local function newZone(name: string, region: BasePart): Zone
+	local zonePlus = ZonePlus.new(region)
 	local self = setmetatable({
-		Name      = name,
-		Region    = region,
+		Name = name,
+		Region = region,
 		OnEntered = Signal.new(),
-		OnLeft    = Signal.new(),
-		_inside   = {} :: { [Player]: boolean },
-		_janitor  = Janitor.new(),
+		OnLeft = Signal.new(),
+		_inside = {} :: { [Player]: boolean },
+		_janitor = Janitor.new(),
+		_zonePlus = zonePlus,
 	}, Zone)
 
-	-- Heartbeat-style polling. Sampling instead of Touched events because
-	-- Touched fires *many* times per frame and is unreliable for players
-	-- standing still on a thin trigger.
 	local s = self :: any
-	task.spawn(function()
-		while s.Region and s.Region.Parent do
-			for _, player in ipairs(Players:GetPlayers()) do
-				local char = player.Character
-				local hrp = char and (char :: any):FindFirstChild("HumanoidRootPart")
-				if hrp then
-					local nowInside = pointInRegion(s.Region, hrp.Position)
-					local wasInside = s._inside[player] == true
-					if nowInside and not wasInside then
-						s._inside[player] = true
-						s.OnEntered:Fire(player)
-					elseif (not nowInside) and wasInside then
-						s._inside[player] = nil
-						s.OnLeft:Fire(player)
-					end
-				elseif s._inside[player] then
-					-- Character lost (death / leave) — emit Left so listener cleans up.
-					s._inside[player] = nil
-					s.OnLeft:Fire(player)
-				end
-			end
-			task.wait(SAMPLER_INTERVAL)
+	s._janitor:Add(zonePlus.playerEntered:Connect(function(player: Player)
+		if not s._inside[player] then
+			s._inside[player] = true
+			s.OnEntered:Fire(player)
 		end
-	end)
-
-	-- Fire OnLeft when a tracked player leaves the game so external state stays consistent.
-	s._janitor:Add(Players.PlayerRemoving:Connect(function(player)
+	end))
+	s._janitor:Add(zonePlus.playerExited:Connect(function(player: Player)
 		if s._inside[player] then
 			s._inside[player] = nil
-			-- Emit Left when a tracked player disconnects so listeners
-			-- (e.g. cleanup of per-player zone state) get a final signal.
+			s.OnLeft:Fire(player)
+		end
+	end))
+	s._janitor:Add(Players.PlayerRemoving:Connect(function(player: Player)
+		if s._inside[player] then
+			s._inside[player] = nil
 			s.OnLeft:Fire(player)
 		end
 	end))
@@ -39566,8 +42101,12 @@ end
 
 function Zone:Destroy(): ()
 	local s = self :: any
+	if not s._zonePlus then
+		return
+	end
 	s._janitor:Cleanup()
-	-- Drop the BasePart reference so the sampler loop exits naturally.
+	s._zonePlus:destroy()
+	s._zonePlus = nil
 	s.Region = nil
 	s.OnEntered:DisconnectAll()
 	s.OnLeft:DisconnectAll()
@@ -39577,12 +42116,9 @@ function Zone:Destroy(): ()
 	end
 end
 
--- ── Public API ──
-
 function ZoneService.Create(name: string, region: BasePart): Zone
 	assert(typeof(name) == "string" and #name > 0, "name must be non-empty string")
 	assert(typeof(region) == "Instance" and region:IsA("BasePart"), "region must be a BasePart")
-	-- Replace an existing zone of the same name to avoid two samplers racing.
 	if zonesByName[name] then
 		zonesByName[name]:Destroy()
 	end
@@ -39596,8 +42132,10 @@ function ZoneService.Get(name: string): Zone?
 end
 
 function ZoneService.Destroy(name: string): ()
-	local z = zonesByName[name]
-	if z then z:Destroy() end
+	local zone = zonesByName[name]
+	if zone then
+		zone:Destroy()
+	end
 end
 
 return ZoneService
@@ -39607,15 +42145,15 @@ return ZoneService
         </Item>
       </Item>
     </Item>
-    <Item class="StarterPlayer" referent="230">
+    <Item class="StarterPlayer" referent="245">
       <Properties>
         <string name="Name">StarterPlayer</string>
       </Properties>
-      <Item class="StarterPlayerScripts" referent="231">
+      <Item class="StarterPlayerScripts" referent="246">
         <Properties>
           <string name="Name">StarterPlayerScripts</string>
         </Properties>
-        <Item class="LocalScript" referent="232">
+        <Item class="LocalScript" referent="247">
           <Properties>
             <string name="Name">Gaxia_ClientBootstrap</string>
             <string name="Source"><![CDATA[--!strict
