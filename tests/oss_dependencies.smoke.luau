@@ -17,16 +17,19 @@ local function run()
 	local root = ReplicatedStorage:WaitForChild("Gaxia_Packages")
 	local shared = root:WaitForChild("Shared")
 	local packages = root:WaitForChild("Packages")
-	local serverPackages = game:GetService("ServerStorage")
-		:WaitForChild("Gaxia_Packages_Server")
-		:WaitForChild("ServerPackages")
+	local serverRoot = game:GetService("ServerStorage"):WaitForChild("Gaxia_Packages_Server")
+	local serverPackages = serverRoot:WaitForChild("ServerPackages")
 
 	local Gaxia = require(root)
+	local ServerZone = require(serverRoot:WaitForChild("Lib"):WaitForChild("ZoneService"))
 	local Promise = require(shared:WaitForChild("Promise"))
 	local PackagePromise = require(packages:WaitForChild("Promise"))
+	local PackageComponent = require(packages:WaitForChild("Component"))
 	local ZonePlus = require(packages:WaitForChild("ZonePlus"))
 	local PackageSymbol = require(packages:WaitForChild("Symbol"))
+	local PackageSpring = require(packages:WaitForChild("Spring"))
 	local PackageTableUtil = require(packages:WaitForChild("TableUtil"))
+	local PackageT = require(packages:WaitForChild("T"))
 	local ProfileStore = require(serverPackages:WaitForChild("ProfileStore"))
 	local Janitor = require(shared:WaitForChild("Janitor"))
 	expect(type(ZonePlus.new) == "function", "ZonePlus package is unavailable")
@@ -90,54 +93,91 @@ local function run()
 		)
 	end
 
-	local ComponentLegacy = require(shared:WaitForChild("ComponentLegacy"))
-	expect(type(ComponentLegacy.Bind) == "function", "ComponentLegacy public path is missing Bind")
+	local ComponentLegacy = Gaxia.ComponentLegacy
+	expect(ComponentLegacy == PackageComponent, "ComponentLegacy did not resolve to Component")
 
 	local Symbol = require(shared:WaitForChild("Symbol"))
 	expect(Symbol == PackageSymbol, "Gaxia.Symbol did not resolve to the Wally package")
 	expect(Symbol("smoke") ~= Symbol("smoke"), "Symbol calls must produce unique values")
 
-	local Table = require(shared:WaitForChild("Util"):WaitForChild("Table"))
+	local Spring = Gaxia.Spring
+	expect(Spring == PackageSpring, "Gaxia.Spring did not resolve directly to the Wally package")
+	local spring = Spring.new(0, 0.1)
+	spring.Target = 1
+	expect(type(spring:Update(1 / 60)) == "number", "Spring.Update returned a non-number")
+	spring:Impulse(1)
+	spring:Reset(0)
+	expect(spring.Current == 0 and spring.Target == 0, "Spring.Reset failed")
+
+	local Guard = Gaxia.Guard
+	expect(type(PackageT.strictInterface) == "function", "t package is unavailable")
+	expect(Guard == PackageT, "Gaxia.Guard did not resolve directly to the t package")
+	expect(not Guard.any(nil), "t.any unexpectedly accepted nil")
+	expect(Guard.number(1), "Guard.number rejected a number")
+	expect(not Guard.number("1"), "Guard.number accepted a string")
+	expect(Guard.numberConstrained(1, 3)(2), "t.numberConstrained rejected an in-range number")
+	expect(
+		not Guard.numberConstrained(1, 3)(4),
+		"t.numberConstrained accepted an out-of-range number"
+	)
+	expect(Guard.optional(Guard.string)(nil), "Guard.optional rejected nil")
+	expect(Guard.union(Guard.string, Guard.number)(2), "Guard.union rejected a matching value")
+	expect(Guard.literal("ready")("ready"), "Guard.literal rejected its literal")
+	expect(not Guard.integer(1.5), "Guard.integer accepted a float")
+	expect(Guard.map(Guard.string, Guard.number)({ coins = 5 }), "Guard.map rejected a valid map")
+	expect(
+		Guard.interface({ id = Guard.string })({ id = "egg", extra = true }),
+		"Guard.interface rejected an extra field"
+	)
+	expect(Guard.Vector3(Vector3.zero), "Guard.Vector3 rejected a Vector3")
+	local instance = Instance.new("Folder")
+	expect(Guard.Instance(instance), "Guard.Instance rejected an Instance")
+	instance:Destroy()
+	local payloadCheck = Guard.strictInterface({ id = Guard.string, qty = Guard.integer })
+	expect(payloadCheck({ id = "egg", qty = 1 }), "Guard.strictInterface rejected a valid payload")
+	expect(
+		not payloadCheck({ id = "egg", qty = 1, injected = true }),
+		"Guard.strictInterface accepted an unexpected payload field"
+	)
+	expect(
+		not Guard.array(Guard.string)({ [1] = "a", [3] = "b" }),
+		"Guard.array accepted a sparse array"
+	)
+
+	local Table = Gaxia.Util.Table
 	expect(type(PackageTableUtil.Reconcile) == "function", "TableUtil package is unavailable")
-	local cyclic = { value = 1 }
-	cyclic.self = cyclic
-	local cyclicCopy = Table.DeepCopy(cyclic)
-	expect(
-		cyclicCopy ~= cyclic and cyclicCopy.self == cyclicCopy,
-		"Table.DeepCopy lost cycle safety"
-	)
-	local nested = { existing = true }
-	local target = { nested = nested }
+	expect(Table == PackageTableUtil, "Gaxia.Util.Table did not resolve directly to TableUtil")
+	local source = { nested = { value = 1 } }
+	local copy = Table.Copy(source, true)
+	expect(copy ~= source and copy.nested ~= source.nested, "TableUtil.Copy deep copy failed")
+	local target = { nested = { existing = true } }
 	local template = { nested = { existing = false, added = true }, other = { value = 1 } }
-	expect(Table.Reconcile(target, template) == target, "Table.Reconcile replaced the root table")
+	local reconciled = Table.Reconcile(target, template)
 	expect(
-		target.nested == nested and target.nested.added == true,
-		"Table.Reconcile replaced nested identity"
+		reconciled ~= target and target.nested.added == nil,
+		"TableUtil.Reconcile mutated its input"
 	)
-	expect(target.other ~= template.other, "Table.Reconcile retained a template table reference")
-	local sparse = { [1] = "keep", [3] = "also keep" }
-	local filtered = Table.Filter(sparse, function()
-		return true
+	expect(reconciled.nested.added == true, "TableUtil.Reconcile omitted a nested default")
+	expect(reconciled.other ~= template.other, "TableUtil.Reconcile retained a template reference")
+	local filtered = Table.Filter({ 1, 2, 3 }, function(value)
+		return value > 1
 	end)
-	expect(
-		filtered[1] == "keep" and filtered[3] == "also keep",
-		"Table.Filter compacted sparse keys"
-	)
-	expect(Table.Count(sparse) == 2, "Table.Count skipped sparse keys")
-	local reduced = Table.Reduce(sparse, function(result, value)
-		return result .. value
-	end, "")
-	expect(
-		string.find(reduced, "keep", 1, true) ~= nil,
-		"Table.Reduce skipped the first sparse value"
-	)
-	expect(string.find(reduced, "also keep", 1, true) ~= nil, "Table.Reduce skipped a sparse value")
+	expect(#filtered == 2 and filtered[1] == 2, "TableUtil.Filter failed")
+	local reduced = Table.Reduce({ 1, 2, 3 }, function(result, value)
+		return result + value
+	end, 0)
+	expect(reduced == 6, "TableUtil.Reduce failed")
 	local shuffled = { 1, 2, 3 }
-	expect(Table.Shuffle(shuffled) == shuffled, "Table.Shuffle no longer mutates in place")
-	expect(Table.Contains(shuffled, 2), "Table.Contains failed through TableUtil")
-	expect(Table.Count(shuffled) == 3, "Table.Count failed through TableUtil")
-	local flattened = Table.Flatten({ 1, { 2, { 3 } } })
-	expect(#flattened == 3 and flattened[3] == 3, "Table.Flatten lost its recursive default")
+	expect(Table.Shuffle(shuffled) ~= shuffled, "TableUtil.Shuffle mutated its input")
+	expect(
+		Table.Some(shuffled, function(value)
+			return value == 2
+		end),
+		"TableUtil.Some failed"
+	)
+	expect(#Table.Keys(shuffled) == 3, "TableUtil.Keys failed")
+	local flattened = Table.Flat({ 1, { 2, { 3 } } }, math.huge)
+	expect(#flattened == 3 and flattened[3] == 3, "TableUtil.Flat failed")
 
 	-- The compatibility snapshot and tagged Wally copy deliberately coexist.
 	-- Both versions duck-type Promise objects, so cross-copy adoption must work.
@@ -207,20 +247,9 @@ local function run()
 		"compatibility Promise did not enter Cancelled status"
 	)
 
-	local Maid = require(shared:WaitForChild("Maid"))
-	local cleanupOrder = {}
-	local maid = Maid.new()
-	maid:GiveTask(function()
-		table.insert(cleanupOrder, 1)
-	end)
-	maid:GiveTask(function()
-		table.insert(cleanupOrder, 2)
-	end)
-	maid:Destroy()
-	expect(
-		cleanupOrder[1] == 2 and cleanupOrder[2] == 1,
-		"Maid facade did not preserve LIFO cleanup"
-	)
+	local Maid = Gaxia.Maid
+	expect(Maid == Janitor, "Gaxia.Maid did not resolve directly to Janitor")
+	expect(ServerZone == ZonePlus, "GaxiaServer.Zone module did not resolve directly to ZonePlus")
 
 	local region = Instance.new("Part")
 	region.Anchored = true

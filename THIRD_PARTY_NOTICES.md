@@ -10,10 +10,12 @@ They remain licensed by their respective authors:
 | howmanysmall/janitor | 1.18.3 | MIT | https://github.com/howmanysmall/Janitor |
 | howmanysmall/typed-promise | 4.0.6 | MIT | https://github.com/howmanysmall/typed-promise |
 | lm-loleris/profilestore | 1.0.3 | Apache-2.0 | https://github.com/MadStudioRoblox/ProfileStore |
+| osyrisrblx/t | 3.1.1 | MIT | https://github.com/osyrisrblx/t |
 | sleitnick/comm | 1.0.1 | MIT | https://github.com/Sleitnick/RbxUtil |
 | sleitnick/component | 2.4.8 | MIT | https://github.com/Sleitnick/RbxUtil |
 | sleitnick/option | 1.0.5 | MIT | https://github.com/Sleitnick/RbxUtil |
 | sleitnick/signal | 2.0.3 | MIT | https://github.com/Sleitnick/RbxUtil |
+| sleitnick/spring | 1.0.0 | MIT | https://github.com/Sleitnick/RbxUtil |
 | sleitnick/symbol | 2.0.1 | MIT | https://github.com/Sleitnick/RbxUtil |
 | sleitnick/table-util | 1.2.1 | MIT | https://github.com/Sleitnick/RbxUtil |
 | sleitnick/trove | 1.8.0 | MIT | https://github.com/Sleitnick/RbxUtil |
@@ -120,7 +122,31 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-## sleitnick/comm, sleitnick/component, sleitnick/option, sleitnick/signal, sleitnick/symbol, sleitnick/table-util, and sleitnick/trove
+## osyrisrblx/t
+
+MIT License
+
+Copyright (c) 2018 Osyris
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+## sleitnick/comm, sleitnick/component, sleitnick/option, sleitnick/signal, sleitnick/spring, sleitnick/symbol, sleitnick/table-util, and sleitnick/trove
 
 Copyright © 2025 Stephen Leitnick
 

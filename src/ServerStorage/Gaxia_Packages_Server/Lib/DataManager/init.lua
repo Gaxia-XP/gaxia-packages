@@ -134,28 +134,6 @@ local isClosing: boolean = false
 -- Phase 17.2: lazily-fetched backup store handle (nil until first successful GetDataStore, or if disabled).
 local backupStore: any = nil
 
--- ── Helpers ──
--- Safely fetch a Reconcile function from Util.Table; fall back to a simple shallow reconcile
--- so missing helpers do not block data loads in dev.
-local function reconcile(target: { [any]: any }, template: { [any]: any })
-	local utilTable = Util and (Util :: any).Table
-	if utilTable and typeof(utilTable.Reconcile) == "function" then
-		utilTable.Reconcile(target, template)
-		return
-	end
-	for k, v in pairs(template) do
-		if target[k] == nil then
-			if typeof(v) == "table" then
-				local copy = {}
-				for kk, vv in pairs(v) do copy[kk] = vv end
-				target[k] = copy
-			else
-				target[k] = v
-			end
-		end
-	end
-end
-
 -- ── Phase 17.2 — DataStore resilience ──
 -- WHY: DataManager itself never wrote to a raw DataStore before; the ONLY raw write is the
 -- optional backup below. safeWrite wraps it in pcall + bounded exponential backoff and waits on
@@ -299,7 +277,6 @@ local function onPlayerAdded(player: Player)
 
 	profile:AddUserId(player.UserId)
 	profile:Reconcile()
-	reconcile(profile.Data, DataManager.DEFAULT_PROFILE)
 
 	-- ── Schema migration (Phase 17.4) ──
 	-- WHY here: run AFTER Reconcile (so every template field exists) and BEFORE
@@ -441,10 +418,9 @@ function DataManager._SeedForTest(player: any, data: { [string]: any }?): ()
 	-- Reconcile against DEFAULT_PROFILE so existing accessors that read fields
 	-- like Coins/XP don't see nil where they expect numbers.
 	local synthetic = {
-		Data = data or {},
+		Data = (Util :: any).Table.Reconcile(data or {}, DataManager.DEFAULT_PROFILE),
 		Save = function(_self) end,
 	}
-	reconcile(synthetic.Data, DataManager.DEFAULT_PROFILE)
 	loadedProfiles[player.UserId] = synthetic
 end
 

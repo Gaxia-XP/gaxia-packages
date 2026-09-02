@@ -14,7 +14,7 @@
 6. [Util Modules](#6-util-modules)
 7. [Client UI](#7-client-ui)
 8. [Server Services](#8-server-services) — **Config / EConfig / Flags** (อ่านก่อน) + 51 services จัดกลุ่ม:
-   - **Core (8.1–8.15):** DataManager · PlayerService · ItemService · EconomyService · ToolService · ZoneService · ChatCommandSystem · AdminCommands · QuestSystem · AchievementSystem · LevelSystem · DataMigration · LeaderboardService · CrossServerMessaging · WebhookService
+   - **Core (8.1–8.15):** DataManager · PlayerService · ItemService · EconomyService · ToolService · ZonePlus · ChatCommandSystem · AdminCommands · QuestSystem · AchievementSystem · LevelSystem · DataMigration · LeaderboardService · CrossServerMessaging · WebhookService
    - **Moderation (8.16–8.21):** Ban · Analytics · Journal · AntiCheatAdmin · Protection · Lifecycle
    - **Economy (8.22–8.28):** Vault · Shop · Monetization · Trade · Inventory · Loot · ItemDef
    - **Live-ops (8.29–8.35):** Idle · DailyReward · Mail · Raid · Party · Event · Visit
@@ -144,7 +144,7 @@ ServerStorage/
     ├── Lib/                     ← 14 services
     │   ├── DataManager, PlayerService
     │   ├── ItemService, EconomyService
-    │   ├── ToolService, ZoneService
+    │   ├── ToolService, ZonePlus
     │   ├── ChatCommandSystem, AdminCommands
     │   ├── QuestSystem, AchievementSystem
     │   ├── LevelSystem, DataMigration
@@ -204,7 +204,7 @@ local GaxiaServer = require(game.ServerStorage.Gaxia_Packages_Server.init)
 | `GaxiaServer.Item` | ItemService |
 | `GaxiaServer.Economy` | EconomyService |
 | `GaxiaServer.Tool` | ToolService |
-| `GaxiaServer.Zone` | ZoneService |
+| `GaxiaServer.Zone` | ZonePlus 3.2.0 (direct API) |
 | `GaxiaServer.Chat` | ChatCommandSystem |
 | `GaxiaServer.Admin` | AdminCommands |
 | `GaxiaServer.Quest` | QuestSystem |
@@ -256,31 +256,16 @@ mySignal:Destroy()
 
 **ใช้ตอนไหน:** สร้าง event ของตัวเอง — เช่น `OnEnemyKilled`, `OnQuestComplete`
 
-### 5.2 Maid — Cleanup tracker (LIFO)
+### 5.2 Maid — Deprecated alias of Janitor
 
 ```lua
-local Maid = Gaxia.Maid
-local maid = Maid.new()
-
--- รับ task ได้หลายแบบ
-maid:GiveTask(part)                                    -- Instance → :Destroy()
-maid:GiveTask(connection)                              -- RBXScriptConnection → :Disconnect()
-maid:GiveTask(function() print("cleanup!") end)        -- function → call()
-maid:GiveTask(someTable)                               -- table with :Destroy → :Destroy()
-
--- Client-only: bind to render step
-maid:GiveBindToRenderStep("MyLoop", Enum.RenderPriority.Camera.Value, function(dt)
-    -- runs every frame
-end)
--- เลิก loop อัตโนมัติเมื่อ maid:DoCleaning()
-
--- เคลียร์ทั้งหมด (reverse order — LIFO)
-maid:DoCleaning()
--- หรือ
-maid:Destroy()
+assert(Gaxia.Maid == Gaxia.Janitor)
+local janitor = Gaxia.Maid.new()
+janitor:Add(connection)
+janitor:Cleanup()
 ```
 
-**ใช้ตอนไหน:** ป้องกัน memory leak — ผูก task ทั้งหมดที่ต้อง cleanup ของ object เดียวกัน
+ชื่อ `Maid` คงไว้เฉพาะช่วยย้ายโค้ด แต่ API คือ Janitor โดยตรง โค้ดใหม่ควรใช้ `Gaxia.Janitor`
 
 ### 5.3 Janitor — เหมือน Maid แต่มี named index
 
@@ -319,7 +304,7 @@ local part = trove:Add(Instance.new("Part"))
 part.Parent = workspace
 
 -- Construct สำเร็จรูป
-local maid = trove:Construct(Gaxia.Maid)  -- เทียบเท่า trove:Add(Maid.new())
+local janitor = trove:Construct(Gaxia.Janitor)
 
 -- Connect signal helper
 trove:Connect(workspace.ChildAdded, function(child)
@@ -561,21 +546,19 @@ C.MAX_PLAYERS = 100  -- error!
 local Table = Gaxia.Util.Table
 
 -- Copy
-Table.DeepCopy(t)         -- recursive clone (cycle-safe)
-Table.ShallowCopy(t)      -- one-level copy
+Table.Copy(t)             -- one-level copy
+Table.Copy(t, true)       -- recursive clone (ห้ามมี cycle)
 
 -- Merge
-Table.Merge(t1, t2)       -- new table, t2 wins
-Table.Reconcile(target, template)  -- fills missing keys recursively (ใช้กับ saved data)
+Table.Assign(t1, t2)      -- new table, later tables win
+local reconciled = Table.Reconcile(target, template) -- immutable; ต้องใช้ค่าที่ return
 
 -- Functional
 Table.Filter(t, function(v, k) return v > 0 end)
 Table.Map(t, function(v) return v * 2 end)
 Table.Reduce(t, function(acc, v) return acc + v end, 0)
 Table.Find(t, function(v) return v.name == "Bob" end)  -- returns (value, key)
-Table.Contains(t, target)
-Table.Count(t)
-Table.Count(t, predicate)
+Table.Some(t, function(v) return v == target end)
 Table.IsEmpty(t)
 
 -- Keys / Values
@@ -584,9 +567,9 @@ Table.Values(t)
 
 -- Array
 Table.Reverse({1,2,3})         -- {3,2,1}
-Table.Shuffle({1,2,3,4,5})     -- IN-PLACE Fisher-Yates
-Table.Random({1,2,3})          -- random element
-Table.Flatten({1, {2, {3}}}, 2) -- {1,2,3} (depth-limited)
+Table.Shuffle({1,2,3,4,5})     -- คืน array ใหม่ ไม่แก้ input
+Table.Sample({1,2,3}, 1)[1]    -- random element
+Table.Flat({1, {2, {3}}}, 2)   -- {1,2,3} (depth-limited)
 ```
 
 ### 6.2 Util.String
@@ -1021,38 +1004,33 @@ end)
 - ถ้า UID ซ้ำ → destroy + fire OnDuplicate
 - WeakTable registry → tool ที่ถูก destroy จริงๆ จะ evict อัตโนมัติ
 
-### 8.6 ZoneService — Trigger zones
+### 8.6 ZonePlus — Trigger zones
 
 ```lua
 local Zone = GaxiaServer.Zone
 
--- สร้าง zone จาก BasePart (ใช้ part เป็น region)
+-- สร้าง zone จาก BasePart/Model/Folder
 local part = workspace.SafeZoneRegion  -- ตั้งเป็น Anchored, CanCollide=false, Transparent
-local safeZone = Zone.Create("SafeZone", part)
+local safeZone = Zone.new(part)
 
 -- ฟัง enter / leave
-safeZone.OnEntered:Connect(function(player)
+safeZone.playerEntered:Connect(function(player)
     print(`{player.Name} เข้าโซนปลอดภัย`)
 end)
 
-safeZone.OnLeft:Connect(function(player)
+safeZone.playerExited:Connect(function(player)
     print(`{player.Name} ออกจากโซน`)
 end)
 
 -- Query
-safeZone:IsInside(player)   -- bool
-safeZone:GetPlayers()       -- array of players in zone
-
--- ดึง zone กลับ
-local sz = Zone.Get("SafeZone")
+safeZone:findPlayer(player) -- bool
+safeZone:getPlayers()       -- array of players in zone
 
 -- Destroy
-Zone.Destroy("SafeZone")
--- หรือ
-safeZone:Destroy()
+safeZone:destroy()
 ```
 
-**กลไก:** Sample ทุก 0.5s (SAMPLER_INTERVAL) ใช้ OBB check ไม่ใช่ Touched event (เสถียรกว่า)
+`GaxiaServer.Zone` คือ ZonePlus 3.2.0 โดยตรง ไม่มี named-zone registry ของ Gaxia แล้ว
 
 ### 8.7 ChatCommandSystem — Slash commands
 
@@ -2831,16 +2809,16 @@ local GaxiaServer = require(...)
 
 -- สร้าง Part ใน workspace ที่จะใช้เป็น region (Anchored, CanCollide=false, Transparent)
 local regionPart = workspace.SafeZoneRegion
-local zone = GaxiaServer.Zone.Create("SafeZone", regionPart)
+local zone = GaxiaServer.Zone.new(regionPart)
 
-zone.OnEntered:Connect(function(player)
+zone.playerEntered:Connect(function(player)
     -- ลด WalkSpeed
     GaxiaServer.Player.SetWalkSpeed(player, 8)
     -- Whitelist anti-cheat speed ระหว่างอยู่ในโซน
     GaxiaServer.AntiCheat.Whitelist(player, "Speed", math.huge)
 end)
 
-zone.OnLeft:Connect(function(player)
+zone.playerExited:Connect(function(player)
     GaxiaServer.Player.SetWalkSpeed(player, 16)
     GaxiaServer.AntiCheat.ClearFlags(player, "Speed")  -- เอา whitelist ออก
 end)
@@ -2887,18 +2865,18 @@ local Gaxia = require(...)
 local Players = game:GetService("Players")
 
 Players.PlayerAdded:Connect(function(player)
-    local maid
+    local janitor
 
     player.CharacterAdded:Connect(function(character)
         -- เคลียร์ของรอบที่แล้ว
-        if maid then maid:Destroy() end
-        maid = Gaxia.Maid.new()
+        if janitor then janitor:Cleanup() end
+        janitor = Gaxia.Janitor.new()
 
         -- ผูก task กับ character ใหม่
-        maid:GiveTask(character.Humanoid.Died:Connect(function()
+        janitor:Add(character.Humanoid.Died:Connect(function()
             print(`{player.Name} died`)
         end))
-        maid:GiveTask(character)  -- character ถูก Destroy ตอนตาย
+        janitor:Add(character)  -- character ถูก Destroy ตอน cleanup
     end)
 end)
 ```
@@ -2951,7 +2929,7 @@ local LIB_SERVICES = {
 ถ้า order สลับกัน — AdminCommands load ก่อน ChatCommandSystem → chat bridge ไม่ register
 
 ### Autocomplete ไม่ขึ้น
-- ลึก 2 ระดับขึ้นไป (`Gaxia.Util.Table.DeepCopy`) — ดู Section 12.1 แก้ guard
+- ลึก 2 ระดับขึ้นไป (`Gaxia.Util.Table.Copy`) — ดู Section 12.1 แก้ guard
 - ลึก 1 ระดับ (`Gaxia.Signal.new`) ขึ้นปกติ — Studio Script Editor รองรับ
 
 ### ProfileService error: "Missing or invalid Name parameter"

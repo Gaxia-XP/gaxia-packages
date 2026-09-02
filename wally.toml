@@ -13,8 +13,10 @@ Janitor = "howmanysmall/janitor@=1.18.3"
 # compatible post-tag upstream snapshot in Shared/Promise.lua.
 Promise = "evaera/promise@4.0.0"
 Signal = "sleitnick/signal@2.0.3"
+Spring = "sleitnick/spring@=1.0.0"
 Symbol = "sleitnick/symbol@=2.0.1"
 TableUtil = "sleitnick/table-util@=1.2.1"
+T = "osyrisrblx/t@=3.1.1"
 Trove = "sleitnick/trove@1.8.0"
 ZonePlus = "mattschrubb/zoneplus@=3.2.0"
 

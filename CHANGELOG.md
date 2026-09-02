@@ -11,8 +11,8 @@ this framework uses a single rolling version until a public release cut.
 ### Changed — open-source dependencies are pinned with Wally
 - `Signal`, `Janitor`, `Trove`, `Component`, and `Comm` now resolve
   through compatibility modules into the versions pinned by `wally.lock`.
-- `ZoneService` preserves its existing public API while delegating player
-  boundary detection to the pinned ZonePlus 3.2.0 package.
+- `GaxiaServer.Zone` now resolves directly to the pinned ZonePlus 3.2.0 API;
+  the former named-zone registry facade was removed.
 - `DataManager` now uses the server-only ProfileStore 1.0.3 package instead of
   a bundled ProfileService copy. Store names, keys, schema reconciliation,
   manual saves, and the public DataManager API remain unchanged.
@@ -22,21 +22,28 @@ this framework uses a single rolling version until a public release cut.
   share the official `evaera/promise@4.0.0` dependency separately.
 - `Gaxia.Symbol` now resolves directly to the pinned community
   `sleitnick/symbol@2.0.1` package; its callable `Symbol("Name")` API is unchanged.
-- `Gaxia.Util.Table` now delegates common operations to the pinned community
-  `sleitnick/table-util@1.2.1` package through a compatibility facade. Existing
-  Gaxia names, cycle-safe deep copies, key-preserving filters, mutating reconcile,
-  in-place shuffle, and recursive flatten defaults are preserved.
-- Runtime cleanup consumers use Janitor directly. `Gaxia.Maid` remains as a
-  deprecated, LIFO-compatible facade so downstream games can migrate gradually.
+- `Gaxia.Spring` now resolves directly to the pinned community
+  `sleitnick/spring@1.0.0` package. The removed local copy was identical to that
+  upstream implementation, so its runtime API and behavior are unchanged.
+- `Gaxia.Util.Table` now resolves directly to the pinned community
+  `sleitnick/table-util@1.2.1` API. Former Gaxia-only method names and mutating
+  behavior were removed; `DataManager` now consumes immutable reconciliation
+  correctly.
+- `Gaxia.Guard` now resolves directly to the pinned community
+  `osyrisrblx/t@3.1.1` package. Consumers use the upstream API directly
+  (`numberConstrained`, `Instance`, strict array validation, and `t.any`
+  semantics) instead of the former Gaxia-specific aliases.
+- `Gaxia.Maid` is now a deprecated direct alias of `Gaxia.Janitor`; the former
+  Maid-specific method names and LIFO facade were removed.
 - Replaced the incomplete vendored `Comm` copy with its upstream Wally package,
-  including the missing `Option` dependency. The lazy public `ComponentLegacy`
-  path remains intact for downstream compatibility.
+  including the missing `Option` dependency. `ComponentLegacy` is now a
+  deprecated direct alias of the upstream Component package.
 - Builds now require `wally install`. Both the distributable model and
   Companion plugin include the generated shared and server package trees.
-- Added a Roblox Studio CLI smoke test for package aliases, ZonePlus lifecycle,
+- Added a Roblox Studio CLI smoke test for direct package aliases, ZonePlus lifecycle,
   cross-copy Promise
   adoption/cancellation, Janitor interop, Promise timing/error propagation, and
-  the Maid LIFO compatibility facade.
+  the deprecated Maid-to-Janitor alias.
 
 ### Added — Pet Coins multiplier wired into the Idle & Quest faucets
 `PetService.GetCoinMultiplier` (built in the Pet MVP) was previously **dead** — no
