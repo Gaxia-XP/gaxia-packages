@@ -8225,114 +8225,8 @@ return require(script.Parent.Parent.Packages.Component)
             <Properties>
               <string name="Name">ComponentLegacy</string>
               <string name="Source"><![CDATA[--!strict
--- ─────────────────────────────────────────────────────────────
--- Component.lua
--- Location: ReplicatedStorage/Gaxia_Packages/Shared/Component
--- Purpose : Bind behaviour to every instance carrying a CollectionService tag,
---           with automatic teardown when the tag/instance goes away. The
---           framework's house style is "tag gameplay objects, iterate via
---           GetTagged" — this is the helper that makes that a lifecycle, not a
---           manual loop. Added() may return a per-instance state passed back to
---           Removed() for cleanup (a lightweight component instance).
---
--- Access  : Gaxia.Component  (shared)
---   local coins = Gaxia.Component.Bind("Coin", {
---     Added   = function(part) return connectTouch(part) end,
---     Removed = function(part, conn) conn:Disconnect() end,
---   })
---   coins.Destroy()  -- detach from all + stop listening
--- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
-export type Handlers = {
-	Added: (instance: Instance) -> any?,
-	Removed: ((instance: Instance, state: any) -> ())?,
-}
-
-export type Binding = {
-	Destroy: () -> (),
-	GetAll: () -> { [Instance]: any },
-	Get: (instance: Instance) -> any,
-}
-
-local Component = {}
-
--- Sentinel stored when Added returns nil, so we can still track membership.
-local NO_STATE = {}
-
-function Component.Bind(tag: string, handlers: Handlers): Binding
-	local states: { [Instance]: any } = {}
-	local conns: { RBXScriptConnection } = {}
-	local alive = true
-
-	local function add(instance: Instance)
-		if states[instance] ~= nil then
-			return
-		end
-		local ok, state = pcall(handlers.Added, instance)
-		if ok then
-			states[instance] = if state == nil then NO_STATE else state
-		else
-			warn(`[Component] '{tag}' Added errored: {state}`)
-		end
-	end
-
-	local function remove(instance: Instance)
-		local state = states[instance]
-		if state == nil then
-			return
-		end
-		states[instance] = nil
-		if handlers.Removed then
-			local realState = if state == NO_STATE then nil else state
-			local ok, err = pcall(handlers.Removed, instance, realState)
-			if not ok then
-				warn(`[Component] '{tag}' Removed errored: {err}`)
-			end
-		end
-	end
-
-	-- Bind current + future tagged instances.
-	for _, inst in ipairs(CollectionService:GetTagged(tag)) do
-		add(inst)
-	end
-	table.insert(conns, CollectionService:GetInstanceAddedSignal(tag):Connect(add))
-	table.insert(conns, CollectionService:GetInstanceRemovedSignal(tag):Connect(remove))
-
-	local binding = {}
-
-	function binding.Destroy(): ()
-		if not alive then
-			return
-		end
-		alive = false
-		for _, c in ipairs(conns) do
-			c:Disconnect()
-		end
-		table.clear(conns)
-		-- Tear down every live instance (removing the current key mid-pairs is legal).
-		for inst in pairs(states) do
-			remove(inst)
-		end
-	end
-
-	function binding.GetAll(): { [Instance]: any }
-		local out: { [Instance]: any } = {}
-		for inst, st in pairs(states) do
-			out[inst] = if st == NO_STATE then nil else st
-		end
-		return out
-	end
-
-	function binding.Get(instance: Instance): any
-		local st = states[instance]
-		return if st == NO_STATE then nil else st
-	end
-
-	return binding :: Binding
-end
-
-return Component
+-- Deprecated name. Use Gaxia.Component; both resolve to the same package.
+return require(script.Parent.Parent.Packages.Component)
 ]]></string>
             </Properties>
           </Item>
@@ -8471,182 +8365,8 @@ return Flags
             <Properties>
               <string name="Name">Guard</string>
               <string name="Source"><![CDATA[--!strict
--- ─────────────────────────────────────────────────────────────
--- Guard.lua
--- Location: ReplicatedStorage/Gaxia_Packages/Shared/Guard
--- Purpose : Runtime schema validation (an osyris-`t`-style combinator lib) so
---           server RemoteEvent handlers can validate the SHAPE of client
---           payloads, not just individual scalars. Each check is
---           (value) -> (ok: boolean, err: string?). Compose with optional /
---           array / map / interface / union / literal.
---
--- Access  : Gaxia.Guard  (shared)
---   local checkBuy = Gaxia.Guard.strictInterface({ id = Gaxia.Guard.string, qty = Gaxia.Guard.integer })
---   local ok, err = checkBuy(payload); if not ok then return end
--- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
-export type Check = (value: any) -> (boolean, string?)
-
-local Guard = {}
-
--- ── Primitives ──
-local function prim(typeName: string): Check
-	return function(value: any): (boolean, string?)
-		if typeof(value) == typeName then
-			return true
-		end
-		return false, `expected {typeName}, got {typeof(value)}`
-	end
-end
-
-Guard.number   = prim("number")
-Guard.string   = prim("string")
-Guard.boolean  = prim("boolean")
-Guard.table    = prim("table")
-Guard.Vector3  = prim("Vector3")
-Guard.Vector2  = prim("Vector2")
-Guard.CFrame   = prim("CFrame")
-Guard.Color3   = prim("Color3")
-Guard.instance = prim("Instance")
-
-function Guard.any(_: any): (boolean, string?)
-	return true
-end
-
-function Guard.integer(value: any): (boolean, string?)
-	if typeof(value) ~= "number" then
-		return false, `expected integer, got {typeof(value)}`
-	end
-	if value % 1 ~= 0 then
-		return false, "expected integer, got a float"
-	end
-	return true
-end
-
--- ── Combinators ──
-
--- nil OR matches `check`.
-function Guard.optional(check: Check): Check
-	return function(value: any): (boolean, string?)
-		if value == nil then
-			return true
-		end
-		return check(value)
-	end
-end
-
--- Exactly equal to `literal`.
-function Guard.literal(literal: any): Check
-	return function(value: any): (boolean, string?)
-		if value == literal then
-			return true
-		end
-		return false, `expected literal {tostring(literal)}, got {tostring(value)}`
-	end
-end
-
--- Matches at least one of the given checks.
-function Guard.union(...: Check): Check
-	local checks = { ... }
-	return function(value: any): (boolean, string?)
-		for _, c in ipairs(checks) do
-			if c(value) then
-				return true
-			end
-		end
-		return false, "value matched no union member"
-	end
-end
-
--- Number within [min, max].
-function Guard.numberRange(min: number, max: number): Check
-	return function(value: any): (boolean, string?)
-		if typeof(value) ~= "number" then
-			return false, `expected number, got {typeof(value)}`
-		end
-		if value < min or value > max then
-			return false, `number {value} out of range [{min}, {max}]`
-		end
-		return true
-	end
-end
-
--- Array (sequential) where every element matches `check`.
-function Guard.array(check: Check): Check
-	return function(value: any): (boolean, string?)
-		if typeof(value) ~= "table" then
-			return false, `expected array, got {typeof(value)}`
-		end
-		for i, v in ipairs(value) do
-			local ok, err = check(v)
-			if not ok then
-				return false, `array[{i}]: {err}`
-			end
-		end
-		return true
-	end
-end
-
--- Map where every key matches keyCheck and every value matches valueCheck.
-function Guard.map(keyCheck: Check, valueCheck: Check): Check
-	return function(value: any): (boolean, string?)
-		if typeof(value) ~= "table" then
-			return false, `expected map, got {typeof(value)}`
-		end
-		for k, v in pairs(value) do
-			local ok, err = keyCheck(k)
-			if not ok then
-				return false, `map key: {err}`
-			end
-			ok, err = valueCheck(v)
-			if not ok then
-				return false, `map[{tostring(k)}]: {err}`
-			end
-		end
-		return true
-	end
-end
-
--- Table where each named field matches its check (extra fields allowed).
-function Guard.interface(shape: { [string]: Check }): Check
-	return function(value: any): (boolean, string?)
-		if typeof(value) ~= "table" then
-			return false, `expected table, got {typeof(value)}`
-		end
-		for field, check in pairs(shape) do
-			local ok, err = check(value[field])
-			if not ok then
-				return false, `field '{field}': {err}`
-			end
-		end
-		return true
-	end
-end
-
--- Like interface, but rejects any field NOT declared in the shape (anti-exploit:
--- a payload may not smuggle extra keys past the validator).
-function Guard.strictInterface(shape: { [string]: Check }): Check
-	return function(value: any): (boolean, string?)
-		if typeof(value) ~= "table" then
-			return false, `expected table, got {typeof(value)}`
-		end
-		for field, check in pairs(shape) do
-			local ok, err = check(value[field])
-			if not ok then
-				return false, `field '{field}': {err}`
-			end
-		end
-		for field in pairs(value) do
-			if shape[field :: string] == nil then
-				return false, `unexpected field '{tostring(field)}'`
-			end
-		end
-		return true
-	end
-end
-
-return Guard
+-- Community implementation and version are managed by Wally.
+return require(script.Parent.Parent.Packages.T)
 ]]></string>
             </Properties>
           </Item>
@@ -9094,77 +8814,8 @@ return root
             <Properties>
               <string name="Name">Maid</string>
               <string name="Source"><![CDATA[--!strict
---[[
-	Deprecated Maid-compatible facade backed by the Wally-managed Janitor.
-	New code should use Gaxia.Janitor directly.
-
-	The facade keeps the legacy LIFO cleanup order so existing consumers can
-	migrate without changing teardown behaviour.
-]]
-
-local RunService = game:GetService("RunService")
-local Janitor = require(script.Parent.Parent.Packages.Janitor)
-
-export type Task = RBXScriptConnection | Instance | () -> () | { Destroy: (any) -> () }
-
-export type Maid = {
-	GiveTask: (self: Maid, task: Task) -> Task,
-	GiveBindToRenderStep: (
-		self: Maid,
-		name: string,
-		priority: number,
-		fn: (dt: number) -> ()
-	) -> (),
-	DoCleaning: (self: Maid) -> (),
-	Destroy: (self: Maid) -> (),
-}
-
-local Maid = {}
-Maid.__index = Maid
-
-function Maid.new(): Maid
-	return setmetatable({
-		_taskJanitors = {} :: { any },
-	}, Maid) :: any
-end
-
-function Maid:GiveTask(cleanupTask: Task): Task
-	assert(cleanupTask ~= nil, "Maid:GiveTask received nil")
-	local taskJanitor = Janitor.new()
-	taskJanitor:Add(cleanupTask)
-	table.insert((self :: any)._taskJanitors, taskJanitor)
-	return cleanupTask
-end
-
-function Maid:GiveBindToRenderStep(name: string, priority: number, fn: (dt: number) -> ()): ()
-	RunService:BindToRenderStep(name, priority, fn)
-	self:GiveTask(function()
-		pcall(function()
-			RunService:UnbindFromRenderStep(name)
-		end)
-	end)
-end
-
-function Maid:DoCleaning(): ()
-	local maidState = self :: any
-	local taskJanitors = maidState._taskJanitors
-	maidState._taskJanitors = {}
-	for index = #taskJanitors, 1, -1 do
-		local ok, cleanupError = pcall(function()
-			taskJanitors[index]:Cleanup()
-		end)
-		if not ok then
-			warn(`[Maid] cleanup task #{index} errored: {cleanupError}`)
-		end
-	end
-end
-
-function Maid:Destroy(): ()
-	self:DoCleaning()
-	setmetatable(self :: any, nil)
-end
-
-return Maid
+-- Deprecated name. Use Gaxia.Janitor; both resolve to the same package.
+return require(script.Parent.Parent.Packages.Janitor)
 ]]></string>
             </Properties>
           </Item>
@@ -12453,102 +12104,8 @@ return require(script.Parent.Parent.Packages.Signal)
             <Properties>
               <string name="Name">Spring</string>
               <string name="Source"><![CDATA[--!strict
-
---[=[
-	@class Spring
-
-	Simulates a critically damped spring. This is mostly just a wrapper around
-	[`TweenService:SmoothDamp()`](https://create.roblox.com/docs/reference/engine/classes/TweenService#SmoothDamp).
-]=]
-
-local TweenService = game:GetService("TweenService")
-
-local Spring = {}
-Spring.__index = Spring
-
-export type Spring<T> = typeof(setmetatable(
-	{} :: {
-		Current: T,
-		Target: T,
-		Velocity: T,
-		SmoothTime: number,
-		MaxSpeed: number,
-	},
-	Spring
-))
-
---[=[
-	Creates a new spring.
-
-	The type `T` can be a `number`, `Vector2`, `Vector3`, or `CFrame`.
-
-	@param initial T -- Initial value
-	@param smoothTime number -- Approximate time it takes to reach target
-	@param maxSpeed number -- Maximum speed (defaults to infinity)
-]=]
-function Spring.new<T>(initial: T, smoothTime: number, maxSpeed: number?): Spring<T>
-	local self = setmetatable({
-		Current = initial,
-		Target = initial,
-		Velocity = if typeof(initial) == "CFrame" then CFrame.identity else (initial :: any) * 0,
-		SmoothTime = smoothTime,
-		MaxSpeed = if maxSpeed ~= nil then maxSpeed else math.huge,
-	}, Spring)
-
-	return self
-end
-
---[=[
-	@within Spring
-	@method Update
-
-	Updates the spring. This method should be called continuously, even if the target value hasn't changed.
-
-	```lua
-	local newValue = spring:Update(dt)
-	```
-
-	@param deltaTime number
-	@return T
-]=]
-function Spring.Update<T>(self: Spring<T>, dt: number): T
-	self.Current, self.Velocity =
-		TweenService:SmoothDamp(self.Current, self.Target, self.Velocity, self.SmoothTime, self.MaxSpeed, dt)
-
-	return self.Current
-end
-
---[=[
-	@within Spring
-	@method Impulse
-
-	Impulses the spring.
-
-	```lua
-	spring:Impulse(rng:NextUnitVector() * 10)
-	```
-
-	@param velocity T
-]=]
-function Spring.Impulse<T>(self: Spring<T>, velocity: T)
-	self.Velocity += velocity :: any
-end
-
---[=[
-	@within Spring
-	@method Reset
-
-	Resets the spring to the given value.
-
-	@param value T
-]=]
-function Spring.Reset<T>(self: Spring<T>, value: T)
-	self.Current = value
-	self.Target = value
-	self.Velocity = if typeof(self.Current) == "CFrame" then CFrame.identity else (self.Current :: any) * 0
-end
-
-return Spring
+-- Community implementation and version are managed by Wally.
+return require(script.Parent.Parent.Packages.Spring)
 ]]></string>
             </Properties>
           </Item>
@@ -13659,134 +13216,8 @@ return String
               <Properties>
                 <string name="Name">Table</string>
                 <string name="Source"><![CDATA[--!strict
--- Compatibility facade over sleitnick/table-util. Existing Gaxia names and
--- mutating contracts stay intact while the common operations use the package.
-
-local TableUtil = require(script.Parent.Parent.Parent.Packages.TableUtil)
-
-local Table = {}
-
--- TableUtil.Copy intentionally does not support cycles, so preserve the safer
--- public Gaxia behavior for this one operation.
-function Table.DeepCopy<T>(t: T): T
-	local seen: { [any]: any } = {}
-	local function copy(value: any): any
-		if type(value) ~= "table" then
-			return value
-		end
-		if seen[value] then
-			return seen[value]
-		end
-		local result: { [any]: any } = {}
-		seen[value] = result
-		for key, child in value do
-			result[copy(key)] = copy(child)
-		end
-		return result
-	end
-	return copy(t)
-end
-
-function Table.ShallowCopy<T>(t: T): T
-	return TableUtil.Copy(t)
-end
-
-function Table.Merge(t1: { [any]: any }, t2: { [any]: any }): { [any]: any }
-	return TableUtil.Assign(t1, t2)
-end
-
--- TableUtil.Reconcile is immutable. Apply its result back onto the original
--- tables so existing DataManager and public callers keep their object identity.
-function Table.Reconcile(target: { [any]: any }, template: { [any]: any }): { [any]: any }
-	local reconciled = TableUtil.Reconcile(target, template)
-	local function apply(current: { [any]: any }, result: { [any]: any }, defaults: { [any]: any })
-		for key, default in defaults do
-			local existing = current[key]
-			local resolved = result[key]
-			if existing == nil then
-				current[key] = resolved
-			elseif type(existing) == "table" and type(default) == "table" then
-				apply(existing, resolved, default)
-			end
-		end
-	end
-	apply(target, reconciled, template)
-	return target
-end
-
--- TableUtil.Filter compacts arrays; Gaxia.Filter has always preserved keys.
-function Table.Filter<K, V>(t: { [K]: V }, predicate: (V, K) -> boolean): { [K]: V }
-	local result: { [K]: V } = {}
-	for key, value in t do
-		if predicate(value, key) then
-			result[key] = value
-		end
-	end
-	return result
-end
-
-function Table.Map<K, V, R>(t: { [K]: V }, fn: (V, K) -> R): { [K]: R }
-	return TableUtil.Map(t, fn)
-end
-
-function Table.Reduce<K, V, A>(t: { [K]: V }, fn: (A, V, K) -> A, init: A): A
-	local result = init
-	for key, value in t do
-		result = fn(result, value, key)
-	end
-	return result
-end
-
-function Table.Find<K, V>(t: { [K]: V }, predicate: (V, K) -> boolean): (V?, K?)
-	return TableUtil.Find(t, predicate)
-end
-
-function Table.Contains<V>(t: { [any]: V }, target: V): boolean
-	return TableUtil.Some(t, function(value: V)
-		return value == target
-	end)
-end
-
-function Table.Count<K, V>(t: { [K]: V }, predicate: ((V, K) -> boolean)?): number
-	if predicate == nil then
-		return #TableUtil.Keys(t)
-	end
-	return #TableUtil.Keys(TableUtil.Filter(t, predicate))
-end
-
-function Table.IsEmpty(t: { [any]: any }): boolean
-	return TableUtil.IsEmpty(t)
-end
-
-function Table.Keys<K, V>(t: { [K]: V }): { K }
-	return TableUtil.Keys(t)
-end
-
-function Table.Values<K, V>(t: { [K]: V }): { V }
-	return TableUtil.Values(t)
-end
-
-function Table.Reverse<V>(array: { V }): { V }
-	return TableUtil.Reverse(array)
-end
-
--- TableUtil.Shuffle is immutable; copy its result back to preserve Gaxia's
--- documented in-place behavior and return the original array for chaining.
-function Table.Shuffle<V>(array: { V }): { V }
-	local shuffled = TableUtil.Shuffle(array)
-	table.move(shuffled, 1, #shuffled, 1, array)
-	return array
-end
-
-function Table.Random<V>(array: { V }): V?
-	return TableUtil.Sample(array, 1)[1]
-end
-
-function Table.Flatten<V>(t: { any }, depth: number?): { V }
-	return TableUtil.Flat(t, depth or math.huge)
-end
-
-return Table
+-- Community implementation and version are managed by Wally.
+return require(script.Parent.Parent.Parent.Packages.TableUtil)
 ]]></string>
               </Properties>
             </Item>
@@ -13833,41 +13264,55 @@ return Table
           </Item>
           <Item class="ModuleScript" referent="82">
             <Properties>
+              <string name="Name">Spring</string>
+              <string name="Source"><![CDATA[return require(script.Parent._Index["sleitnick_spring@1.0.0"]["spring"])
+]]></string>
+            </Properties>
+          </Item>
+          <Item class="ModuleScript" referent="83">
+            <Properties>
               <string name="Name">Symbol</string>
               <string name="Source"><![CDATA[return require(script.Parent._Index["sleitnick_symbol@2.0.1"]["symbol"])
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="83">
+          <Item class="ModuleScript" referent="84">
+            <Properties>
+              <string name="Name">T</string>
+              <string name="Source"><![CDATA[return require(script.Parent._Index["osyrisrblx_t@3.1.1"]["t"])
+]]></string>
+            </Properties>
+          </Item>
+          <Item class="ModuleScript" referent="85">
             <Properties>
               <string name="Name">TableUtil</string>
               <string name="Source"><![CDATA[return require(script.Parent._Index["sleitnick_table-util@1.2.1"]["table-util"])
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="84">
+          <Item class="ModuleScript" referent="86">
             <Properties>
               <string name="Name">Trove</string>
               <string name="Source"><![CDATA[return require(script.Parent._Index["sleitnick_trove@1.8.0"]["trove"])
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="85">
+          <Item class="ModuleScript" referent="87">
             <Properties>
               <string name="Name">ZonePlus</string>
               <string name="Source"><![CDATA[return require(script.Parent._Index["mattschrubb_zoneplus@3.2.0"]["zoneplus"])
 ]]></string>
             </Properties>
           </Item>
-          <Item class="Folder" referent="86">
+          <Item class="Folder" referent="88">
             <Properties>
               <string name="Name">_Index</string>
             </Properties>
-            <Item class="Folder" referent="87">
+            <Item class="Folder" referent="89">
               <Properties>
                 <string name="Name">evaera_promise@4.0.0</string>
               </Properties>
-              <Item class="ModuleScript" referent="88">
+              <Item class="ModuleScript" referent="90">
                 <Properties>
                   <string name="Name">promise</string>
                   <string name="Source"><![CDATA[--[[
@@ -15942,18 +15387,18 @@ return Promise
                 </Properties>
               </Item>
             </Item>
-            <Item class="Folder" referent="89">
+            <Item class="Folder" referent="91">
               <Properties>
                 <string name="Name">howmanysmall_janitor@1.18.3</string>
               </Properties>
-              <Item class="ModuleScript" referent="90">
+              <Item class="ModuleScript" referent="92">
                 <Properties>
                   <string name="Name">Promise</string>
                   <string name="Source"><![CDATA[return require(script.Parent.Parent["howmanysmall_typed-promise@4.0.6"]["typed-promise"])
 ]]></string>
                 </Properties>
               </Item>
-              <Item class="ModuleScript" referent="91">
+              <Item class="ModuleScript" referent="93">
                 <Properties>
                   <string name="Name">janitor</string>
                   <string name="Source"><![CDATA[--!optimize 2
@@ -16957,7 +16402,7 @@ end
 return Janitor :: Static
 ]]></string>
                 </Properties>
-                <Item class="ModuleScript" referent="92">
+                <Item class="ModuleScript" referent="94">
                   <Properties>
                     <string name="Name">FastDefer</string>
                     <string name="Source"><![CDATA[--!native
@@ -16996,7 +16441,7 @@ return FastDefer
 ]]></string>
                   </Properties>
                 </Item>
-                <Item class="ModuleScript" referent="93">
+                <Item class="ModuleScript" referent="95">
                   <Properties>
                     <string name="Name">Promise</string>
                     <string name="Source"><![CDATA[--!optimize 2
@@ -17161,25 +16606,25 @@ return Promise :: PromiseStatic?
 ]]></string>
                   </Properties>
                 </Item>
-                <Item class="Folder" referent="94">
+                <Item class="Folder" referent="96">
                   <Properties>
                     <string name="Name">__tests__</string>
                   </Properties>
                 </Item>
               </Item>
             </Item>
-            <Item class="Folder" referent="95">
+            <Item class="Folder" referent="97">
               <Properties>
                 <string name="Name">howmanysmall_typed-promise@4.0.6</string>
               </Properties>
-              <Item class="ModuleScript" referent="96">
+              <Item class="ModuleScript" referent="98">
                 <Properties>
                   <string name="Name">Promise</string>
                   <string name="Source"><![CDATA[return require(script.Parent.Parent["evaera_promise@4.0.0"]["promise"])
 ]]></string>
                 </Properties>
               </Item>
-              <Item class="ModuleScript" referent="97">
+              <Item class="ModuleScript" referent="99">
                 <Properties>
                   <string name="Name">typed-promise</string>
                   <string name="Source"><![CDATA[--!optimize 2
@@ -17347,11 +16792,11 @@ return Promise :: PromiseStatic
                 </Properties>
               </Item>
             </Item>
-            <Item class="Folder" referent="98">
+            <Item class="Folder" referent="100">
               <Properties>
                 <string name="Name">mattschrubb_zoneplus@3.2.0</string>
               </Properties>
-              <Item class="ModuleScript" referent="99">
+              <Item class="ModuleScript" referent="101">
                 <Properties>
                   <string name="Name">zoneplus</string>
                   <string name="Source">-- LOCAL
@@ -18231,7 +17676,7 @@ Zone.Destroy = Zone.destroy
 
 return Zone</string>
                 </Properties>
-                <Item class="ModuleScript" referent="100">
+                <Item class="ModuleScript" referent="102">
                   <Properties>
                     <string name="Name">Enum</string>
                     <string name="Source"><![CDATA[-- Custom enum implementation that provides an effective way to compare, send
@@ -18351,7 +17796,7 @@ createEnum("Color", {
 return Enum
 ]]></string>
                   </Properties>
-                  <Item class="ModuleScript" referent="101">
+                  <Item class="ModuleScript" referent="103">
                     <Properties>
                       <string name="Name">Accuracy</string>
                       <string name="Source">-- enumName, enumValue, additionalProperty
@@ -18364,7 +17809,7 @@ return {
 }</string>
                     </Properties>
                   </Item>
-                  <Item class="ModuleScript" referent="102">
+                  <Item class="ModuleScript" referent="104">
                     <Properties>
                       <string name="Name">Detection</string>
                       <string name="Source">-- Important note: Precision checks currently only for 'players' and the 'localplayer', not 'parts'.
@@ -18378,7 +17823,7 @@ return {
                     </Properties>
                   </Item>
                 </Item>
-                <Item class="ModuleScript" referent="103">
+                <Item class="ModuleScript" referent="105">
                   <Properties>
                     <string name="Name">Janitor</string>
                     <string name="Source">-- Janitor
@@ -18722,7 +18167,7 @@ end
 return Janitor</string>
                   </Properties>
                 </Item>
-                <Item class="ModuleScript" referent="104">
+                <Item class="ModuleScript" referent="106">
                   <Properties>
                     <string name="Name">OldSignal</string>
                     <string name="Source">local HttpService = game:GetService("HttpService")
@@ -18837,7 +18282,7 @@ Signal.disconnect = Signal.Destroy
 return Signal</string>
                   </Properties>
                 </Item>
-                <Item class="ModuleScript" referent="105">
+                <Item class="ModuleScript" referent="107">
                   <Properties>
                     <string name="Name">Signal</string>
                     <string name="Source">--------------------------------------------------------------------------------
@@ -19020,13 +18465,13 @@ end
 return Signal</string>
                   </Properties>
                 </Item>
-                <Item class="ModuleScript" referent="106">
+                <Item class="ModuleScript" referent="108">
                   <Properties>
                     <string name="Name">VERSION</string>
                     <string name="Source">-- v3.2.0</string>
                   </Properties>
                 </Item>
-                <Item class="ModuleScript" referent="107">
+                <Item class="ModuleScript" referent="109">
                   <Properties>
                     <string name="Name">ZoneController</string>
                     <string name="Source">-- CONFIG
@@ -19564,7 +19009,7 @@ end
 
 return ZoneController</string>
                   </Properties>
-                  <Item class="ModuleScript" referent="108">
+                  <Item class="ModuleScript" referent="110">
                     <Properties>
                       <string name="Name">CollectiveWorldModel</string>
                       <string name="Source">local CollectiveWorldModel = {}
@@ -19616,7 +19061,7 @@ end
 return CollectiveWorldModel</string>
                     </Properties>
                   </Item>
-                  <Item class="ModuleScript" referent="109">
+                  <Item class="ModuleScript" referent="111">
                     <Properties>
                       <string name="Name">Tracker</string>
                       <string name="Source">-- This enables data on volumes, HumanoidRootParts, etc to be handled on an event-basis, instead of being retrieved every interval
@@ -19862,7 +19307,7 @@ return Tracker</string>
                     </Properties>
                   </Item>
                 </Item>
-                <Item class="ModuleScript" referent="110">
+                <Item class="ModuleScript" referent="112">
                   <Properties>
                     <string name="Name">ZonePlusReference</string>
                     <string name="Source">-- This module enables you to place Zone wherever you like within the data model while
@@ -19900,7 +19345,7 @@ end
 return ZonePlusReference</string>
                   </Properties>
                 </Item>
-                <Item class="ModuleScript" referent="111">
+                <Item class="ModuleScript" referent="113">
                   <Properties>
                     <string name="Name">wally</string>
                     <string name="Source">return {
@@ -19918,32 +19363,1337 @@ return ZonePlusReference</string>
                 </Item>
               </Item>
             </Item>
-            <Item class="Folder" referent="112">
+            <Item class="Folder" referent="114">
+              <Properties>
+                <string name="Name">osyrisrblx_t@3.1.1</string>
+              </Properties>
+              <Item class="ModuleScript" referent="115">
+                <Properties>
+                  <string name="Name">t</string>
+                  <string name="Source"><![CDATA[-- t: a runtime typechecker for Roblox
+
+local t = {}
+
+function t.type(typeName)
+	return function(value)
+		local valueType = type(value)
+		if valueType == typeName then
+			return true
+		else
+			return false, string.format("%s expected, got %s", typeName, valueType)
+		end
+	end
+end
+
+function t.typeof(typeName)
+	return function(value)
+		local valueType = typeof(value)
+		if valueType == typeName then
+			return true
+		else
+			return false, string.format("%s expected, got %s", typeName, valueType)
+		end
+	end
+end
+
+--[[**
+	matches any type except nil
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+function t.any(value)
+	if value ~= nil then
+		return true
+	else
+		return false, "any expected, got nil"
+	end
+end
+
+--Lua primitives
+
+--[[**
+	ensures Lua primitive boolean type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.boolean = t.typeof("boolean")
+
+--[[**
+	ensures Lua primitive buffer type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.buffer = t.typeof("buffer")
+
+--[[**
+	ensures Lua primitive thread type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.thread = t.typeof("thread")
+
+--[[**
+	ensures Lua primitive callback type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.callback = t.typeof("function")
+t["function"] = t.callback
+
+--[[**
+	ensures Lua primitive none type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.none = t.typeof("nil")
+t["nil"] = t.none
+
+--[[**
+	ensures Lua primitive string type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.string = t.typeof("string")
+
+--[[**
+	ensures Lua primitive table type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.table = t.typeof("table")
+
+--[[**
+	ensures Lua primitive userdata type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.userdata = t.type("userdata")
+
+--[[**
+	ensures Lua primitive vector type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.vector = t.type("vector")
+
+--[[**
+	ensures value is a number and non-NaN
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+function t.number(value)
+	local valueType = typeof(value)
+	if valueType == "number" then
+		if value == value then
+			return true
+		else
+			return false, "unexpected NaN value"
+		end
+	else
+		return false, string.format("number expected, got %s", valueType)
+	end
+end
+
+--[[**
+	ensures value is NaN
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+function t.nan(value)
+	local valueType = typeof(value)
+	if valueType == "number" then
+		if value ~= value then
+			return true
+		else
+			return false, "unexpected non-NaN value"
+		end
+	else
+		return false, string.format("number expected, got %s", valueType)
+	end
+end
+
+-- roblox types
+
+--[[**
+	ensures Roblox Axes type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.Axes = t.typeof("Axes")
+
+--[[**
+	ensures Roblox BrickColor type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.BrickColor = t.typeof("BrickColor")
+
+--[[**
+	ensures Roblox CatalogSearchParams type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.CatalogSearchParams = t.typeof("CatalogSearchParams")
+
+--[[**
+	ensures Roblox CFrame type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.CFrame = t.typeof("CFrame")
+
+--[[**
+	ensures Roblox Color3 type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.Color3 = t.typeof("Color3")
+
+--[[**
+	ensures Roblox ColorSequence type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.ColorSequence = t.typeof("ColorSequence")
+
+--[[**
+	ensures Roblox ColorSequenceKeypoint type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.ColorSequenceKeypoint = t.typeof("ColorSequenceKeypoint")
+
+--[[**
+	ensures Roblox DateTime type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.DateTime = t.typeof("DateTime")
+
+--[[**
+	ensures Roblox DockWidgetPluginGuiInfo type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.DockWidgetPluginGuiInfo = t.typeof("DockWidgetPluginGuiInfo")
+
+--[[**
+	ensures Roblox Enum type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.Enum = t.typeof("Enum")
+
+--[[**
+	ensures Roblox EnumItem type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.EnumItem = t.typeof("EnumItem")
+
+--[[**
+	ensures Roblox Enums type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.Enums = t.typeof("Enums")
+
+--[[**
+	ensures Roblox Faces type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.Faces = t.typeof("Faces")
+
+--[[**
+	ensures Roblox FloatCurveKey type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.FloatCurveKey = t.typeof("FloatCurveKey")
+
+--[[**
+	ensures Roblox Font type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.Font = t.typeof("Font")
+
+--[[**
+	ensures Roblox Instance type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.Instance = t.typeof("Instance")
+
+--[[**
+	ensures Roblox NumberRange type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.NumberRange = t.typeof("NumberRange")
+
+--[[**
+	ensures Roblox NumberSequence type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.NumberSequence = t.typeof("NumberSequence")
+
+--[[**
+	ensures Roblox NumberSequenceKeypoint type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.NumberSequenceKeypoint = t.typeof("NumberSequenceKeypoint")
+
+--[[**
+	ensures Roblox OverlapParams type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.OverlapParams = t.typeof("OverlapParams")
+
+--[[**
+	ensures Roblox PathWaypoint type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.PathWaypoint = t.typeof("PathWaypoint")
+
+--[[**
+	ensures Roblox PhysicalProperties type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.PhysicalProperties = t.typeof("PhysicalProperties")
+
+--[[**
+	ensures Roblox Random type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.Random = t.typeof("Random")
+
+--[[**
+	ensures Roblox Ray type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.Ray = t.typeof("Ray")
+
+--[[**
+	ensures Roblox RaycastParams type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.RaycastParams = t.typeof("RaycastParams")
+
+--[[**
+	ensures Roblox RaycastResult type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.RaycastResult = t.typeof("RaycastResult")
+
+--[[**
+	ensures Roblox RBXScriptConnection type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.RBXScriptConnection = t.typeof("RBXScriptConnection")
+
+--[[**
+	ensures Roblox RBXScriptSignal type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.RBXScriptSignal = t.typeof("RBXScriptSignal")
+
+--[[**
+	ensures Roblox Rect type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.Rect = t.typeof("Rect")
+
+--[[**
+	ensures Roblox Region3 type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.Region3 = t.typeof("Region3")
+
+--[[**
+	ensures Roblox Region3int16 type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.Region3int16 = t.typeof("Region3int16")
+
+--[[**
+	ensures Roblox TweenInfo type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.TweenInfo = t.typeof("TweenInfo")
+
+--[[**
+	ensures Roblox UDim type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.UDim = t.typeof("UDim")
+
+--[[**
+	ensures Roblox UDim2 type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.UDim2 = t.typeof("UDim2")
+
+--[[**
+	ensures Roblox Vector2 type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.Vector2 = t.typeof("Vector2")
+
+--[[**
+	ensures Roblox Vector2int16 type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.Vector2int16 = t.typeof("Vector2int16")
+
+--[[**
+	ensures Roblox Vector3 type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.Vector3 = t.typeof("Vector3")
+
+--[[**
+	ensures Roblox Vector3int16 type
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+t.Vector3int16 = t.typeof("Vector3int16")
+
+--[[**
+	ensures value is a given literal value
+
+	@param literal The literal to use
+
+	@returns A function that will return true iff the condition is passed
+**--]]
+function t.literal(...)
+	local size = select("#", ...)
+	if size == 1 then
+		local literal = ...
+		return function(value)
+			if value ~= literal then
+				return false, string.format("expected %s, got %s", tostring(literal), tostring(value))
+			end
+
+			return true
+		end
+	else
+		local literals = {}
+		for i = 1, size do
+			local value = select(i, ...)
+			literals[i] = t.literal(value)
+		end
+
+		return t.union(table.unpack(literals, 1, size))
+	end
+end
+
+--[[**
+	DEPRECATED
+	Please use t.literal
+**--]]
+t.exactly = t.literal
+
+--[[**
+	Returns a t.union of each key in the table as a t.literal
+
+	@param keyTable The table to get keys from
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+function t.keyOf(keyTable)
+	local keys = {}
+	local length = 0
+	for key in pairs(keyTable) do
+		length = length + 1
+		keys[length] = key
+	end
+
+	return t.literal(table.unpack(keys, 1, length))
+end
+
+--[[**
+	Returns a t.union of each value in the table as a t.literal
+
+	@param valueTable The table to get values from
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+function t.valueOf(valueTable)
+	local values = {}
+	local length = 0
+	for _, value in pairs(valueTable) do
+		length = length + 1
+		values[length] = value
+	end
+
+	return t.literal(table.unpack(values, 1, length))
+end
+
+--[[**
+	ensures value is an integer
+
+	@param value The value to check against
+
+	@returns True iff the condition is satisfied, false otherwise
+**--]]
+function t.integer(value)
+	local success, errMsg = t.number(value)
+	if not success then
+		return false, errMsg or ""
+	end
+
+	if value % 1 == 0 then
+		return true
+	else
+		return false, string.format("integer expected, got %s", value)
+	end
+end
+
+--[[**
+	ensures value is a number where min <= value
+
+	@param min The minimum to use
+
+	@returns A function that will return true iff the condition is passed
+**--]]
+function t.numberMin(min)
+	return function(value)
+		local success, errMsg = t.number(value)
+		if not success then
+			return false, errMsg or ""
+		end
+
+		if value >= min then
+			return true
+		else
+			return false, string.format("number >= %s expected, got %s", min, value)
+		end
+	end
+end
+
+--[[**
+	ensures value is a number where value <= max
+
+	@param max The maximum to use
+
+	@returns A function that will return true iff the condition is passed
+**--]]
+function t.numberMax(max)
+	return function(value)
+		local success, errMsg = t.number(value)
+		if not success then
+			return false, errMsg
+		end
+
+		if value <= max then
+			return true
+		else
+			return false, string.format("number <= %s expected, got %s", max, value)
+		end
+	end
+end
+
+--[[**
+	ensures value is a number where min < value
+
+	@param min The minimum to use
+
+	@returns A function that will return true iff the condition is passed
+**--]]
+function t.numberMinExclusive(min)
+	return function(value)
+		local success, errMsg = t.number(value)
+		if not success then
+			return false, errMsg or ""
+		end
+
+		if min < value then
+			return true
+		else
+			return false, string.format("number > %s expected, got %s", min, value)
+		end
+	end
+end
+
+--[[**
+	ensures value is a number where value < max
+
+	@param max The maximum to use
+
+	@returns A function that will return true iff the condition is passed
+**--]]
+function t.numberMaxExclusive(max)
+	return function(value)
+		local success, errMsg = t.number(value)
+		if not success then
+			return false, errMsg or ""
+		end
+
+		if value < max then
+			return true
+		else
+			return false, string.format("number < %s expected, got %s", max, value)
+		end
+	end
+end
+
+--[[**
+	ensures value is a number where value > 0
+
+	@returns A function that will return true iff the condition is passed
+**--]]
+t.numberPositive = t.numberMinExclusive(0)
+
+--[[**
+	ensures value is a number where value < 0
+
+	@returns A function that will return true iff the condition is passed
+**--]]
+t.numberNegative = t.numberMaxExclusive(0)
+
+--[[**
+	ensures value is a number where min <= value <= max
+
+	@param min The minimum to use
+	@param max The maximum to use
+
+	@returns A function that will return true iff the condition is passed
+**--]]
+function t.numberConstrained(min, max)
+	assert(t.number(min))
+	assert(t.number(max))
+	local minCheck = t.numberMin(min)
+	local maxCheck = t.numberMax(max)
+
+	return function(value)
+		local minSuccess, minErrMsg = minCheck(value)
+		if not minSuccess then
+			return false, minErrMsg or ""
+		end
+
+		local maxSuccess, maxErrMsg = maxCheck(value)
+		if not maxSuccess then
+			return false, maxErrMsg or ""
+		end
+
+		return true
+	end
+end
+
+--[[**
+	ensures value is a number where min < value < max
+
+	@param min The minimum to use
+	@param max The maximum to use
+
+	@returns A function that will return true iff the condition is passed
+**--]]
+function t.numberConstrainedExclusive(min, max)
+	assert(t.number(min))
+	assert(t.number(max))
+	local minCheck = t.numberMinExclusive(min)
+	local maxCheck = t.numberMaxExclusive(max)
+
+	return function(value)
+		local minSuccess, minErrMsg = minCheck(value)
+		if not minSuccess then
+			return false, minErrMsg or ""
+		end
+
+		local maxSuccess, maxErrMsg = maxCheck(value)
+		if not maxSuccess then
+			return false, maxErrMsg or ""
+		end
+
+		return true
+	end
+end
+
+--[[**
+	ensures value matches string pattern
+
+	@param string pattern to check against
+
+	@returns A function that will return true iff the condition is passed
+**--]]
+function t.match(pattern)
+	assert(t.string(pattern))
+	return function(value)
+		local stringSuccess, stringErrMsg = t.string(value)
+		if not stringSuccess then
+			return false, stringErrMsg
+		end
+
+		if string.match(value, pattern) == nil then
+			return false, string.format("%q failed to match pattern %q", value, pattern)
+		end
+
+		return true
+	end
+end
+
+--[[**
+	ensures value is either nil or passes check
+
+	@param check The check to use
+
+	@returns A function that will return true iff the condition is passed
+**--]]
+function t.optional(check)
+	assert(t.callback(check))
+	return function(value)
+		if value == nil then
+			return true
+		end
+
+		local success, errMsg = check(value)
+		if success then
+			return true
+		else
+			return false, string.format("(optional) %s", errMsg or "")
+		end
+	end
+end
+
+--[[**
+	matches given tuple against tuple type definition
+
+	@param ... The type definition for the tuples
+
+	@returns A function that will return true iff the condition is passed
+**--]]
+function t.tuple(...)
+	local checks = { ... }
+	return function(...)
+		local args = { ... }
+		for i, check in ipairs(checks) do
+			local success, errMsg = check(args[i])
+			if success == false then
+				return false, string.format("Bad tuple index #%s:\n\t%s", i, errMsg or "")
+			end
+		end
+
+		return true
+	end
+end
+
+--[[**
+	ensures all keys in given table pass check
+
+	@param check The function to use to check the keys
+
+	@returns A function that will return true iff the condition is passed
+**--]]
+function t.keys(check)
+	assert(t.callback(check))
+	return function(value)
+		local tableSuccess, tableErrMsg = t.table(value)
+		if tableSuccess == false then
+			return false, tableErrMsg or ""
+		end
+
+		for key in pairs(value) do
+			local success, errMsg = check(key)
+			if success == false then
+				return false, string.format("bad key %s:\n\t%s", tostring(key), errMsg or "")
+			end
+		end
+
+		return true
+	end
+end
+
+--[[**
+	ensures all values in given table pass check
+
+	@param check The function to use to check the values
+
+	@returns A function that will return true iff the condition is passed
+**--]]
+function t.values(check)
+	assert(t.callback(check))
+	return function(value)
+		local tableSuccess, tableErrMsg = t.table(value)
+		if tableSuccess == false then
+			return false, tableErrMsg or ""
+		end
+
+		for key, val in pairs(value) do
+			local success, errMsg = check(val)
+			if success == false then
+				return false, string.format("bad value for key %s:\n\t%s", tostring(key), errMsg or "")
+			end
+		end
+
+		return true
+	end
+end
+
+--[[**
+	ensures value is a table and all keys pass keyCheck and all values pass valueCheck
+
+	@param keyCheck The function to use to check the keys
+	@param valueCheck The function to use to check the values
+
+	@returns A function that will return true iff the condition is passed
+**--]]
+function t.map(keyCheck, valueCheck)
+	assert(t.callback(keyCheck))
+	assert(t.callback(valueCheck))
+	local keyChecker = t.keys(keyCheck)
+	local valueChecker = t.values(valueCheck)
+
+	return function(value)
+		local keySuccess, keyErr = keyChecker(value)
+		if not keySuccess then
+			return false, keyErr or ""
+		end
+
+		local valueSuccess, valueErr = valueChecker(value)
+		if not valueSuccess then
+			return false, valueErr or ""
+		end
+
+		return true
+	end
+end
+
+--[[**
+	ensures value is a table and all keys pass valueCheck and all values are true
+
+	@param valueCheck The function to use to check the values
+
+	@returns A function that will return true iff the condition is passed
+**--]]
+function t.set(valueCheck)
+	return t.map(valueCheck, t.literal(true))
+end
+
+do
+	local arrayKeysCheck = t.keys(t.integer)
+--[[**
+		ensures value is an array and all values of the array match check
+
+		@param check The check to compare all values with
+
+		@returns A function that will return true iff the condition is passed
+	**--]]
+	function t.array(check)
+		assert(t.callback(check))
+		local valuesCheck = t.values(check)
+
+		return function(value)
+			local keySuccess, keyErrMsg = arrayKeysCheck(value)
+			if keySuccess == false then
+				return false, string.format("[array] %s", keyErrMsg or "")
+			end
+
+			-- # is unreliable for sparse arrays
+			-- Count upwards using ipairs to avoid false positives from the behavior of #
+			local arraySize = 0
+
+			for _ in ipairs(value) do
+				arraySize = arraySize + 1
+			end
+
+			for key in pairs(value) do
+				if key < 1 or key > arraySize then
+					return false, string.format("[array] key %s must be sequential", tostring(key))
+				end
+			end
+
+			local valueSuccess, valueErrMsg = valuesCheck(value)
+			if not valueSuccess then
+				return false, string.format("[array] %s", valueErrMsg or "")
+			end
+
+			return true
+		end
+	end
+
+--[[**
+		ensures value is an array of a strict makeup and size
+
+		@param check The check to compare all values with
+
+		@returns A function that will return true iff the condition is passed
+	**--]]
+	function t.strictArray(...)
+		local valueTypes = { ... }
+		assert(t.array(t.callback)(valueTypes))
+
+		return function(value)
+			local keySuccess, keyErrMsg = arrayKeysCheck(value)
+			if keySuccess == false then
+				return false, string.format("[strictArray] %s", keyErrMsg or "")
+			end
+
+			-- If there's more than the set array size, disallow
+			if #valueTypes < #value then
+				return false, string.format("[strictArray] Array size exceeds limit of %d", #valueTypes)
+			end
+
+			for idx, typeFn in pairs(valueTypes) do
+				local typeSuccess, typeErrMsg = typeFn(value[idx])
+				if not typeSuccess then
+					return false, string.format("[strictArray] Array index #%d - %s", idx, typeErrMsg)
+				end
+			end
+
+			return true
+		end
+	end
+end
+
+do
+	local callbackArray = t.array(t.callback)
+--[[**
+		creates a union type
+
+		@param ... The checks to union
+
+		@returns A function that will return true iff the condition is passed
+	**--]]
+	function t.union(...)
+		local checks = { ... }
+		assert(callbackArray(checks))
+
+		return function(value)
+			for _, check in ipairs(checks) do
+				if check(value) then
+					return true
+				end
+			end
+
+			return false, "bad type for union"
+		end
+	end
+
+--[[**
+		Alias for t.union
+	**--]]
+	t.some = t.union
+
+--[[**
+		creates an intersection type
+
+		@param ... The checks to intersect
+
+		@returns A function that will return true iff the condition is passed
+	**--]]
+	function t.intersection(...)
+		local checks = { ... }
+		assert(callbackArray(checks))
+
+		return function(value)
+			for _, check in ipairs(checks) do
+				local success, errMsg = check(value)
+				if not success then
+					return false, errMsg or ""
+				end
+			end
+
+			return true
+		end
+	end
+
+--[[**
+		Alias for t.intersection
+	**--]]
+	t.every = t.intersection
+end
+
+do
+	local checkInterface = t.map(t.any, t.callback)
+--[[**
+		ensures value matches given interface definition
+
+		@param checkTable The interface definition
+
+		@returns A function that will return true iff the condition is passed
+	**--]]
+	function t.interface(checkTable)
+		assert(checkInterface(checkTable))
+		return function(value)
+			local tableSuccess, tableErrMsg = t.table(value)
+			if tableSuccess == false then
+				return false, tableErrMsg or ""
+			end
+
+			for key, check in pairs(checkTable) do
+				local success, errMsg = check(value[key])
+				if success == false then
+					return false, string.format("[interface] bad value for %s:\n\t%s", tostring(key), errMsg or "")
+				end
+			end
+
+			return true
+		end
+	end
+
+--[[**
+		ensures value matches given interface definition strictly
+
+		@param checkTable The interface definition
+
+		@returns A function that will return true iff the condition is passed
+	**--]]
+	function t.strictInterface(checkTable)
+		assert(checkInterface(checkTable))
+		return function(value)
+			local tableSuccess, tableErrMsg = t.table(value)
+			if tableSuccess == false then
+				return false, tableErrMsg or ""
+			end
+
+			for key, check in pairs(checkTable) do
+				local success, errMsg = check(value[key])
+				if success == false then
+					return false, string.format("[interface] bad value for %s:\n\t%s", tostring(key), errMsg or "")
+				end
+			end
+
+			for key in pairs(value) do
+				if not checkTable[key] then
+					return false, string.format("[interface] unexpected field %q", tostring(key))
+				end
+			end
+
+			return true
+		end
+	end
+end
+
+--[[**
+	ensure value is an Instance and it's ClassName matches the given ClassName
+
+	@param className The class name to check for
+
+	@returns A function that will return true iff the condition is passed
+**--]]
+function t.instanceOf(className, childTable)
+	assert(t.string(className))
+
+	local childrenCheck
+	if childTable ~= nil then
+		childrenCheck = t.children(childTable)
+	end
+
+	return function(value)
+		local instanceSuccess, instanceErrMsg = t.Instance(value)
+		if not instanceSuccess then
+			return false, instanceErrMsg or ""
+		end
+
+		if value.ClassName ~= className then
+			return false, string.format("%s expected, got %s", className, value.ClassName)
+		end
+
+		if childrenCheck then
+			local childrenSuccess, childrenErrMsg = childrenCheck(value)
+			if not childrenSuccess then
+				return false, childrenErrMsg
+			end
+		end
+
+		return true
+	end
+end
+
+t.instance = t.instanceOf
+
+--[[**
+	ensure value is an Instance and it's ClassName matches the given ClassName by an IsA comparison
+
+	@param className The class name to check for
+
+	@returns A function that will return true iff the condition is passed
+**--]]
+function t.instanceIsA(className, childTable)
+	assert(t.string(className))
+
+	local childrenCheck
+	if childTable ~= nil then
+		childrenCheck = t.children(childTable)
+	end
+
+	return function(value)
+		local instanceSuccess, instanceErrMsg = t.Instance(value)
+		if not instanceSuccess then
+			return false, instanceErrMsg or ""
+		end
+
+		if not value:IsA(className) then
+			return false, string.format("%s expected, got %s", className, value.ClassName)
+		end
+
+		if childrenCheck then
+			local childrenSuccess, childrenErrMsg = childrenCheck(value)
+			if not childrenSuccess then
+				return false, childrenErrMsg
+			end
+		end
+
+		return true
+	end
+end
+
+--[[**
+	ensures value is an enum of the correct type
+
+	@param enum The enum to check
+
+	@returns A function that will return true iff the condition is passed
+**--]]
+function t.enum(enum)
+	assert(t.Enum(enum))
+	return function(value)
+		local enumItemSuccess, enumItemErrMsg = t.EnumItem(value)
+		if not enumItemSuccess then
+			return false, enumItemErrMsg
+		end
+
+		if value.EnumType == enum then
+			return true
+		else
+			return false, string.format("enum of %s expected, got enum of %s", tostring(enum), tostring(value.EnumType))
+		end
+	end
+end
+
+do
+	local checkWrap = t.tuple(t.callback, t.callback)
+
+--[[**
+		wraps a callback in an assert with checkArgs
+
+		@param callback The function to wrap
+		@param checkArgs The function to use to check arguments in the assert
+
+		@returns A function that first asserts using checkArgs and then calls callback
+	**--]]
+	function t.wrap(callback, checkArgs)
+		assert(checkWrap(callback, checkArgs))
+		return function(...)
+			assert(checkArgs(...))
+			return callback(...)
+		end
+	end
+end
+
+--[[**
+	asserts a given check
+
+	@param check The function to wrap with an assert
+
+	@returns A function that simply wraps the given check in an assert
+**--]]
+function t.strict(check)
+	return function(...)
+		assert(check(...))
+	end
+end
+
+do
+	local checkChildren = t.map(t.string, t.callback)
+
+--[[**
+		Takes a table where keys are child names and values are functions to check the children against.
+		Pass an instance tree into the function.
+		If at least one child passes each check, the overall check passes.
+
+		Warning! If you pass in a tree with more than one child of the same name, this function will always return false
+
+		@param checkTable The table to check against
+
+		@returns A function that checks an instance tree
+	**--]]
+	function t.children(checkTable)
+		assert(checkChildren(checkTable))
+
+		return function(value)
+			local instanceSuccess, instanceErrMsg = t.Instance(value)
+			if not instanceSuccess then
+				return false, instanceErrMsg or ""
+			end
+
+			local childrenByName = {}
+			for _, child in ipairs(value:GetChildren()) do
+				local name = child.Name
+				if checkTable[name] then
+					if childrenByName[name] then
+						return false, string.format("Cannot process multiple children with the same name %q", name)
+					end
+
+					childrenByName[name] = child
+				end
+			end
+
+			for name, check in pairs(checkTable) do
+				local success, errMsg = check(childrenByName[name])
+				if not success then
+					return false, string.format("[%s.%s] %s", value:GetFullName(), name, errMsg or "")
+				end
+			end
+
+			return true
+		end
+	end
+end
+
+return t
+]]></string>
+                </Properties>
+              </Item>
+            </Item>
+            <Item class="Folder" referent="116">
               <Properties>
                 <string name="Name">sleitnick_comm@1.0.1</string>
               </Properties>
-              <Item class="ModuleScript" referent="113">
+              <Item class="ModuleScript" referent="117">
                 <Properties>
                   <string name="Name">Option</string>
                   <string name="Source"><![CDATA[return require(script.Parent.Parent["sleitnick_option@1.0.5"]["option"])
 ]]></string>
                 </Properties>
               </Item>
-              <Item class="ModuleScript" referent="114">
+              <Item class="ModuleScript" referent="118">
                 <Properties>
                   <string name="Name">Promise</string>
                   <string name="Source"><![CDATA[return require(script.Parent.Parent["evaera_promise@4.0.0"]["promise"])
 ]]></string>
                 </Properties>
               </Item>
-              <Item class="ModuleScript" referent="115">
+              <Item class="ModuleScript" referent="119">
                 <Properties>
                   <string name="Name">Signal</string>
                   <string name="Source"><![CDATA[return require(script.Parent.Parent["sleitnick_signal@2.0.3"]["signal"])
 ]]></string>
                 </Properties>
               </Item>
-              <Item class="ModuleScript" referent="116">
+              <Item class="ModuleScript" referent="120">
                 <Properties>
                   <string name="Name">comm</string>
                   <string name="Source"><![CDATA[-- Comm
@@ -19983,7 +20733,7 @@ local Comm = {
 return Comm
 ]]></string>
                 </Properties>
-                <Item class="ModuleScript" referent="117">
+                <Item class="ModuleScript" referent="121">
                   <Properties>
                     <string name="Name">Client</string>
                     <string name="Source"><![CDATA[local Util = require(script.Parent.Util)
@@ -20123,7 +20873,7 @@ end
 return Client
 ]]></string>
                   </Properties>
-                  <Item class="ModuleScript" referent="118">
+                  <Item class="ModuleScript" referent="122">
                     <Properties>
                       <string name="Name">ClientComm</string>
                       <string name="Source"><![CDATA[-- ClientComm
@@ -20361,7 +21111,7 @@ return ClientComm
 ]]></string>
                     </Properties>
                   </Item>
-                  <Item class="ModuleScript" referent="119">
+                  <Item class="ModuleScript" referent="123">
                     <Properties>
                       <string name="Name">ClientRemoteProperty</string>
                       <string name="Source"><![CDATA[-- ClientRemoteProperty
@@ -20523,7 +21273,7 @@ return ClientRemoteProperty
 ]]></string>
                     </Properties>
                   </Item>
-                  <Item class="ModuleScript" referent="120">
+                  <Item class="ModuleScript" referent="124">
                     <Properties>
                       <string name="Name">ClientRemoteSignal</string>
                       <string name="Source"><![CDATA[-- ClientRemoteSignal
@@ -20639,7 +21389,7 @@ return ClientRemoteSignal
                     </Properties>
                   </Item>
                 </Item>
-                <Item class="ModuleScript" referent="121">
+                <Item class="ModuleScript" referent="125">
                   <Properties>
                     <string name="Name">Server</string>
                     <string name="Source"><![CDATA[local RemoteProperty = require(script.RemoteProperty)
@@ -20784,7 +21534,7 @@ end
 return Server
 ]]></string>
                   </Properties>
-                  <Item class="ModuleScript" referent="122">
+                  <Item class="ModuleScript" referent="126">
                     <Properties>
                       <string name="Name">RemoteProperty</string>
                       <string name="Source"><![CDATA[-- RemoteProperty
@@ -21085,7 +21835,7 @@ return RemoteProperty
 ]]></string>
                     </Properties>
                   </Item>
-                  <Item class="ModuleScript" referent="123">
+                  <Item class="ModuleScript" referent="127">
                     <Properties>
                       <string name="Name">RemoteSignal</string>
                       <string name="Source"><![CDATA[-- RemoteSignal
@@ -21302,7 +22052,7 @@ return RemoteSignal
 ]]></string>
                     </Properties>
                   </Item>
-                  <Item class="ModuleScript" referent="124">
+                  <Item class="ModuleScript" referent="128">
                     <Properties>
                       <string name="Name">ServerComm</string>
                       <string name="Source"><![CDATA[-- ServerComm
@@ -21520,7 +22270,7 @@ return ServerComm
                     </Properties>
                   </Item>
                 </Item>
-                <Item class="ModuleScript" referent="125">
+                <Item class="ModuleScript" referent="129">
                   <Properties>
                     <string name="Name">Types</string>
                     <string name="Source"><![CDATA[-- Types
@@ -21544,7 +22294,7 @@ return nil
 ]]></string>
                   </Properties>
                 </Item>
-                <Item class="ModuleScript" referent="126">
+                <Item class="ModuleScript" referent="130">
                   <Properties>
                     <string name="Name">Util</string>
                     <string name="Source"><![CDATA[local RunService = game:GetService("RunService")
@@ -21577,7 +22327,7 @@ return Util
 ]]></string>
                   </Properties>
                 </Item>
-                <Item class="ModuleScript" referent="127">
+                <Item class="ModuleScript" referent="131">
                   <Properties>
                     <string name="Name">wally</string>
                     <string name="Source">return {
@@ -21600,39 +22350,39 @@ return Util
                 </Item>
               </Item>
             </Item>
-            <Item class="Folder" referent="128">
+            <Item class="Folder" referent="132">
               <Properties>
                 <string name="Name">sleitnick_component@2.4.8</string>
               </Properties>
-              <Item class="ModuleScript" referent="129">
+              <Item class="ModuleScript" referent="133">
                 <Properties>
                   <string name="Name">Promise</string>
                   <string name="Source"><![CDATA[return require(script.Parent.Parent["evaera_promise@4.0.0"]["promise"])
 ]]></string>
                 </Properties>
               </Item>
-              <Item class="ModuleScript" referent="130">
+              <Item class="ModuleScript" referent="134">
                 <Properties>
                   <string name="Name">Signal</string>
                   <string name="Source"><![CDATA[return require(script.Parent.Parent["sleitnick_signal@2.0.3"]["signal"])
 ]]></string>
                 </Properties>
               </Item>
-              <Item class="ModuleScript" referent="131">
+              <Item class="ModuleScript" referent="135">
                 <Properties>
                   <string name="Name">Symbol</string>
                   <string name="Source"><![CDATA[return require(script.Parent.Parent["sleitnick_symbol@2.0.1"]["symbol"])
 ]]></string>
                 </Properties>
               </Item>
-              <Item class="ModuleScript" referent="132">
+              <Item class="ModuleScript" referent="136">
                 <Properties>
                   <string name="Name">Trove</string>
                   <string name="Source"><![CDATA[return require(script.Parent.Parent["sleitnick_trove@1.8.0"]["trove"])
 ]]></string>
                 </Properties>
               </Item>
-              <Item class="ModuleScript" referent="133">
+              <Item class="ModuleScript" referent="137">
                 <Properties>
                   <string name="Name">component</string>
                   <string name="Source"><![CDATA[-- Component
@@ -22396,7 +23146,7 @@ end
 return Component
 ]]></string>
                 </Properties>
-                <Item class="ModuleScript" referent="134">
+                <Item class="ModuleScript" referent="138">
                   <Properties>
                     <string name="Name">wally</string>
                     <string name="Source">return {
@@ -22420,11 +23170,11 @@ return Component
                 </Item>
               </Item>
             </Item>
-            <Item class="Folder" referent="135">
+            <Item class="Folder" referent="139">
               <Properties>
                 <string name="Name">sleitnick_option@1.0.5</string>
               </Properties>
-              <Item class="ModuleScript" referent="136">
+              <Item class="ModuleScript" referent="140">
                 <Properties>
                   <string name="Name">option</string>
                   <string name="Source"><![CDATA[-- Option
@@ -22918,7 +23668,7 @@ return (Option :: any) :: {
 }
 ]]></string>
                 </Properties>
-                <Item class="ModuleScript" referent="137">
+                <Item class="ModuleScript" referent="141">
                   <Properties>
                     <string name="Name">wally</string>
                     <string name="Source">return {
@@ -22936,11 +23686,11 @@ return (Option :: any) :: {
                 </Item>
               </Item>
             </Item>
-            <Item class="Folder" referent="138">
+            <Item class="Folder" referent="142">
               <Properties>
                 <string name="Name">sleitnick_signal@2.0.3</string>
               </Properties>
-              <Item class="ModuleScript" referent="139">
+              <Item class="ModuleScript" referent="143">
                 <Properties>
                   <string name="Name">signal</string>
                   <string name="Source"><![CDATA[-- -----------------------------------------------------------------------------
@@ -23377,7 +24127,7 @@ return table.freeze({
 })
 ]]></string>
                 </Properties>
-                <Item class="ModuleScript" referent="140">
+                <Item class="ModuleScript" referent="144">
                   <Properties>
                     <string name="Name">wally</string>
                     <string name="Source">return {
@@ -23396,11 +24146,152 @@ return table.freeze({
                 </Item>
               </Item>
             </Item>
-            <Item class="Folder" referent="141">
+            <Item class="Folder" referent="145">
+              <Properties>
+                <string name="Name">sleitnick_spring@1.0.0</string>
+              </Properties>
+              <Item class="ModuleScript" referent="146">
+                <Properties>
+                  <string name="Name">spring</string>
+                  <string name="Source"><![CDATA[--!strict
+
+--[=[
+	@class Spring
+
+	Simulates a critically damped spring. This is mostly just a wrapper around
+	[`TweenService:SmoothDamp()`](https://create.roblox.com/docs/reference/engine/classes/TweenService#SmoothDamp).
+]=]
+
+local TweenService = game:GetService("TweenService")
+
+local Spring = {}
+Spring.__index = Spring
+
+export type Spring<T> = typeof(setmetatable(
+	{} :: {
+		Current: T,
+		Target: T,
+		Velocity: T,
+		SmoothTime: number,
+		MaxSpeed: number,
+	},
+	Spring
+))
+
+--[=[
+	Creates a new spring.
+
+	The type `T` can be a `number`, `Vector2`, `Vector3`, or `CFrame`.
+
+	@param initial T -- Initial value
+	@param smoothTime number -- Approximate time it takes to reach target
+	@param maxSpeed number -- Maximum speed (defaults to infinity)
+]=]
+function Spring.new<T>(initial: T, smoothTime: number, maxSpeed: number?): Spring<T>
+	local self = setmetatable({
+		Current = initial,
+		Target = initial,
+		Velocity = if typeof(initial) == "CFrame" then CFrame.identity else (initial :: any) * 0,
+		SmoothTime = smoothTime,
+		MaxSpeed = if maxSpeed ~= nil then maxSpeed else math.huge,
+	}, Spring)
+
+	return self
+end
+
+--[=[
+	@within Spring
+	@method Update
+
+	Updates the spring. This method should be called continuously, even if the target value hasn't changed.
+
+	```lua
+	local newValue = spring:Update(dt)
+	```
+
+	@param deltaTime number
+	@return T
+]=]
+function Spring.Update<T>(self: Spring<T>, dt: number): T
+	self.Current, self.Velocity =
+		TweenService:SmoothDamp(self.Current, self.Target, self.Velocity, self.SmoothTime, self.MaxSpeed, dt)
+
+	return self.Current
+end
+
+--[=[
+	@within Spring
+	@method Impulse
+
+	Impulses the spring.
+
+	```lua
+	spring:Impulse(rng:NextUnitVector() * 10)
+	```
+
+	@param velocity T
+]=]
+function Spring.Impulse<T>(self: Spring<T>, velocity: T)
+	self.Velocity += velocity :: any
+end
+
+--[=[
+	@within Spring
+	@method Reset
+
+	Resets the spring to the given value.
+
+	@param value T
+]=]
+function Spring.Reset<T>(self: Spring<T>, value: T)
+	self.Current = value
+	self.Target = value
+	self.Velocity = if typeof(self.Current) == "CFrame" then CFrame.identity else (self.Current :: any) * 0
+end
+
+return Spring
+]]></string>
+                </Properties>
+                <Item class="ModuleScript" referent="147">
+                  <Properties>
+                    <string name="Name">package</string>
+                    <string name="Source">return {
+	files = {"./*", "!*.toml", "!*.json", "!*.test.luau"},
+	license = "MIT",
+	main = "init.luau",
+	name = "@rbxutil/spring",
+	publishConfig = {
+		access = "public",
+	},
+	repository = "github:Sleitnick/RbxUtil",
+	types = "index.d.ts",
+	version = "1.0.0",
+}</string>
+                  </Properties>
+                </Item>
+                <Item class="ModuleScript" referent="148">
+                  <Properties>
+                    <string name="Name">wally</string>
+                    <string name="Source">return {
+	package = {
+		authors = {"Stephen Leitnick"},
+		description = "Critically damped spring",
+		license = "MIT",
+		name = "sleitnick/spring",
+		realm = "shared",
+		registry = "https://github.com/UpliftGames/wally-index",
+		version = "1.0.0",
+	},
+}</string>
+                  </Properties>
+                </Item>
+              </Item>
+            </Item>
+            <Item class="Folder" referent="149">
               <Properties>
                 <string name="Name">sleitnick_symbol@2.0.1</string>
               </Properties>
-              <Item class="ModuleScript" referent="142">
+              <Item class="ModuleScript" referent="150">
                 <Properties>
                   <string name="Name">symbol</string>
                   <string name="Source"><![CDATA[-- Symbol
@@ -23461,7 +24352,7 @@ end
 return Symbol
 ]]></string>
                 </Properties>
-                <Item class="ModuleScript" referent="143">
+                <Item class="ModuleScript" referent="151">
                   <Properties>
                     <string name="Name">wally</string>
                     <string name="Source">return {
@@ -23479,11 +24370,11 @@ return Symbol
                 </Item>
               </Item>
             </Item>
-            <Item class="Folder" referent="144">
+            <Item class="Folder" referent="152">
               <Properties>
                 <string name="Name">sleitnick_table-util@1.2.1</string>
               </Properties>
-              <Item class="ModuleScript" referent="145">
+              <Item class="ModuleScript" referent="153">
                 <Properties>
                   <string name="Name">table-util</string>
                   <string name="Source"><![CDATA[--!strict
@@ -24412,7 +25303,7 @@ TableUtil.DecodeJSON = DecodeJSON
 return TableUtil
 ]]></string>
                 </Properties>
-                <Item class="ModuleScript" referent="146">
+                <Item class="ModuleScript" referent="154">
                   <Properties>
                     <string name="Name">wally</string>
                     <string name="Source">return {
@@ -24430,11 +25321,11 @@ return TableUtil
                 </Item>
               </Item>
             </Item>
-            <Item class="Folder" referent="147">
+            <Item class="Folder" referent="155">
               <Properties>
                 <string name="Name">sleitnick_trove@1.8.0</string>
               </Properties>
-              <Item class="ModuleScript" referent="148">
+              <Item class="ModuleScript" referent="156">
                 <Properties>
                   <string name="Name">trove</string>
                   <string name="Source"><![CDATA[--!strict
@@ -25226,7 +26117,7 @@ return {
 }
 ]]></string>
                 </Properties>
-                <Item class="ModuleScript" referent="149">
+                <Item class="ModuleScript" referent="157">
                   <Properties>
                     <string name="Name">wally</string>
                     <string name="Source">return {
@@ -25248,11 +26139,11 @@ return {
         </Item>
       </Item>
     </Item>
-    <Item class="ServerScriptService" referent="150">
+    <Item class="ServerScriptService" referent="158">
       <Properties>
         <string name="Name">ServerScriptService</string>
       </Properties>
-      <Item class="Script" referent="151">
+      <Item class="Script" referent="159">
         <Properties>
           <string name="Name">Gaxia_ServerBootstrap</string>
           <token name="RunContext">0</token>
@@ -25396,11 +26287,11 @@ print("[Gaxia_ServerBootstrap] complete — services + AntiCheat online")
         </Properties>
       </Item>
     </Item>
-    <Item class="ServerStorage" referent="152">
+    <Item class="ServerStorage" referent="160">
       <Properties>
         <string name="Name">ServerStorage</string>
       </Properties>
-      <Item class="ModuleScript" referent="153">
+      <Item class="ModuleScript" referent="161">
         <Properties>
           <string name="Name">Gaxia_Packages_Server</string>
           <string name="Source"><![CDATA[--!strict
@@ -25761,7 +26652,7 @@ end
 return buildGaxiaServer() :: GaxiaServerPackage
 ]]></string>
         </Properties>
-        <Item class="ModuleScript" referent="154">
+        <Item class="ModuleScript" referent="162">
           <Properties>
             <string name="Name">AntiCheat</string>
             <string name="Source"><![CDATA[--!strict
@@ -26187,7 +27078,7 @@ end
 return AntiCheat
 ]]></string>
           </Properties>
-          <Item class="ModuleScript" referent="155">
+          <Item class="ModuleScript" referent="163">
             <Properties>
               <string name="Name">AnimationGuard</string>
               <string name="Source"><![CDATA[--!strict
@@ -26332,7 +27223,7 @@ return AnimationGuard
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="156">
+          <Item class="ModuleScript" referent="164">
             <Properties>
               <string name="Name">BackpackGuard</string>
               <string name="Source"><![CDATA[--!strict
@@ -26467,7 +27358,7 @@ return BackpackGuard
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="157">
+          <Item class="ModuleScript" referent="165">
             <Properties>
               <string name="Name">CombatGuard</string>
               <string name="Source"><![CDATA[--!strict
@@ -26592,7 +27483,7 @@ return CombatGuard
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="158">
+          <Item class="ModuleScript" referent="166">
             <Properties>
               <string name="Name">ExploitSignatureScanner</string>
               <string name="Source"><![CDATA[--!strict
@@ -26676,7 +27567,7 @@ return ExploitSignatureScanner
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="159">
+          <Item class="ModuleScript" referent="167">
             <Properties>
               <string name="Name">FlyDetector</string>
               <string name="Source"><![CDATA[--!strict
@@ -26750,7 +27641,7 @@ return FlyDetector
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="160">
+          <Item class="ModuleScript" referent="168">
             <Properties>
               <string name="Name">HeartbeatGuard</string>
               <string name="Source"><![CDATA[--!strict
@@ -26850,7 +27741,7 @@ return HeartbeatGuard
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="161">
+          <Item class="ModuleScript" referent="169">
             <Properties>
               <string name="Name">HeuristicDetector</string>
               <string name="Source"><![CDATA[--!strict
@@ -26941,7 +27832,7 @@ return HeuristicDetector
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="162">
+          <Item class="ModuleScript" referent="170">
             <Properties>
               <string name="Name">HumanoidStateGuard</string>
               <string name="Source"><![CDATA[--!strict
@@ -27120,7 +28011,7 @@ return HumanoidStateGuard
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="163">
+          <Item class="ModuleScript" referent="171">
             <Properties>
               <string name="Name">NoClipDetector</string>
               <string name="Source"><![CDATA[--!strict
@@ -27233,7 +28124,7 @@ return NoClipDetector
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="164">
+          <Item class="ModuleScript" referent="172">
             <Properties>
               <string name="Name">RemoteRateLimiter</string>
               <string name="Source"><![CDATA[--!strict
@@ -27369,7 +28260,7 @@ return RemoteRateLimiter
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="165">
+          <Item class="ModuleScript" referent="173">
             <Properties>
               <string name="Name">SpeedDetector</string>
               <string name="Source"><![CDATA[--!strict
@@ -27444,7 +28335,7 @@ return SpeedDetector
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="166">
+          <Item class="ModuleScript" referent="174">
             <Properties>
               <string name="Name">StatGuard</string>
               <string name="Source"><![CDATA[--!strict
@@ -27573,7 +28464,7 @@ return StatGuard
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="167">
+          <Item class="ModuleScript" referent="175">
             <Properties>
               <string name="Name">TeleportDetector</string>
               <string name="Source"><![CDATA[--!strict
@@ -27638,7 +28529,7 @@ return TeleportDetector
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="168">
+          <Item class="ModuleScript" referent="176">
             <Properties>
               <string name="Name">ToolDuplicationGuard</string>
               <string name="Source"><![CDATA[--!strict
@@ -27740,7 +28631,7 @@ return ToolDuplicationGuard
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="169">
+          <Item class="ModuleScript" referent="177">
             <Properties>
               <string name="Name">WorldBoundsDetector</string>
               <string name="Source"><![CDATA[--!strict
@@ -27784,7 +28675,7 @@ return WorldBoundsDetector
             </Properties>
           </Item>
         </Item>
-        <Item class="ModuleScript" referent="170">
+        <Item class="ModuleScript" referent="178">
           <Properties>
             <string name="Name">Config</string>
             <string name="Source"><![CDATA[--!strict
@@ -27828,7 +28719,7 @@ return {
 }
 ]]></string>
           </Properties>
-          <Item class="ModuleScript" referent="171">
+          <Item class="ModuleScript" referent="179">
             <Properties>
               <string name="Name">Admin</string>
               <string name="Source"><![CDATA[--!strict
@@ -27871,7 +28762,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="172">
+          <Item class="ModuleScript" referent="180">
             <Properties>
               <string name="Name">AntiCheat</string>
               <string name="Source"><![CDATA[--!strict
@@ -27923,7 +28814,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="173">
+          <Item class="ModuleScript" referent="181">
             <Properties>
               <string name="Name">Cooldown</string>
               <string name="Source"><![CDATA[--!strict
@@ -27934,7 +28825,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="174">
+          <Item class="ModuleScript" referent="182">
             <Properties>
               <string name="Name">CrossServer</string>
               <string name="Source"><![CDATA[--!strict
@@ -27947,7 +28838,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="175">
+          <Item class="ModuleScript" referent="183">
             <Properties>
               <string name="Name">Daily</string>
               <string name="Source"><![CDATA[--!strict
@@ -27959,7 +28850,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="176">
+          <Item class="ModuleScript" referent="184">
             <Properties>
               <string name="Name">Data</string>
               <string name="Source"><![CDATA[--!strict
@@ -27983,7 +28874,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="177">
+          <Item class="ModuleScript" referent="185">
             <Properties>
               <string name="Name">Economy</string>
               <string name="Source"><![CDATA[--!strict
@@ -27995,7 +28886,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="178">
+          <Item class="ModuleScript" referent="186">
             <Properties>
               <string name="Name">Event</string>
               <string name="Source"><![CDATA[--!strict
@@ -28006,7 +28897,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="179">
+          <Item class="ModuleScript" referent="187">
             <Properties>
               <string name="Name">Idle</string>
               <string name="Source"><![CDATA[--!strict
@@ -28018,7 +28909,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="180">
+          <Item class="ModuleScript" referent="188">
             <Properties>
               <string name="Name">Interaction</string>
               <string name="Source"><![CDATA[--!strict
@@ -28029,7 +28920,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="181">
+          <Item class="ModuleScript" referent="189">
             <Properties>
               <string name="Name">Inventory</string>
               <string name="Source"><![CDATA[--!strict
@@ -28040,7 +28931,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="182">
+          <Item class="ModuleScript" referent="190">
             <Properties>
               <string name="Name">Leaderboard</string>
               <string name="Source"><![CDATA[--!strict
@@ -28052,7 +28943,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="183">
+          <Item class="ModuleScript" referent="191">
             <Properties>
               <string name="Name">Level</string>
               <string name="Source"><![CDATA[--!strict
@@ -28065,7 +28956,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="184">
+          <Item class="ModuleScript" referent="192">
             <Properties>
               <string name="Name">Mail</string>
               <string name="Source"><![CDATA[--!strict
@@ -28076,7 +28967,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="185">
+          <Item class="ModuleScript" referent="193">
             <Properties>
               <string name="Name">Party</string>
               <string name="Source"><![CDATA[--!strict
@@ -28089,7 +28980,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="186">
+          <Item class="ModuleScript" referent="194">
             <Properties>
               <string name="Name">Pets</string>
               <string name="Source"><![CDATA[--!strict
@@ -28103,7 +28994,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="187">
+          <Item class="ModuleScript" referent="195">
             <Properties>
               <string name="Name">Raid</string>
               <string name="Source"><![CDATA[--!strict
@@ -28119,7 +29010,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="188">
+          <Item class="ModuleScript" referent="196">
             <Properties>
               <string name="Name">Runtime</string>
               <string name="Source"><![CDATA[--!strict
@@ -28135,7 +29026,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="189">
+          <Item class="ModuleScript" referent="197">
             <Properties>
               <string name="Name">Social</string>
               <string name="Source"><![CDATA[--!strict
@@ -28168,7 +29059,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="190">
+          <Item class="ModuleScript" referent="198">
             <Properties>
               <string name="Name">Teleport</string>
               <string name="Source"><![CDATA[--!strict
@@ -28179,7 +29070,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="191">
+          <Item class="ModuleScript" referent="199">
             <Properties>
               <string name="Name">Vault</string>
               <string name="Source"><![CDATA[--!strict
@@ -28192,7 +29083,7 @@ return {
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="192">
+          <Item class="ModuleScript" referent="200">
             <Properties>
               <string name="Name">Webhook</string>
               <string name="Source"><![CDATA[--!strict
@@ -28221,11 +29112,11 @@ return {
             </Properties>
           </Item>
         </Item>
-        <Item class="Folder" referent="193">
+        <Item class="Folder" referent="201">
           <Properties>
             <string name="Name">Lib</string>
           </Properties>
-          <Item class="ModuleScript" referent="194">
+          <Item class="ModuleScript" referent="202">
             <Properties>
               <string name="Name">AIService</string>
               <string name="Source"><![CDATA[--!strict
@@ -28401,7 +29292,7 @@ return AIService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="195">
+          <Item class="ModuleScript" referent="203">
             <Properties>
               <string name="Name">AchievementSystem</string>
               <string name="Source"><![CDATA[--!strict
@@ -28554,7 +29445,7 @@ return AchievementSystem
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="196">
+          <Item class="ModuleScript" referent="204">
             <Properties>
               <string name="Name">AdminCommands</string>
               <string name="Source"><![CDATA[--!strict
@@ -29525,7 +30416,7 @@ return AdminCommands
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="197">
+          <Item class="ModuleScript" referent="205">
             <Properties>
               <string name="Name">AnalyticsService</string>
               <string name="Source"><![CDATA[--!strict
@@ -29629,7 +30520,7 @@ return Analytics
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="198">
+          <Item class="ModuleScript" referent="206">
             <Properties>
               <string name="Name">AnimationService</string>
               <string name="Source"><![CDATA[--!strict
@@ -29765,7 +30656,7 @@ return AnimationService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="199">
+          <Item class="ModuleScript" referent="207">
             <Properties>
               <string name="Name">AntiCheatAdmin</string>
               <string name="Source"><![CDATA[--!strict
@@ -29994,7 +30885,7 @@ return AntiCheatAdmin
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="200">
+          <Item class="ModuleScript" referent="208">
             <Properties>
               <string name="Name">AntiCheatJournal</string>
               <string name="Source"><![CDATA[--!strict
@@ -30131,7 +31022,7 @@ return Journal
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="201">
+          <Item class="ModuleScript" referent="209">
             <Properties>
               <string name="Name">BanService</string>
               <string name="Source"><![CDATA[--!strict
@@ -30478,7 +31369,7 @@ return BanService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="202">
+          <Item class="ModuleScript" referent="210">
             <Properties>
               <string name="Name">ChatCommandSystem</string>
               <string name="Source"><![CDATA[--!strict
@@ -30806,7 +31697,7 @@ return ChatCommandSystem
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="203">
+          <Item class="ModuleScript" referent="211">
             <Properties>
               <string name="Name">CodexService</string>
               <string name="Source"><![CDATA[--!strict
@@ -31013,7 +31904,7 @@ return CodexService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="204">
+          <Item class="ModuleScript" referent="212">
             <Properties>
               <string name="Name">CooldownService</string>
               <string name="Source"><![CDATA[--!strict
@@ -31164,7 +32055,7 @@ return CooldownService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="205">
+          <Item class="ModuleScript" referent="213">
             <Properties>
               <string name="Name">CrossServerMessaging</string>
               <string name="Source"><![CDATA[--!strict
@@ -31320,7 +32211,7 @@ return CrossServerMessaging
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="206">
+          <Item class="ModuleScript" referent="214">
             <Properties>
               <string name="Name">DailyRewardService</string>
               <string name="Source"><![CDATA[--!strict
@@ -31471,7 +32362,7 @@ return DailyRewardService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="207">
+          <Item class="ModuleScript" referent="215">
             <Properties>
               <string name="Name">DataManager</string>
               <string name="Source"><![CDATA[--!strict
@@ -31609,28 +32500,6 @@ local loadedProfiles: { [number]: any } = {}
 local isClosing: boolean = false
 -- Phase 17.2: lazily-fetched backup store handle (nil until first successful GetDataStore, or if disabled).
 local backupStore: any = nil
-
--- ── Helpers ──
--- Safely fetch a Reconcile function from Util.Table; fall back to a simple shallow reconcile
--- so missing helpers do not block data loads in dev.
-local function reconcile(target: { [any]: any }, template: { [any]: any })
-	local utilTable = Util and (Util :: any).Table
-	if utilTable and typeof(utilTable.Reconcile) == "function" then
-		utilTable.Reconcile(target, template)
-		return
-	end
-	for k, v in pairs(template) do
-		if target[k] == nil then
-			if typeof(v) == "table" then
-				local copy = {}
-				for kk, vv in pairs(v) do copy[kk] = vv end
-				target[k] = copy
-			else
-				target[k] = v
-			end
-		end
-	end
-end
 
 -- ── Phase 17.2 — DataStore resilience ──
 -- WHY: DataManager itself never wrote to a raw DataStore before; the ONLY raw write is the
@@ -31775,7 +32644,6 @@ local function onPlayerAdded(player: Player)
 
 	profile:AddUserId(player.UserId)
 	profile:Reconcile()
-	reconcile(profile.Data, DataManager.DEFAULT_PROFILE)
 
 	-- ── Schema migration (Phase 17.4) ──
 	-- WHY here: run AFTER Reconcile (so every template field exists) and BEFORE
@@ -31917,10 +32785,9 @@ function DataManager._SeedForTest(player: any, data: { [string]: any }?): ()
 	-- Reconcile against DEFAULT_PROFILE so existing accessors that read fields
 	-- like Coins/XP don't see nil where they expect numbers.
 	local synthetic = {
-		Data = data or {},
+		Data = (Util :: any).Table.Reconcile(data or {}, DataManager.DEFAULT_PROFILE),
 		Save = function(_self) end,
 	}
-	reconcile(synthetic.Data, DataManager.DEFAULT_PROFILE)
 	loadedProfiles[player.UserId] = synthetic
 end
 
@@ -31928,7 +32795,7 @@ return DataManager
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="208">
+          <Item class="ModuleScript" referent="216">
             <Properties>
               <string name="Name">DataMigration</string>
               <string name="Source"><![CDATA[--!strict
@@ -32027,7 +32894,7 @@ return DataMigration
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="209">
+          <Item class="ModuleScript" referent="217">
             <Properties>
               <string name="Name">EconomyService</string>
               <string name="Source"><![CDATA[--!strict
@@ -32178,7 +33045,7 @@ return EconomyService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="210">
+          <Item class="ModuleScript" referent="218">
             <Properties>
               <string name="Name">EffectiveConfig</string>
               <string name="Source"><![CDATA[--!strict
@@ -32244,7 +33111,7 @@ return EConfig
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="211">
+          <Item class="ModuleScript" referent="219">
             <Properties>
               <string name="Name">EventService</string>
               <string name="Source"><![CDATA[--!strict
@@ -32376,7 +33243,7 @@ return EventService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="212">
+          <Item class="ModuleScript" referent="220">
             <Properties>
               <string name="Name">FriendService</string>
               <string name="Source"><![CDATA[--!strict
@@ -32975,7 +33842,7 @@ return Friend
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="213">
+          <Item class="ModuleScript" referent="221">
             <Properties>
               <string name="Name">GuildLock</string>
               <string name="Source"><![CDATA[--!strict
@@ -33090,7 +33957,7 @@ return GuildLock
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="214">
+          <Item class="ModuleScript" referent="222">
             <Properties>
               <string name="Name">GuildService</string>
               <string name="Source"><![CDATA[--!strict
@@ -34118,7 +34985,7 @@ return Guild
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="215">
+          <Item class="ModuleScript" referent="223">
             <Properties>
               <string name="Name">IdleService</string>
               <string name="Source"><![CDATA[--!strict
@@ -34286,7 +35153,7 @@ return IdleService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="216">
+          <Item class="ModuleScript" referent="224">
             <Properties>
               <string name="Name">InteractionService</string>
               <string name="Source"><![CDATA[--!strict
@@ -34400,7 +35267,7 @@ return InteractionService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="217">
+          <Item class="ModuleScript" referent="225">
             <Properties>
               <string name="Name">InventoryService</string>
               <string name="Source"><![CDATA[--!strict
@@ -34625,7 +35492,7 @@ return InventoryService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="218">
+          <Item class="ModuleScript" referent="226">
             <Properties>
               <string name="Name">InviteQueue</string>
               <string name="Source"><![CDATA[--!strict
@@ -34701,7 +35568,7 @@ return InviteQueue
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="219">
+          <Item class="ModuleScript" referent="227">
             <Properties>
               <string name="Name">ItemDefinitionService</string>
               <string name="Source"><![CDATA[--!strict
@@ -34826,7 +35693,7 @@ return ItemDefinitionService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="220">
+          <Item class="ModuleScript" referent="228">
             <Properties>
               <string name="Name">ItemService</string>
               <string name="Source"><![CDATA[--!strict
@@ -34990,7 +35857,7 @@ return ItemService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="221">
+          <Item class="ModuleScript" referent="229">
             <Properties>
               <string name="Name">LeaderboardService</string>
               <string name="Source"><![CDATA[--!strict
@@ -35178,7 +36045,7 @@ return LeaderboardService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="222">
+          <Item class="ModuleScript" referent="230">
             <Properties>
               <string name="Name">LevelSystem</string>
               <string name="Source"><![CDATA[--!strict
@@ -35334,7 +36201,7 @@ return LevelSystem
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="223">
+          <Item class="ModuleScript" referent="231">
             <Properties>
               <string name="Name">LootService</string>
               <string name="Source"><![CDATA[--!strict
@@ -35505,7 +36372,7 @@ return LootService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="224">
+          <Item class="ModuleScript" referent="232">
             <Properties>
               <string name="Name">MailService</string>
               <string name="Source"><![CDATA[--!strict
@@ -35700,7 +36567,7 @@ return MailService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="225">
+          <Item class="ModuleScript" referent="233">
             <Properties>
               <string name="Name">MemoryStore</string>
               <string name="Source"><![CDATA[--!strict
@@ -35949,7 +36816,7 @@ return Memory
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="226">
+          <Item class="ModuleScript" referent="234">
             <Properties>
               <string name="Name">MonetizationService</string>
               <string name="Source"><![CDATA[--!strict
@@ -36085,7 +36952,7 @@ return Monetization
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="227">
+          <Item class="ModuleScript" referent="235">
             <Properties>
               <string name="Name">Motion3DService</string>
               <string name="Source"><![CDATA[--!strict
@@ -36205,7 +37072,7 @@ return Motion3D
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="228">
+          <Item class="ModuleScript" referent="236">
             <Properties>
               <string name="Name">PartyService</string>
               <string name="Source"><![CDATA[--!strict
@@ -36729,7 +37596,7 @@ return PartyService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="229">
+          <Item class="ModuleScript" referent="237">
             <Properties>
               <string name="Name">PetService</string>
               <string name="Source"><![CDATA[--!strict
@@ -37137,7 +38004,7 @@ return PetService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="230">
+          <Item class="ModuleScript" referent="238">
             <Properties>
               <string name="Name">PlacementService</string>
               <string name="Source"><![CDATA[--!strict
@@ -37359,7 +38226,7 @@ return PlacementService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="231">
+          <Item class="ModuleScript" referent="239">
             <Properties>
               <string name="Name">PlayerService</string>
               <string name="Source"><![CDATA[--!strict
@@ -37565,7 +38432,7 @@ return PlayerService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="232">
+          <Item class="ModuleScript" referent="240">
             <Properties>
               <string name="Name">ProtectionService</string>
               <string name="Source"><![CDATA[--!strict
@@ -37653,7 +38520,7 @@ return ProtectionService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="233">
+          <Item class="ModuleScript" referent="241">
             <Properties>
               <string name="Name">QuestSystem</string>
               <string name="Source"><![CDATA[--!strict
@@ -37902,7 +38769,7 @@ return QuestSystem
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="234">
+          <Item class="ModuleScript" referent="242">
             <Properties>
               <string name="Name">RagdollService</string>
               <string name="Source"><![CDATA[--!strict
@@ -38046,7 +38913,7 @@ return RagdollService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="235">
+          <Item class="ModuleScript" referent="243">
             <Properties>
               <string name="Name">RaidService</string>
               <string name="Source"><![CDATA[--!strict
@@ -38274,7 +39141,7 @@ return RaidService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="236">
+          <Item class="ModuleScript" referent="244">
             <Properties>
               <string name="Name">RefineService</string>
               <string name="Source"><![CDATA[--!strict
@@ -38526,7 +39393,7 @@ return RefineService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="237">
+          <Item class="ModuleScript" referent="245">
             <Properties>
               <string name="Name">SFXService</string>
               <string name="Source"><![CDATA[--!strict
@@ -38673,7 +39540,7 @@ return SFXService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="238">
+          <Item class="ModuleScript" referent="246">
             <Properties>
               <string name="Name">ServiceLifecycle</string>
               <string name="Source"><![CDATA[--!strict
@@ -38790,7 +39657,7 @@ return ServiceLifecycle
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="239">
+          <Item class="ModuleScript" referent="247">
             <Properties>
               <string name="Name">SettingsService</string>
               <string name="Source"><![CDATA[--!strict
@@ -38937,7 +39804,7 @@ return SettingsService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="240">
+          <Item class="ModuleScript" referent="248">
             <Properties>
               <string name="Name">ShopService</string>
               <string name="Source"><![CDATA[--!strict
@@ -39059,7 +39926,7 @@ return Shop
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="241">
+          <Item class="ModuleScript" referent="249">
             <Properties>
               <string name="Name">TeleportService</string>
               <string name="Source"><![CDATA[--!strict
@@ -39224,7 +40091,7 @@ return Teleport
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="242">
+          <Item class="ModuleScript" referent="250">
             <Properties>
               <string name="Name">ToolService</string>
               <string name="Source"><![CDATA[--!strict
@@ -39334,7 +40201,7 @@ return ToolService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="243">
+          <Item class="ModuleScript" referent="251">
             <Properties>
               <string name="Name">TradeService</string>
               <string name="Source"><![CDATA[--!strict
@@ -39632,7 +40499,7 @@ return TradeService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="244">
+          <Item class="ModuleScript" referent="252">
             <Properties>
               <string name="Name">VFXService</string>
               <string name="Source"><![CDATA[--!strict
@@ -39773,7 +40640,7 @@ return VFXService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="245">
+          <Item class="ModuleScript" referent="253">
             <Properties>
               <string name="Name">VaultService</string>
               <string name="Source"><![CDATA[--!strict
@@ -39963,7 +40830,7 @@ return VaultService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="246">
+          <Item class="ModuleScript" referent="254">
             <Properties>
               <string name="Name">VisitService</string>
               <string name="Source"><![CDATA[--!strict
@@ -40052,7 +40919,7 @@ return VisitService
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="247">
+          <Item class="ModuleScript" referent="255">
             <Properties>
               <string name="Name">WebhookService</string>
               <string name="Source"><![CDATA[--!strict
@@ -40431,155 +41298,37 @@ return Webhook
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="248">
+          <Item class="ModuleScript" referent="256">
             <Properties>
               <string name="Name">ZoneService</string>
               <string name="Source"><![CDATA[--!strict
---[[
-	Module : ZoneService
-	Location: ServerStorage.Gaxia_Packages_Server.Lib.ZoneService
-	Purpose : Preserve Gaxia's zone API while delegating spatial detection to
-	          the open-source ZonePlus package.
-]]
-
-local Players = game:GetService("Players")
+-- GaxiaServer.Zone now exposes the upstream ZonePlus API directly.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
-local SharedRoot = ReplicatedStorage:WaitForChild("Gaxia_Packages")
-local SharedPkg = require(SharedRoot) :: any
-local ZonePlus = require(SharedRoot:WaitForChild("Packages"):WaitForChild("ZonePlus")) :: any
-local Signal = SharedPkg.Signal
-local Janitor = SharedPkg.Janitor
-
-export type Zone = {
-	Name: string,
-	Region: BasePart,
-	OnEntered: any,
-	OnLeft: any,
-	IsInside: (self: Zone, player: Player) -> boolean,
-	GetPlayers: (self: Zone) -> { Player },
-	Destroy: (self: Zone) -> (),
-}
-
-local ZoneService = {}
-local zonesByName: { [string]: Zone } = {}
-
-local Zone = {}
-Zone.__index = Zone
-
-local function newZone(name: string, region: BasePart): Zone
-	local zonePlus = ZonePlus.new(region)
-	local self = setmetatable({
-		Name = name,
-		Region = region,
-		OnEntered = Signal.new(),
-		OnLeft = Signal.new(),
-		_inside = {} :: { [Player]: boolean },
-		_janitor = Janitor.new(),
-		_zonePlus = zonePlus,
-	}, Zone)
-
-	local s = self :: any
-	s._janitor:Add(zonePlus.playerEntered:Connect(function(player: Player)
-		if not s._inside[player] then
-			s._inside[player] = true
-			s.OnEntered:Fire(player)
-		end
-	end))
-	s._janitor:Add(zonePlus.playerExited:Connect(function(player: Player)
-		if s._inside[player] then
-			s._inside[player] = nil
-			s.OnLeft:Fire(player)
-		end
-	end))
-	s._janitor:Add(Players.PlayerRemoving:Connect(function(player: Player)
-		if s._inside[player] then
-			s._inside[player] = nil
-			s.OnLeft:Fire(player)
-		end
-	end))
-
-	return self :: any
-end
-
-function Zone:IsInside(player: Player): boolean
-	local s = self :: any
-	return s._inside[player] == true
-end
-
-function Zone:GetPlayers(): { Player }
-	local s = self :: any
-	local out: { Player } = {}
-	for player in pairs(s._inside) do
-		table.insert(out, player)
-	end
-	return out
-end
-
-function Zone:Destroy(): ()
-	local s = self :: any
-	if not s._zonePlus then
-		return
-	end
-	s._janitor:Cleanup()
-	s._zonePlus:destroy()
-	s._zonePlus = nil
-	s.Region = nil
-	s.OnEntered:DisconnectAll()
-	s.OnLeft:DisconnectAll()
-	table.clear(s._inside)
-	if zonesByName[s.Name] == self then
-		zonesByName[s.Name] = nil
-	end
-end
-
-function ZoneService.Create(name: string, region: BasePart): Zone
-	assert(typeof(name) == "string" and #name > 0, "name must be non-empty string")
-	assert(typeof(region) == "Instance" and region:IsA("BasePart"), "region must be a BasePart")
-	if zonesByName[name] then
-		zonesByName[name]:Destroy()
-	end
-	local zone = newZone(name, region)
-	zonesByName[name] = zone
-	return zone
-end
-
-function ZoneService.Get(name: string): Zone?
-	return zonesByName[name]
-end
-
-function ZoneService.Destroy(name: string): ()
-	local zone = zonesByName[name]
-	if zone then
-		zone:Destroy()
-	end
-end
-
-return ZoneService
+return require(ReplicatedStorage.Gaxia_Packages.Packages.ZonePlus)
 ]]></string>
             </Properties>
           </Item>
         </Item>
-        <Item class="Folder" referent="249">
+        <Item class="Folder" referent="257">
           <Properties>
             <string name="Name">ServerPackages</string>
           </Properties>
-          <Item class="ModuleScript" referent="250">
+          <Item class="ModuleScript" referent="258">
             <Properties>
               <string name="Name">ProfileStore</string>
               <string name="Source"><![CDATA[return require(script.Parent._Index["lm-loleris_profilestore@1.0.3"]["profilestore"])
 ]]></string>
             </Properties>
           </Item>
-          <Item class="Folder" referent="251">
+          <Item class="Folder" referent="259">
             <Properties>
               <string name="Name">_Index</string>
             </Properties>
-            <Item class="Folder" referent="252">
+            <Item class="Folder" referent="260">
               <Properties>
                 <string name="Name">lm-loleris_profilestore@1.0.3</string>
               </Properties>
-              <Item class="ModuleScript" referent="253">
+              <Item class="ModuleScript" referent="261">
                 <Properties>
                   <string name="Name">profilestore</string>
                   <string name="Source">--[[
@@ -42832,15 +43581,15 @@ return ProfileStore</string>
         </Item>
       </Item>
     </Item>
-    <Item class="StarterPlayer" referent="254">
+    <Item class="StarterPlayer" referent="262">
       <Properties>
         <string name="Name">StarterPlayer</string>
       </Properties>
-      <Item class="StarterPlayerScripts" referent="255">
+      <Item class="StarterPlayerScripts" referent="263">
         <Properties>
           <string name="Name">StarterPlayerScripts</string>
         </Properties>
-        <Item class="LocalScript" referent="256">
+        <Item class="LocalScript" referent="264">
           <Properties>
             <string name="Name">Gaxia_ClientBootstrap</string>
             <string name="Source"><![CDATA[--!strict
