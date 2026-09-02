@@ -17,9 +17,9 @@ intentionally left alone.
 ## Where it stands
 
 - **Merged:** none.
-- **Parked:** the complete implementation is committed as
-  `4673a1f` on `codex/oss-library-migration` and pushed to the existing PR:
-  https://github.com/Gaxia-XP/gaxia-packages/pull/1
+- **Parked:** the ProfileStore/ZonePlus implementation is pushed to the existing
+  PR. The follow-up Symbol migration is local-only in commit `1f970bf` because
+  the user requested no push; inspect it after waking before publishing.
 - **Why parked:** this diff changes dependencies/lockfiles, removes large vendored
   source bodies, and changes the persistence session adapter. Those are stop-list
   changes for unattended work, so they are ready for human review but were not
@@ -36,6 +36,7 @@ intentionally left alone.
   - `howmanysmall/janitor@1.18.3` (exact)
   - `evaera/promise@4.0.0`
   - `sleitnick/signal@2.0.3`
+  - `sleitnick/symbol@2.0.1`
   - `sleitnick/trove@1.8.0`
   - `mattschrubb/zoneplus@3.2.0` (exact; runtime source matches upstream tag)
 - Pinned server-only `lm-loleris/profilestore@1.0.3` (exact).
@@ -47,8 +48,9 @@ intentionally left alone.
 - Preserved the existing upstream Promise snapshot byte-for-byte at public path
   `Gaxia.Promise`; the published Wally release predates its scheduler and
   `finally` fixes.
-- Preserved the existing local `Symbol` implementation because its callable and
-  `.new` public API is incompatible with the upstream Symbol package.
+- Replaced the local `Symbol` implementation with the pinned community
+  `sleitnick/symbol@2.0.1` package; the public callable `Symbol("Name")` API is
+  preserved and the smoke test now verifies the shared path resolves to Wally.
 - Preserved `Gaxia.ComponentLegacy` after review proved that the loader's exact
   child fallback makes it a lazy public path.
 - Replaced ZoneService's custom spatial sampler with a ZonePlus-backed
@@ -86,6 +88,8 @@ Passing:
   session/reconcile/final-save/reload coverage.
 - ✅ Codex Security diff scan `6147c714-9478-41dc-a317-194db3b4bb28` — completed
   with 0 reportable findings across 6 reviewed surfaces.
+- ✅ Follow-up Symbol migration smoke rerun — `[OSS_SMOKE] PASS`; direct Wally
+  alias and callable uniqueness are verified in `tests/oss_dependencies.smoke.luau`.
 
 Failing or unavailable:
 
@@ -139,13 +143,17 @@ rojo build default.project.json --output build/GaxiaPackages.rbxmx
 rojo build plugin.project.json --output GaxiaCompanion.rbxmx
 ```
 
-The Studio dependency smoke test and final security review pass. Review the
-dependency/lockfile and persistence-session diff, then merge when approved.
+The Studio dependency smoke test and final security review pass for the pushed
+branch. The additional Symbol migration is local-only and was not included in
+the pushed PR or the completed security scan; review its small dependency/wrapper
+diff before publishing it.
 
 ## Continue with
 
 - Review the dependency/lockfile, ProfileStore session behavior, and generated
   model in the pull request.
+- Review the local-only Symbol migration (`wally.toml`, `wally.lock`,
+  `Shared/Symbol.lua`, and the smoke assertion) before pushing it.
 - Before production rollout, run the same smoke flow in a staging place with
   Roblox Studio API access enabled so real DataStore behavior is exercised.
 - Merge only after that human review; no implementation handoff remains.
