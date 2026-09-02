@@ -13,6 +13,9 @@ this framework uses a single rolling version until a public release cut.
   through compatibility modules into the versions pinned by `wally.lock`.
 - `ZoneService` preserves its existing public API while delegating player
   boundary detection to the pinned ZonePlus 3.2.0 package.
+- `DataManager` now uses the server-only ProfileStore 1.0.3 package instead of
+  a bundled ProfileService copy. Store names, keys, schema reconciliation,
+  manual saves, and the public DataManager API remain unchanged.
 - `Gaxia.Promise` keeps the existing upstream post-tag snapshot at commit
   `031d429c82ee458a849e79fa523523bd349d7695` because the published Wally
   release has older scheduler and `finally` behavior. Wally-managed libraries
@@ -23,7 +26,7 @@ this framework uses a single rolling version until a public release cut.
   including the missing `Option` dependency. The lazy public `ComponentLegacy`
   path remains intact for downstream compatibility.
 - Builds now require `wally install`. Both the distributable model and
-  Companion plugin include the generated package tree.
+  Companion plugin include the generated shared and server package trees.
 - Added a Roblox Studio CLI smoke test for package aliases, ZonePlus lifecycle,
   cross-copy Promise
   adoption/cancellation, Janitor interop, Promise timing/error propagation, and

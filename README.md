@@ -9,8 +9,9 @@ rokit install
 wally install
 ```
 
-`Packages/` is generated locally and ignored by Git; `wally.lock` pins the
-versions used by builds. To build the place from scratch, use:
+`Packages/` and `ServerPackages/` are generated locally and ignored by Git;
+`wally.lock` pins the versions used by builds. To build the place from scratch,
+use:
 
 ```bash
 rojo build -o "GaxiaPackages.rbxlx"

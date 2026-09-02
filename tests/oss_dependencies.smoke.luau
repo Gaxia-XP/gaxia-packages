@@ -17,13 +17,61 @@ local function run()
 	local root = ReplicatedStorage:WaitForChild("Gaxia_Packages")
 	local shared = root:WaitForChild("Shared")
 	local packages = root:WaitForChild("Packages")
+	local serverPackages = game:GetService("ServerStorage")
+		:WaitForChild("Gaxia_Packages_Server")
+		:WaitForChild("ServerPackages")
 
 	local Gaxia = require(root)
 	local Promise = require(shared:WaitForChild("Promise"))
 	local PackagePromise = require(packages:WaitForChild("Promise"))
 	local ZonePlus = require(packages:WaitForChild("ZonePlus"))
+	local ProfileStore = require(serverPackages:WaitForChild("ProfileStore"))
 	local Janitor = require(shared:WaitForChild("Janitor"))
 	expect(type(ZonePlus.new) == "function", "ZonePlus package is unavailable")
+	expect(
+		serverPackages:WaitForChild("ProfileStore"):IsA("ModuleScript"),
+		"server-only ProfileStore package is unavailable"
+	)
+
+	local profileStore = ProfileStore.New("GaxiaOssSmoke", {
+		Coins = 0,
+		Settings = { Music = true },
+	})
+	local profile = profileStore.Mock:StartSessionAsync("player-1")
+	expect(profile ~= nil, "ProfileStore mock session did not start")
+	profile.Data.Coins = 25
+	profile:Reconcile()
+	expect(profile.Data.Settings.Music == true, "ProfileStore reconcile failed")
+
+	local sessionEnded = false
+	local finalSaveFinished = false
+	profile.OnSessionEnd:Connect(function()
+		sessionEnded = true
+	end)
+	profile.OnAfterSave:Connect(function()
+		finalSaveFinished = true
+	end)
+	profile:EndSession()
+	local profileDeadline = os.clock() + 5
+	while (not sessionEnded or not finalSaveFinished) and os.clock() < profileDeadline do
+		task.wait()
+	end
+	expect(sessionEnded, "ProfileStore EndSession did not fire OnSessionEnd")
+	expect(finalSaveFinished, "ProfileStore EndSession did not finish its final mock save")
+
+	local reloadedProfile = profileStore.Mock:StartSessionAsync("player-1")
+	expect(reloadedProfile ~= nil, "ProfileStore mock profile did not reload")
+	expect(reloadedProfile.Data.Coins == 25, "ProfileStore mock data did not persist")
+	local reloadSaveFinished = false
+	reloadedProfile.OnAfterSave:Connect(function()
+		reloadSaveFinished = true
+	end)
+	reloadedProfile:EndSession()
+	profileDeadline = os.clock() + 5
+	while not reloadSaveFinished and os.clock() < profileDeadline do
+		task.wait()
+	end
+	expect(reloadSaveFinished, "reloaded ProfileStore mock session did not finish saving")
 
 	expect(Gaxia.Promise == Promise, "Gaxia.Promise did not preserve the public compatibility path")
 	expect(

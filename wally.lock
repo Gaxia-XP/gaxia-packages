@@ -10,7 +10,7 @@ dependencies = []
 [[package]]
 name = "gaxia-xp/gaxia-packages"
 version = "1.0.0"
-dependencies = [["Comm", "sleitnick/comm@1.0.1"], ["Component", "sleitnick/component@2.4.8"], ["Janitor", "howmanysmall/janitor@1.18.3"], ["Promise", "evaera/promise@4.0.0"], ["Signal", "sleitnick/signal@2.0.3"], ["Trove", "sleitnick/trove@1.8.0"], ["ZonePlus", "mattschrubb/zoneplus@3.2.0"]]
+dependencies = [["Comm", "sleitnick/comm@1.0.1"], ["Component", "sleitnick/component@2.4.8"], ["Janitor", "howmanysmall/janitor@1.18.3"], ["Promise", "evaera/promise@4.0.0"], ["Signal", "sleitnick/signal@2.0.3"], ["Trove", "sleitnick/trove@1.8.0"], ["ZonePlus", "mattschrubb/zoneplus@3.2.0"], ["ProfileStore", "lm-loleris/profilestore@1.0.3"]]
 
 [[package]]
 name = "howmanysmall/janitor"
@@ -21,6 +21,11 @@ dependencies = [["Promise", "howmanysmall/typed-promise@4.0.6"]]
 name = "howmanysmall/typed-promise"
 version = "4.0.6"
 dependencies = [["Promise", "evaera/promise@4.0.0"]]
+
+[[package]]
+name = "lm-loleris/profilestore"
+version = "1.0.3"
+dependencies = []
 
 [[package]]
 name = "mattschrubb/zoneplus"

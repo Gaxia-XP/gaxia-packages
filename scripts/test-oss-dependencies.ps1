@@ -42,6 +42,12 @@ try {
             throw "wally install failed with exit code $LASTEXITCODE"
         }
 
+        $profileStoreSource = Join-Path $repoRoot "ServerPackages\_Index\lm-loleris_profilestore@1.0.3\profilestore\ProfileStore.luau"
+        $profileStoreBlob = (& git hash-object -- $profileStoreSource).Trim()
+        if ($LASTEXITCODE -ne 0 -or $profileStoreBlob -ne "5b196af86a1eafa2ad5e94ef9398c483e87704ed") {
+            throw "ProfileStore package no longer matches the reviewed upstream source."
+        }
+
         & rojo build default.project.json --output $placePath
         if ($LASTEXITCODE -ne 0) {
             throw "rojo build failed with exit code $LASTEXITCODE"

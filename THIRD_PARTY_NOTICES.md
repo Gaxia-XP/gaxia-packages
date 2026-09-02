@@ -9,6 +9,7 @@ They remain licensed by their respective authors:
 | evaera/promise (Wally dependency graph) | 4.0.0 | MIT | https://github.com/evaera/roblox-lua-promise |
 | howmanysmall/janitor | 1.18.3 | MIT | https://github.com/howmanysmall/Janitor |
 | howmanysmall/typed-promise | 4.0.6 | MIT | https://github.com/howmanysmall/typed-promise |
+| lm-loleris/profilestore | 1.0.3 | Apache-2.0 | https://github.com/MadStudioRoblox/ProfileStore |
 | sleitnick/comm | 1.0.1 | MIT | https://github.com/Sleitnick/RbxUtil |
 | sleitnick/component | 2.4.8 | MIT | https://github.com/Sleitnick/RbxUtil |
 | sleitnick/option | 1.0.5 | MIT | https://github.com/Sleitnick/RbxUtil |
@@ -19,7 +20,8 @@ They remain licensed by their respective authors:
 
 These notices stay tracked even though Wally's generated `Packages/` directory
 does not. Refer to the linked upstream projects for the complete copyright and
-license texts.
+license texts. The full Apache-2.0 license for ProfileStore is tracked at
+`THIRD_PARTY_LICENSES/ProfileStore-APACHE-2.0.txt`.
 
 ## evaera/promise
 
