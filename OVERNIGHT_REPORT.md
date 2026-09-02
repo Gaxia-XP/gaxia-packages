@@ -18,7 +18,8 @@ intentionally left alone.
 
 - **Merged:** none.
 - **Parked:** the complete implementation is committed as
-  `4673a1f` on `codex/oss-library-migration` and will be pushed to the existing PR.
+  `4673a1f` on `codex/oss-library-migration` and pushed to the existing PR:
+  https://github.com/Gaxia-XP/gaxia-packages/pull/1
 - **Why parked:** this diff changes dependencies/lockfiles, removes large vendored
   source bodies, and changes the persistence session adapter. Those are stop-list
   changes for unattended work, so they are ready for human review but were not
