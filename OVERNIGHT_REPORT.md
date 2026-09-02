@@ -1,6 +1,6 @@
 # Overnight Report — OSS dependency migration
 
-Status: PARTIAL · ✅ 0 merged · ⏸ 1 parked · ❌ 3 full-repository checks fail
+Status: READY FOR HUMAN REVIEW · ✅ Studio smoke passed · ⏸ 1 branch · ❌ 2 baseline checks fail
 
 2026-09-01 09:44:20 +07:00 · branch: `codex/oss-library-migration`
 
@@ -17,11 +17,12 @@ design, and unrelated runtime bugs were intentionally left alone.
 - **Merged:** none.
 - **Parked:** `codex/oss-library-migration` at implementation commit
   `56f6930e4b7d8b39d61cc41bf43ce853d14968a1`.
-- **Why parked:** the change introduces dependency and lock files, removes large
-  vendored source bodies, and changes Promise scheduling semantics. Those are
-  stop-list changes for unattended work and require a Roblox Studio smoke test
-  plus an explicit compatibility decision before merge.
-- The independent scrutiny verdict is **safe to park/push, not safe to merge**.
+- **Why parked:** the change introduces dependency and lock files and removes
+  large vendored source bodies. Those were stop-list changes for unattended work;
+  the follow-up resolved Promise compatibility and passed the Studio smoke test.
+- The original independent scrutiny verdict was **safe to park/push, not safe to
+  merge**. Follow-up scrutiny now recommends shipping the branch for human
+  dependency/lockfile review after resolving the Promise blocker.
 
 ## Delivered on the parked branch
 
@@ -35,10 +36,12 @@ design, and unrelated runtime bugs were intentionally left alone.
   - `sleitnick/trove@1.8.0`
 - Locked transitive packages: `howmanysmall/typed-promise@4.0.6`,
   `sleitnick/option@1.0.5`, and `sleitnick/symbol@2.0.1`.
-- Replaced vendored Comm, Component, Janitor, Promise, Signal, and Trove bodies
-  with small compatibility modules, so existing paths such as `Gaxia.Comm` and
-  `Gaxia.Promise` remain available. Wally Comm also restores the Option dependency
-  missing from the previous vendored tree.
+- Replaced vendored Comm, Component, Janitor, Signal, and Trove bodies with small
+  compatibility modules. Wally Comm also restores the Option dependency missing
+  from the previous vendored tree.
+- Preserved the existing upstream Promise snapshot byte-for-byte at public path
+  `Gaxia.Promise`; the published Wally release predates its scheduler and
+  `finally` fixes.
 - Preserved the existing local `Symbol` implementation because its callable and
   `.new` public API is incompatible with the upstream Symbol package.
 - Preserved `Gaxia.ComponentLegacy` after review proved that the loader's exact
@@ -63,10 +66,14 @@ Passing:
   ComponentLegacy, and Packages; package test/config sources are excluded.
 - ✅ StyLua check for every new/replaced compatibility module — exit 0.
 - ✅ `git diff --check -- . ':!build/GaxiaPackages.rbxmx'` — exit 0.
+- ✅ Full `git diff --check` — exit 0 after rebuilding the distributable with the
+  compatibility Promise snapshot.
 - ✅ Static scan found no repository-owned Maid consumers outside the deprecated
   facade.
 - ✅ Independent review traced root loader → compatibility module → Wally alias →
   `_Index` package for both the default and plugin payloads.
+- ✅ `scripts/test-oss-dependencies.ps1` — exit 0 against Roblox Studio
+  0.736.0.7361346 with `[OSS_SMOKE] PASS`.
 
 Failing or unavailable:
 
@@ -76,14 +83,11 @@ Failing or unavailable:
 - ❌ `selene src` — exit 1 with **0 errors, 112 warnings, 0 parse errors**. The
   baseline was 0 errors, 112 warnings, and 1 parse error, so this migration adds
   no lint errors and removes the bundled-test parse failure.
-- ❌ Full `git diff --check` — exit 1 only for blank lines containing tabs inside
-  the Rojo-generated `build/GaxiaPackages.rbxmx`, originating in Wally package
-  source embedded as XML. All non-generated changed files pass.
-- ⚠️ No automated Roblox runtime/Studio test runner exists in the repository, so
-  Cutscene, Dialog, Effects, anti-cheat guard, Zone, and Promise timing flows were
-  not executed.
+- ⚠️ The new smoke test covers dependency/public-path behavior but does not
+  exercise full gameplay flows for Cutscene, Dialog, Effects, anti-cheat guards,
+  or Zone.
 
-## Merge blocker: Promise compatibility
+## Resolved: Promise compatibility
 
 The old vendored Promise was not the published 4.0.0 release. It matched upstream
 post-tag commit `031d429c82ee458a849e79fa523523bd349d7695`, which uses
@@ -91,15 +95,11 @@ post-tag commit `031d429c82ee458a849e79fa523523bd349d7695`, which uses
 published `evaera/promise@4.0.0` uses the older Heartbeat-based scheduler and has
 different sub-frame delay behavior.
 
-The current graph intentionally uses one canonical Wally Promise instance across
-Gaxia, Janitor, Component, and Comm, avoiding cross-package Promise identity
-problems. Before merge, choose one of these explicitly:
-
-1. Accept the published 4.0.0 behavior as a breaking change, bump/version it as
-   appropriate, and add Studio tests for defer/delay/timeout/cancellation and the
-   dialog/cutscene flows.
-2. Publish the exact post-tag snapshot as an internal Wally package and pin that
-   package everywhere to preserve the old scheduling behavior.
+`Gaxia.Promise` now retains that exact source snapshot (Git blob
+`dc82ad5682221814ee58daa89b31e30f31a87ebd`). Wally-managed dependencies share
+the official 4.0.0 package. Both versions duck-type Promise objects; the Studio
+smoke test verifies adoption in both directions and Janitor cancellation across
+the two copies, plus `defer`, `delay`, and the later `finally` error behavior.
 
 ## Pre-existing follow-ups found by scrutiny
 
@@ -123,12 +123,20 @@ rojo build default.project.json --output build/GaxiaPackages.rbxmx
 rojo build plugin.project.json --output GaxiaCompanion.rbxmx
 ```
 
-Then run the Studio smoke cases listed above and make the Promise compatibility
-decision. Merge only after those pass and the dependency/lockfile review is
-approved.
+The Studio dependency smoke test and final scrutiny now pass. Review the branch's
+dependency/lockfile diff, then merge when approved.
 
 ## Continue with
 
-- `start-work`: resume implementation after selecting the Promise strategy.
-- `scrutinize`: repeat the independent goal/trace/verify review after any Promise
-  compatibility change and before merge.
+- Review the dependency/lockfile and the generated model in the pull request.
+- Merge only after that human review; no implementation handoff remains.
+
+## Follow-up — 2026-09-02
+
+The compatibility choice is now resolved without a public behavior break:
+`Gaxia.Promise` retains the existing upstream snapshot at
+`031d429c82ee458a849e79fa523523bd349d7695`. Wally-managed libraries continue
+to share the official 4.0.0 release, and a Studio CLI smoke test covers
+cross-copy adoption/cancellation and Janitor interop. The test passed against
+Roblox Studio 0.736.0.7361346, and final scrutiny found no introduced blocker;
+this supersedes the Promise blocker above.

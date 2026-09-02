@@ -5,7 +5,8 @@ They remain licensed by their respective authors:
 
 | Package | Version | License | Source |
 | --- | ---: | --- | --- |
-| evaera/promise | 4.0.0 | MIT | https://github.com/evaera/roblox-lua-promise |
+| evaera/promise (Gaxia compatibility snapshot) | 031d429c82ee458a849e79fa523523bd349d7695 | MIT | https://github.com/evaera/roblox-lua-promise |
+| evaera/promise (Wally dependency graph) | 4.0.0 | MIT | https://github.com/evaera/roblox-lua-promise |
 | howmanysmall/janitor | 1.18.3 | MIT | https://github.com/howmanysmall/Janitor |
 | howmanysmall/typed-promise | 4.0.6 | MIT | https://github.com/howmanysmall/typed-promise |
 | sleitnick/comm | 1.0.1 | MIT | https://github.com/Sleitnick/RbxUtil |

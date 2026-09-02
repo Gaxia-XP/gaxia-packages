@@ -23,3 +23,16 @@ rojo serve
 ```
 
 For more help, check out [the Rojo documentation](https://rojo.space/docs).
+
+## OSS dependency smoke test
+
+Close Roblox Studio, then run the isolated CLI smoke test:
+
+```powershell
+.\scripts\test-oss-dependencies.ps1
+```
+
+The script restores Wally packages, builds a temporary place, selects the newest
+Froststrap/Roblox Studio installation, runs `tests/oss_dependencies.smoke.luau`,
+and removes its temporary files. It refuses to start while Studio is already
+open so `--quitAfterExecution` cannot affect active work.
