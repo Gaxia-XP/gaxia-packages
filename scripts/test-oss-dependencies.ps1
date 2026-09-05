@@ -48,7 +48,7 @@ try {
             throw "ProfileStore package no longer matches the reviewed upstream source."
         }
 
-        & rojo build default.project.json --output $placePath
+        & rojo build tests\oss_dependencies.project.json --output $placePath
         if ($LASTEXITCODE -ne 0) {
             throw "rojo build failed with exit code $LASTEXITCODE"
         }

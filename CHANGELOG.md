@@ -8,6 +8,41 @@ this framework uses a single rolling version until a public release cut.
 
 ## Unreleased
 
+### Added — Central, Prompt, and Observers
+- Added `Gaxia.Central`, a named priority scheduler based on the
+  `CentralManager` prototype from the Studio place, with deterministic task
+  lifecycle and cleanup.
+- Added client-only `Gaxia.Prompt` for tracking, highlighting, and manually
+  holding the current `ProximityPrompt` without leaking prompt connections.
+- Added `Gaxia.Observers` as a direct alias of the MIT-licensed
+  `sleitnick/observers@1.0.0` Wally package. The unused Studio-only helpers
+  (`observeAllAttributes`, `observeAncestry`, `observeChildren`,
+  `observeClass`, and `observeDescendants`) are intentionally not retained;
+  consumers use the upstream API directly.
+
+### Changed — NetService payload obfuscation
+- `NetService` now wraps event and function arguments in a per-player,
+  per-message XOR-obfuscated envelope in both directions. Public `NetService`
+  calls remain unchanged, malformed envelopes are dropped and reported to
+  AntiCheat, payload decoding has depth, node, and argument-count limits, and
+  logical Remote names are represented by hashed identifiers on the wire.
+- This is intentionally a deterrent against basic RemoteSpy use, not client
+  authentication or cryptographic security; server validation and rate limits
+  remain authoritative.
+
+### Added — safe enforcement and exclusive C2S gateway
+- Added `AntiCheatEnforcement` as the sole automatic-action owner. It defaults
+  to observe mode; client reports and client-liveness signals are telemetry
+  only, while only reviewed server/trap hard evidence (or an explicitly added
+  trusted transport source) is eligible after an explicit switch to enforce mode.
+- Added bounded `NetProtocol` validation, replay windows, request-id caching,
+  per-RPC concurrency, rejection codes, and server-only RPC metrics.
+- Migrated Settings, Command, Pet, Friend, Party, Guild, Admin, client reports,
+  and heartbeats to definition-based Net RPCs. The old raw inbound handlers and
+  ineffective `RemoteRateLimiter` were removed.
+- Added `RemoteTrap` honeypot/wrong-direction observation and a static audit
+  that permits C2S listeners only in NetService and the reviewed trap.
+
 ### Changed — open-source dependencies are pinned with Wally
 - `Signal`, `Janitor`, `Trove`, `Component`, and `Comm` now resolve
   through compatibility modules into the versions pinned by `wally.lock`.
@@ -40,10 +75,10 @@ this framework uses a single rolling version until a public release cut.
   deprecated direct alias of the upstream Component package.
 - Builds now require `wally install`. Both the distributable model and
   Companion plugin include the generated shared and server package trees.
-- Added a Roblox Studio CLI smoke test for direct package aliases, ZonePlus lifecycle,
-  cross-copy Promise
-  adoption/cancellation, Janitor interop, Promise timing/error propagation, and
-  the deprecated Maid-to-Janitor alias.
+- Added an isolated Roblox Studio CLI smoke test for synchronous package aliases,
+  ZonePlus/ProfileStore mounts, AntiCheat journaling, NetProtocol bounds/replay/cache,
+  Net registration lifecycle, and the deprecated Maid-to-Janitor alias. Async signal,
+  ProfileStore-session, and scheduler behavior remains a multi-client integration test.
 
 ### Added — Pet Coins multiplier wired into the Idle & Quest faucets
 `PetService.GetCoinMultiplier` (built in the Pet MVP) was previously **dead** — no
@@ -58,6 +93,10 @@ coin faucets now apply it:
   multiplying it would mint currency.
 - Lookup is best-effort (`pcall` + NaN guard → `1.0`), so a missing Pet service
   never breaks a grant.
+
+> **Historical note:** Entries below describe older release topology. References
+> to direct `Events/*/Action` C2S remotes or multiple automatic `OnAction`
+> consumers were superseded by the gateway/enforcement migration above.
 
 ### Fixed — high roles can no longer be auto-banned or auto-kicked (escalation banned the owner)
 The AntiCheat auto-escalation had no role awareness: dev-tool teleports
@@ -74,10 +113,11 @@ and then kicked at join by the ban gate — locked out of their own game.
   falling back to creator-only). Known limit: DataStore-granted roles load
   async at join, so a hard-flag burst in the first seconds can still strike a
   non-Bootstrap admin.
-- **Bootstrap kick exemption** — `AntiCheat.OnAction` has TWO enforcing
-  consumers; the default hard-action handler in `Gaxia_ServerBootstrap` used
-  to kick unconditionally, so the creator was still kicked even with the ban
-  exemption. It now consults the new public `Ban.IsEscalationExempt(userId)`.
+- **Bootstrap kick exemption (historical topology)** — at that point
+  `AntiCheat.OnAction` had two enforcing consumers; the default hard-action
+  handler in `Gaxia_ServerBootstrap` could kick unconditionally, so the creator
+  was still kicked even with the ban exemption. The current architecture has
+  only `AntiCheatEnforcement` as the automatic-action owner.
 - **Join-gate self-heal** — a stale ban record on the place creator is
   dropped with a warn instead of kicking (creator only: lower staff can be
   legitimately banned, so their records must still enforce).

@@ -10,7 +10,7 @@
 	          Built on Humanoid.StateChanged so cost is zero when idle.
 ]]
 
-local Players           = game:GetService("Players")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CollectionService = game:GetService("CollectionService")
 
@@ -20,27 +20,28 @@ local Janitor = SharedPkg.Janitor
 -- Server config (FindFirstChild = no-yield; Config is a pure table at the package
 -- root). Climbing/Swimming default to "soft" so a false-positive doesn't instant-
 -- kick; a game with custom climbing can set Enabled = false.
-local Config = require((script.Parent :: any).Parent:FindFirstChild("Config") :: ModuleScript) :: any
+local Config =
+	require((script.Parent :: any).Parent:FindFirstChild("Config") :: ModuleScript) :: any
 local HS_CONFIG = (Config.AntiCheat and Config.AntiCheat.HumanoidState) or {}
-local STATE_SEVERITY : string = (HS_CONFIG.Severity :: any) or "soft"
+local STATE_SEVERITY: string = (HS_CONFIG.Severity :: any) or "soft"
 
 -- ── Tunables ──
 -- Radius around the HRP we sweep for valid climb / swim surroundings.
-local CLIMB_PROBE_RADIUS : number = 4
-local SWIM_PROBE_RADIUS  : number = 3
+local CLIMB_PROBE_RADIUS: number = 4
+local SWIM_PROBE_RADIUS: number = 3
 -- Maximum number of Jumping → Freefall → Jumping cycles before flagging.
 -- Roblox legitimately bounces a player through these on uneven ground, so we
 -- allow a small streak before treating it as a double-jump exploit.
-local DOUBLE_JUMP_STREAK : number = 2
+local DOUBLE_JUMP_STREAK: number = 2
 
 local HumanoidStateGuard = {}
 HumanoidStateGuard.Name = "HumanoidState"
 
-local orchestratorRef : any = nil
-local playerJanitors : { [Player]: any } = {}
+local orchestratorRef: any = nil
+local playerJanitors: { [Player]: any } = {}
 -- (humanoid) → { jumpsAirborne, lastJumpClock }
 type JumpState = { jumpsAirborne: number, lastJumpClock: number }
-local jumpState : { [Humanoid]: JumpState } = setmetatable({}, { __mode = "k" }) :: any
+local jumpState: { [Humanoid]: JumpState } = setmetatable({}, { __mode = "k" }) :: any
 
 -- Re-used OverlapParams — we only ever exclude the character.
 local climbOverlap = OverlapParams.new()
@@ -55,9 +56,11 @@ local function hasClimbSurfaceNearby(character: Model, hrp: BasePart): boolean
 		-- TrussPart is the canonical climbable. Games with custom ladders/walls
 		-- tag them "Climbable" or "Ladder" via CollectionService — accept those too
 		-- so a legitimate climb on a non-Truss surface isn't a false positive.
-		if p:IsA("TrussPart")
+		if
+			p:IsA("TrussPart")
 			or CollectionService:HasTag(p, "Climbable")
-			or CollectionService:HasTag(p, "Ladder") then
+			or CollectionService:HasTag(p, "Ladder")
+		then
 			return true
 		end
 	end
@@ -75,7 +78,9 @@ local function isInWater(hrp: BasePart): boolean
 	local ok, materials = pcall(function()
 		return terrain:ReadVoxels(region, 4)
 	end)
-	if not ok or not materials then return false end
+	if not ok or not materials then
+		return false
+	end
 	for x = 1, materials.Size.X do
 		for y = 1, materials.Size.Y do
 			for z = 1, materials.Size.Z do
@@ -95,16 +100,25 @@ local function flag(player: Player, kind: string, severity: string)
 	-- Self-gate: this detector flags via StateChanged events (no Sample), so the
 	-- orchestrator's sampler-level per-detector gate can't reach it — check here so
 	-- Config.AntiCheat.HumanoidState.Enabled=false / `/ac off HumanoidState` works.
-	if orchestratorRef.IsDetectorEnabled and not orchestratorRef.IsDetectorEnabled("HumanoidState") then
+	if
+		orchestratorRef.IsDetectorEnabled and not orchestratorRef.IsDetectorEnabled("HumanoidState")
+	then
 		return
 	end
-	orchestratorRef.Flag(player, `HumanoidState:{kind}`, severity)
+	orchestratorRef.Flag(player, `HumanoidState:{kind}`, severity, "server")
 end
 
-local function onStateChanged(player: Player, humanoid: Humanoid, _old: Enum.HumanoidStateType, new: Enum.HumanoidStateType)
+local function onStateChanged(
+	player: Player,
+	humanoid: Humanoid,
+	_old: Enum.HumanoidStateType,
+	new: Enum.HumanoidStateType
+)
 	local character = humanoid.Parent :: Model?
 	local hrp = character and (character :: any):FindFirstChild("HumanoidRootPart")
-	if not character or not hrp then return end
+	if not character or not hrp then
+		return
+	end
 
 	if new == Enum.HumanoidStateType.Climbing then
 		if not hasClimbSurfaceNearby(character, hrp) then
@@ -131,27 +145,37 @@ local function onStateChanged(player: Player, humanoid: Humanoid, _old: Enum.Hum
 	elseif new == Enum.HumanoidStateType.Landed or new == Enum.HumanoidStateType.Running then
 		-- Touching ground resets the airborne jump counter.
 		local state = jumpState[humanoid]
-		if state then state.jumpsAirborne = 0 end
+		if state then
+			state.jumpsAirborne = 0
+		end
 	end
 end
 
 local function attachHumanoid(player: Player, humanoid: Humanoid)
 	local janitor = playerJanitors[player]
-	if not janitor then return end
+	if not janitor then
+		return
+	end
 	janitor:Add(humanoid.StateChanged:Connect(function(old, new)
 		onStateChanged(player, humanoid, old, new)
 	end))
 end
 
 local function attachPlayer(player: Player)
-	if playerJanitors[player] then return end
+	if playerJanitors[player] then
+		return
+	end
 	local janitor = Janitor.new()
 	playerJanitors[player] = janitor
 	local function hookCharacter(character: Model)
 		local hum = character:WaitForChild("Humanoid", 5) :: Humanoid?
-		if hum then attachHumanoid(player, hum) end
+		if hum then
+			attachHumanoid(player, hum)
+		end
 	end
-	if player.Character then hookCharacter(player.Character) end
+	if player.Character then
+		hookCharacter(player.Character)
+	end
 	janitor:Add(player.CharacterAdded:Connect(hookCharacter))
 end
 
@@ -165,7 +189,9 @@ end
 
 function HumanoidStateGuard.Init(orchestrator: any): ()
 	orchestratorRef = orchestrator
-	for _, p in ipairs(Players:GetPlayers()) do attachPlayer(p) end
+	for _, p in ipairs(Players:GetPlayers()) do
+		attachPlayer(p)
+	end
 	Players.PlayerAdded:Connect(attachPlayer)
 	Players.PlayerRemoving:Connect(detachPlayer)
 end

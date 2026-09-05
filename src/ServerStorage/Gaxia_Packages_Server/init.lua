@@ -12,7 +12,7 @@
 
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService        = game:GetService("RunService")
+local RunService = game:GetService("RunService")
 
 -- ── Type definitions (for IDE auto-complete) ─────────────────
 --
@@ -24,164 +24,169 @@ local RunService        = game:GetService("RunService")
 --     local GaxiaServer = require(ServerStorage.Gaxia_Packages_Server)
 --     GaxiaServer.Data.Get(player, "Coins")  -- ← autocompletes
 --     GaxiaServer.Economy.Add(p, "Coins", 100) -- ← autocompletes
---     GaxiaServer.AntiCheat.Flag(p, "Speed", "soft") -- ← autocompletes
+--     GaxiaServer.AntiCheat.Flag(p, "Speed", "soft", "server") -- ← autocompletes
 --     GaxiaServer.Shared.Signal.new()        -- ← autocompletes (re-export)
 
 export type GaxiaServerPackage = {
-	VERSION : string,
+	VERSION: string,
 	-- ── Shared re-export (full Gaxia shape) ──
 	-- Drill into .init explicitly — Roblox runtime require does NOT auto-
 	-- resolve `Folder/init` (that is a Rojo build-time convention only).
-	Shared : typeof(require(ReplicatedStorage:WaitForChild("Gaxia_Packages"))),
+	Shared: typeof(require(ReplicatedStorage:WaitForChild("Gaxia_Packages"))),
 
 	-- ── Lib services (accessed via semantic keys) ──
-	Data    : typeof(require(script.Lib.DataManager)),
-	Player  : typeof(require(script.Lib.PlayerService)),
-	Item    : typeof(require(script.Lib.ItemService)),
-	Economy : typeof(require(script.Lib.EconomyService)),
-	Tool    : typeof(require(script.Lib.ToolService)),
-	Zone    : typeof(require(script.Lib.ZoneService)),
-	Cooldown : typeof(require(script.Lib.CooldownService)),
-	ItemDef  : typeof(require(script.Lib.ItemDefinitionService)),
-	Interaction : typeof(require(script.Lib.InteractionService)),
-	Settings : typeof(require(script.Lib.SettingsService)),
-	Lifecycle : typeof(require(script.Lib.ServiceLifecycle)),
-	Monetization : typeof(require(script.Lib.MonetizationService)),
-	Shop : typeof(require(script.Lib.ShopService)),
-	Analytics : typeof(require(script.Lib.AnalyticsService)),
-	Webhook : typeof(require(script.Lib.WebhookService)),
-	Journal : typeof(require(script.Lib.AntiCheatJournal)),
-	Ban : typeof(require(script.Lib.BanService)),
-	AntiCheatAdmin : typeof(require(script.Lib.AntiCheatAdmin)),
+	Data: typeof(require(script.Lib.DataManager)),
+	Player: typeof(require(script.Lib.PlayerService)),
+	Item: typeof(require(script.Lib.ItemService)),
+	Economy: typeof(require(script.Lib.EconomyService)),
+	Tool: typeof(require(script.Lib.ToolService)),
+	Zone: typeof(require(script.Lib.ZoneService)),
+	Cooldown: typeof(require(script.Lib.CooldownService)),
+	ItemDef: typeof(require(script.Lib.ItemDefinitionService)),
+	Interaction: typeof(require(script.Lib.InteractionService)),
+	Settings: typeof(require(script.Lib.SettingsService)),
+	Lifecycle: typeof(require(script.Lib.ServiceLifecycle)),
+	Monetization: typeof(require(script.Lib.MonetizationService)),
+	Shop: typeof(require(script.Lib.ShopService)),
+	Analytics: typeof(require(script.Lib.AnalyticsService)),
+	Webhook: typeof(require(script.Lib.WebhookService)),
+	Journal: typeof(require(script.Lib.AntiCheatJournal)),
+	Ban: typeof(require(script.Lib.BanService)),
+	Enforcement: typeof(require(script.Lib.AntiCheatEnforcement)),
+	AntiCheatAdmin: typeof(require(script.Lib.AntiCheatAdmin)),
 
 	-- ── Phase 23 genre pack ──
-	Codex : typeof(require(script.Lib.CodexService)),
-	Refine : typeof(require(script.Lib.RefineService)),
-	Vault : typeof(require(script.Lib.VaultService)),
-	Placement : typeof(require(script.Lib.PlacementService)),
-	Idle : typeof(require(script.Lib.IdleService)),
-	Loot : typeof(require(script.Lib.LootService)),
-	AI : typeof(require(script.Lib.AIService)),
-	Protection : typeof(require(script.Lib.ProtectionService)),
-	Raid : typeof(require(script.Lib.RaidService)),
+	Codex: typeof(require(script.Lib.CodexService)),
+	Refine: typeof(require(script.Lib.RefineService)),
+	Vault: typeof(require(script.Lib.VaultService)),
+	Placement: typeof(require(script.Lib.PlacementService)),
+	Idle: typeof(require(script.Lib.IdleService)),
+	Loot: typeof(require(script.Lib.LootService)),
+	AI: typeof(require(script.Lib.AIService)),
+	Protection: typeof(require(script.Lib.ProtectionService)),
+	Raid: typeof(require(script.Lib.RaidService)),
 
 	-- ── Phase 24 retention ──
-	DailyReward : typeof(require(script.Lib.DailyRewardService)),
-	Mail : typeof(require(script.Lib.MailService)),
-	Inventory : typeof(require(script.Lib.InventoryService)),
-	Event : typeof(require(script.Lib.EventService)),
-	Visit : typeof(require(script.Lib.VisitService)),
-	Teleport : typeof(require(script.Lib.TeleportService)),
-	Memory : typeof(require(script.Lib.MemoryStore)),
-	Trade : typeof(require(script.Lib.TradeService)),
-	Party : typeof(require(script.Lib.PartyService)),
+	DailyReward: typeof(require(script.Lib.DailyRewardService)),
+	Mail: typeof(require(script.Lib.MailService)),
+	Inventory: typeof(require(script.Lib.InventoryService)),
+	Event: typeof(require(script.Lib.EventService)),
+	Visit: typeof(require(script.Lib.VisitService)),
+	Teleport: typeof(require(script.Lib.TeleportService)),
+	Memory: typeof(require(script.Lib.MemoryStore)),
+	Trade: typeof(require(script.Lib.TradeService)),
+	Party: typeof(require(script.Lib.PartyService)),
 
 	-- ── Phase 25 juice ──
-	VFX : typeof(require(script.Lib.VFXService)),
-	SFX : typeof(require(script.Lib.SFXService)),
-	Anim : typeof(require(script.Lib.AnimationService)),
-	Motion3D : typeof(require(script.Lib.Motion3DService)),
-	Ragdoll : typeof(require(script.Lib.RagdollService)),
+	VFX: typeof(require(script.Lib.VFXService)),
+	SFX: typeof(require(script.Lib.SFXService)),
+	Anim: typeof(require(script.Lib.AnimationService)),
+	Motion3D: typeof(require(script.Lib.Motion3DService)),
+	Ragdoll: typeof(require(script.Lib.RagdollService)),
 
 	-- ── Phase 26 · Social ──
-	Friend       : typeof(require(script.Lib.FriendService)),
-	Guild        : typeof(require(script.Lib.GuildService)),
-	GuildLock    : typeof(require(script.Lib.GuildLock)),
-	InviteQueue  : typeof(require(script.Lib.InviteQueue)),
+	Friend: typeof(require(script.Lib.FriendService)),
+	Guild: typeof(require(script.Lib.GuildService)),
+	GuildLock: typeof(require(script.Lib.GuildLock)),
+	InviteQueue: typeof(require(script.Lib.InviteQueue)),
 
 	-- ── Pet system (stat-boost pets) ──
-	Pet : typeof(require(script.Lib.PetService)),
+	Pet: typeof(require(script.Lib.PetService)),
 
 	-- ── Phase 11–14 services ──
-	Admin       : typeof(require(script.Lib.AdminCommands)),
-	Chat        : typeof(require(script.Lib.ChatCommandSystem)),
-	Quest       : typeof(require(script.Lib.QuestSystem)),
-	Achievement : typeof(require(script.Lib.AchievementSystem)),
-	Level       : typeof(require(script.Lib.LevelSystem)),
-	Migration   : typeof(require(script.Lib.DataMigration)),
-	Leaderboard : typeof(require(script.Lib.LeaderboardService)),
-	Messages    : typeof(require(script.Lib.CrossServerMessaging)),
+	Admin: typeof(require(script.Lib.AdminCommands)),
+	Chat: typeof(require(script.Lib.ChatCommandSystem)),
+	Quest: typeof(require(script.Lib.QuestSystem)),
+	Achievement: typeof(require(script.Lib.AchievementSystem)),
+	Level: typeof(require(script.Lib.LevelSystem)),
+	Migration: typeof(require(script.Lib.DataMigration)),
+	Leaderboard: typeof(require(script.Lib.LeaderboardService)),
+	Messages: typeof(require(script.Lib.CrossServerMessaging)),
 
 	-- ── AntiCheat orchestrator (the init ModuleScript, not the folder) ──
-	AntiCheat : typeof(require(script.AntiCheat)),
+	AntiCheat: typeof(require(script.AntiCheat)),
 
 	-- ── Config (server-side single config surface) ──
-	Config : typeof(require(script.Config)),
-	EConfig : typeof(require(script.Lib.EffectiveConfig)),
+	Config: typeof(require(script.Config)),
+	EConfig: typeof(require(script.Lib.EffectiveConfig)),
 }
 
 -- ── Guards ───────────────────────────────────────────────────
 
-if RunService:IsClient() then
+-- Studio's headless RunScript task reports both client and server capability;
+-- permit that dual-context harness while continuing to reject an actual
+-- client-only LocalScript require.
+if RunService:IsClient() and not RunService:IsServer() then
 	error("[Gaxia_Packages_Server] Cannot require server package from the client.")
 end
 
 -- ── Constants ────────────────────────────────────────────────
 
-local TAG_NAME : string = "Gaxia_Packages"
+local TAG_NAME: string = "Gaxia_Packages"
 
 -- Maps short server-side keys to their full ModuleScript names
-local LIB_KEY_MAP : { [string]: string } = {
-	Data        = "DataManager",
-	Player      = "PlayerService",
-	Item        = "ItemService",
-	Economy     = "EconomyService",
-	Tool        = "ToolService",
-	Zone        = "ZoneService",
-	Cooldown    = "CooldownService",
-	ItemDef     = "ItemDefinitionService",
+local LIB_KEY_MAP: { [string]: string } = {
+	Data = "DataManager",
+	Player = "PlayerService",
+	Item = "ItemService",
+	Economy = "EconomyService",
+	Tool = "ToolService",
+	Zone = "ZoneService",
+	Cooldown = "CooldownService",
+	ItemDef = "ItemDefinitionService",
 	Interaction = "InteractionService",
-	Settings    = "SettingsService",
-	Lifecycle   = "ServiceLifecycle",
+	Settings = "SettingsService",
+	Lifecycle = "ServiceLifecycle",
 	Monetization = "MonetizationService",
-	Shop        = "ShopService",
-	Analytics   = "AnalyticsService",
-	Webhook     = "WebhookService",
-	Journal     = "AntiCheatJournal",
-	Ban         = "BanService",
+	Shop = "ShopService",
+	Analytics = "AnalyticsService",
+	Webhook = "WebhookService",
+	Journal = "AntiCheatJournal",
+	Ban = "BanService",
+	Enforcement = "AntiCheatEnforcement",
 	AntiCheatAdmin = "AntiCheatAdmin",
-	Codex       = "CodexService",
-	Refine      = "RefineService",
-	Vault       = "VaultService",
-	Placement   = "PlacementService",
-	Idle        = "IdleService",
-	Loot        = "LootService",
-	AI          = "AIService",
-	Protection  = "ProtectionService",
-	Raid        = "RaidService",
+	Codex = "CodexService",
+	Refine = "RefineService",
+	Vault = "VaultService",
+	Placement = "PlacementService",
+	Idle = "IdleService",
+	Loot = "LootService",
+	AI = "AIService",
+	Protection = "ProtectionService",
+	Raid = "RaidService",
 	DailyReward = "DailyRewardService",
-	Mail        = "MailService",
-	Inventory   = "InventoryService",
-	Event       = "EventService",
-	Visit       = "VisitService",
-	Teleport    = "TeleportService",
-	Memory      = "MemoryStore",
-	Trade       = "TradeService",
-	Party       = "PartyService",
-	VFX         = "VFXService",
-	SFX         = "SFXService",
-	Anim        = "AnimationService",
-	Motion3D    = "Motion3DService",
-	Ragdoll     = "RagdollService",
-	EConfig     = "EffectiveConfig",
-	Admin       = "AdminCommands",
-	Chat        = "ChatCommandSystem",
-	Quest       = "QuestSystem",
+	Mail = "MailService",
+	Inventory = "InventoryService",
+	Event = "EventService",
+	Visit = "VisitService",
+	Teleport = "TeleportService",
+	Memory = "MemoryStore",
+	Trade = "TradeService",
+	Party = "PartyService",
+	VFX = "VFXService",
+	SFX = "SFXService",
+	Anim = "AnimationService",
+	Motion3D = "Motion3DService",
+	Ragdoll = "RagdollService",
+	EConfig = "EffectiveConfig",
+	Admin = "AdminCommands",
+	Chat = "ChatCommandSystem",
+	Quest = "QuestSystem",
 	Achievement = "AchievementSystem",
-	Level       = "LevelSystem",
-	Migration   = "DataMigration",
+	Level = "LevelSystem",
+	Migration = "DataMigration",
 	Leaderboard = "LeaderboardService",
-	Messages    = "CrossServerMessaging",
-	Friend      = "FriendService",
-	Guild       = "GuildService",
-	GuildLock   = "GuildLock",
+	Messages = "CrossServerMessaging",
+	Friend = "FriendService",
+	Guild = "GuildService",
+	GuildLock = "GuildLock",
 	InviteQueue = "InviteQueue",
-	Pet         = "PetService",
+	Pet = "PetService",
 }
 
 -- ── Internal Cache ───────────────────────────────────────────
 
-local moduleCache : { [string]: any } = {}
+local moduleCache: { [string]: any } = {}
 
 -- ── Private Helpers ──────────────────────────────────────────
 
@@ -199,7 +204,7 @@ local function resolveChild(folder: Instance, name: string): ModuleScript?
 	-- metamethods, and Luau forbids yielding across metamethod / C-call
 	-- boundaries ("attempt to yield across metamethod/C-call boundary").
 	-- Lib children are already present by the time the loader returns.
-	local child : Instance? = folder:FindFirstChild(name)
+	local child: Instance? = folder:FindFirstChild(name)
 	if child == nil or not child:IsA("ModuleScript") then
 		return nil
 	end
@@ -226,7 +231,7 @@ end
 
 local function makeNamespaceProxy(folder: Instance, prefix: string): { [string]: any }
 	local proxy = {}
-	local cache : { [string]: any } = {}
+	local cache: { [string]: any } = {}
 
 	setmetatable(proxy, {
 		__index = function(_, key: string): any?
@@ -252,9 +257,9 @@ end
 local function buildGaxiaServer(): { [string]: any }
 	-- Lib/ and AntiCheat/ are siblings of this `init` ModuleScript under the
 	-- Gaxia_Packages_Server folder, not children of `init`.
-	local packageRoot     : ModuleScript = script :: ModuleScript
-	local libFolder       : Folder = packageRoot:WaitForChild("Lib")       :: Folder
-	local antiCheatFolder : Folder = packageRoot:WaitForChild("AntiCheat") :: Folder
+	local packageRoot: ModuleScript = script :: ModuleScript
+	local libFolder: Folder = packageRoot:WaitForChild("Lib") :: Folder
+	local antiCheatFolder: Folder = packageRoot:WaitForChild("AntiCheat") :: Folder
 
 	autoTagDescendants()
 
@@ -262,16 +267,18 @@ local function buildGaxiaServer(): { [string]: any }
 	-- The Gaxia_Packages instance is a Folder, not a ModuleScript — its child
 	-- `init` is the actual loader (Rojo's "init.lua" convention is build-time
 	-- only, so at runtime we must drill in manually).
-	local sharedFolder : Instance? = ReplicatedStorage:WaitForChild("Gaxia_Packages", 10)
-	local sharedInitMod : Instance? = if sharedFolder then sharedFolder else nil
-	local sharedPackage : { [string]: any } = {}
+	local sharedFolder: Instance? = ReplicatedStorage:WaitForChild("Gaxia_Packages", 10)
+	local sharedInitMod: Instance? = if sharedFolder then sharedFolder else nil
+	local sharedPackage: { [string]: any } = {}
 	if sharedInitMod and sharedInitMod:IsA("ModuleScript") then
 		local loaded = safeRequire(sharedInitMod :: ModuleScript, "Gaxia_Packages.init")
 		if loaded then
 			sharedPackage = loaded
 		end
 	else
-		warn("[Gaxia_Packages_Server] Could not find ReplicatedStorage.Gaxia_Packages.init ModuleScript")
+		warn(
+			"[Gaxia_Packages_Server] Could not find ReplicatedStorage.Gaxia_Packages.init ModuleScript"
+		)
 	end
 
 	-- WHY AntiCheat is the orchestrator directly (not a namespace proxy):
@@ -282,7 +289,7 @@ local function buildGaxiaServer(): { [string]: any }
 	-- the type definition `typeof(require(script.Parent.AntiCheat))`.
 	-- The orchestrator itself auto-loads every sibling detector at boot.
 	local antiCheatInitMod = antiCheatFolder
-	local antiCheatModule : any = {}
+	local antiCheatModule: any = {}
 	if antiCheatInitMod and antiCheatInitMod:IsA("ModuleScript") then
 		local loaded = safeRequire(antiCheatInitMod :: ModuleScript, "AntiCheat")
 		if loaded then
@@ -304,10 +311,10 @@ local function buildGaxiaServer(): { [string]: any }
 		end
 	end
 
-	local GaxiaServer : { [string]: any } = {
-		Shared    = sharedPackage,
+	local GaxiaServer: { [string]: any } = {
+		Shared = sharedPackage,
 		AntiCheat = antiCheatModule,
-		Config    = configModule,
+		Config = configModule,
 	}
 
 	-- ── Root __index for flat Lib/ services ──────────────────

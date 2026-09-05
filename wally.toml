@@ -9,6 +9,7 @@ private = true
 Comm = "sleitnick/comm@1.0.1"
 Component = "sleitnick/component@2.4.8"
 Janitor = "howmanysmall/janitor@=1.18.3"
+Observers = "sleitnick/observers@=1.0.0"
 # Shared Wally dependencies use the published release. Gaxia.Promise keeps the
 # compatible post-tag upstream snapshot in Shared/Promise.lua.
 Promise = "evaera/promise@4.0.0"

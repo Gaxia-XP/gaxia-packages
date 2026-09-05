@@ -27,7 +27,13 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService        = game:GetService("RunService")
 
+-- WHY the extra Studio clause: in Edit mode via tooling (plugin runners, MCP
+-- tests) IsServer()/IsClient() are BOTH false — client paths would stall on
+-- WaitForChild and assert. Edit mode has no real client, so server semantics
+-- are the correct default there. Play mode and live servers are unaffected
+-- (IsRunning() gates the clause off).
 local IS_SERVER : boolean = RunService:IsServer()
+	or (RunService:IsStudio() and not RunService:IsRunning())
 
 -- Serializer (sibling Shared module) for nested-table values (Phase 19.2).
 -- FindFirstChild (no yield) — Serializer is a present sibling with a pure body.

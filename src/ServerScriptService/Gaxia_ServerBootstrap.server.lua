@@ -7,7 +7,7 @@
 	            • Force-load every Lib service so their PlayerAdded hooks wire up
 	              before the first player joins.
 	            • Load the AntiCheat orchestrator + all detectors.
-	            • Wire OnAction into a default action handler (kick on hard).
+	            • Bind the single AntiCheat enforcement owner after detectors load.
 ]]
 
 -- ── Single-boot guard ─────────────────────────────────────────
@@ -25,54 +25,52 @@ if script.Parent ~= game:GetService("ServerScriptService") then
 	return
 end
 
-
-local Players       = game:GetService("Players")
 local ServerStorage = game:GetService("ServerStorage")
 
 -- ── Master loader ──────────────────────────────────────────────
 -- GaxiaServer is the namespace returned by the server master init module.
-local GaxiaServer = require(
-	ServerStorage:WaitForChild("Gaxia_Packages_Server")
-) :: any
+local GaxiaServer = require(ServerStorage:WaitForChild("Gaxia_Packages_Server")) :: any
 
 -- ── Force-load Lib services ───────────────────────────────────
 -- The Lib namespace is a lazy proxy: accessing GaxiaServer.<Name> requires
 -- the underlying module. We touch each service here so its module body runs
 -- (PlayerAdded hooks, signal definitions, etc.) before any player joins.
 local LIB_SERVICES: { string } = {
-	"Data",        -- DataManager — must be first; other services use it
-	"Player",      -- PlayerService
-	"Item",        -- ItemService
-	"Economy",     -- EconomyService
+	"Data", -- DataManager — must be first; other services use it
+	"Settings", -- Net RPC registration before any client settings request
+	"Player", -- PlayerService
+	"Item", -- ItemService
+	"Economy", -- EconomyService
 	-- Pet: stat-boost pet system. Force-loaded so its NetService remotes AND its
 	-- ItemDef/Loot/Codex catalog register before any player joins — a client
 	-- firing PetBuyEgg before the server registered that remote would error.
-	"Pet",         -- PetService
-	"Tool",        -- ToolService
-	"Zone",        -- ZoneService
+	"Pet", -- PetService
+	"Tool", -- ToolService
+	"Zone", -- ZoneService
 	-- Chat MUST load before Admin so AdminCommands' chat bridge can register
 	-- each built-in command into the ChatCommandSystem at AdminCommands' load.
-	"Chat",        -- ChatCommandSystem
-	"Admin",       -- AdminCommands (auto-grants owner role to game creator)
-	"Quest",       -- QuestSystem
+	"Chat", -- ChatCommandSystem
+	"Admin", -- AdminCommands (auto-grants owner role to game creator)
+	"Quest", -- QuestSystem
 	"Achievement", -- AchievementSystem
-	"Level",       -- LevelSystem
-	"Migration",   -- DataMigration
+	"Level", -- LevelSystem
+	"Migration", -- DataMigration
 	"Leaderboard", -- LeaderboardService
-	"Messages",    -- CrossServerMessaging
+	"Messages", -- CrossServerMessaging
 	-- Ban: persistent ban storage + PlayerAdded gate. MUST load before "Admin"
 	-- so BanService.gate is registered for PlayerAdded before any player
 	-- connects, AND before "Webhook" so Webhook.autoSubscribe sees Ban already
 	-- present without triggering a lazy require from inside task.spawn. The
 	-- /ban and /unban chat commands in AdminCommands are thin wrappers around
 	-- BanService.Ban / .Unban — one ban code path for the whole framework.
-	"Ban",         -- BanService
+	"Ban", -- BanService
 	-- Webhook: load so its auto-reports (Ban / AntiCheat) wire up at boot when a
 	-- channel URL is configured. No-ops harmlessly if no channels are set.
-	"Webhook",     -- WebhookService
+	"Webhook", -- WebhookService
 	-- Friend: drains cross-server invite queue at PlayerAdded; needs to be loaded
 	-- early so the drain hook is registered before late PlayerAdded events.
 	"Friend",
+	"Party", -- register invite RPCs before client UI can invoke them
 	-- Guild: reconciles orphan GuildId on PlayerAdded; subscribes "guild:vault"
 	-- via CrossServerMessaging. Must load AFTER Webhook (so the optional Guild
 	-- auto-report subscriber in Task 8 sees Guild already present).
@@ -88,49 +86,20 @@ end
 -- ── AntiCheat orchestrator + detectors ────────────────────────
 -- Requiring the orchestrator runs its loader which auto-discovers every
 -- sibling detector ModuleScript and starts the shared sampler loop.
-local AntiCheat = require(
-	ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		:WaitForChild("AntiCheat")
-		
-) :: any
+local AntiCheat =
+	require(ServerStorage:WaitForChild("Gaxia_Packages_Server"):WaitForChild("AntiCheat")) :: any
 
--- ── Default OnAction handler ──────────────────────────────────
--- Soft action  → warn the player via output + game console.
--- Hard action  → kick. Use a guard so we don't kick twice in a row for the
--- same reason while the orchestrator is still emitting follow-up flags.
-local kickedReasons: { [number]: { [string]: boolean } } = {}
-
-AntiCheat.OnAction:Connect(function(player: Player, reason: string, kind: string)
-	if kind == "hard" then
-		local uid = player.UserId
-		-- Same exemption as BanService.escalate — OnAction has two enforcing
-		-- consumers and both must skip the creator/high roles, or this one
-		-- still kicks the very user the escalation exemption protects.
-		local Ban = GaxiaServer.Ban
-		if Ban and Ban.IsEscalationExempt and Ban.IsEscalationExempt(uid) then
-			warn(`[Gaxia_AntiCheat] HARD action against {player.Name}: {reason} — exempt (high role), not kicking`)
-			return
-		end
-		kickedReasons[uid] = kickedReasons[uid] or {}
-		if kickedReasons[uid][reason] then return end
-		kickedReasons[uid][reason] = true
-		warn(`[Gaxia_AntiCheat] HARD action against {player.Name}: {reason} — kicking`)
-		-- Brief delay so the kick reason reaches the client before disconnect.
-		task.delay(0.1, function()
-			if player.Parent then
-				player:Kick(`Kicked by Gaxia_AntiCheat (reason: {reason})`)
-			end
-		end)
-	else
-		-- soft: print only. Plug in your own warning UI / log here.
-		warn(`[Gaxia_AntiCheat] soft action against {player.Name}: {reason}`)
-	end
-end)
-
-Players.PlayerRemoving:Connect(function(player: Player)
-	-- Clean up per-player kick-dedupe state so a rejoining player can be
-	-- re-kicked if they cheat again.
-	kickedReasons[player.UserId] = nil
-end)
+-- ── Single enforcement owner ──────────────────────────────────
+-- Detectors only emit evidence/action candidates. This module owns every
+-- automatic Kick/Ban decision and starts in Config.AntiCheat.Enforcement.Mode
+-- = "observe", so rollout can be calibrated without punishing players.
+local Enforcement = GaxiaServer.Enforcement
+if Enforcement and Enforcement.Start then
+	Enforcement.Start(AntiCheat, GaxiaServer.Ban)
+else
+	warn(
+		"[Gaxia_ServerBootstrap] AntiCheatEnforcement unavailable — automatic AntiCheat actions are disabled"
+	)
+end
 
 print("[Gaxia_ServerBootstrap] complete — services + AntiCheat online")

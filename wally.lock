@@ -10,7 +10,7 @@ dependencies = []
 [[package]]
 name = "gaxia-xp/gaxia-packages"
 version = "1.0.0"
-dependencies = [["Comm", "sleitnick/comm@1.0.1"], ["Component", "sleitnick/component@2.4.8"], ["Janitor", "howmanysmall/janitor@1.18.3"], ["Promise", "evaera/promise@4.0.0"], ["Signal", "sleitnick/signal@2.0.3"], ["Spring", "sleitnick/spring@1.0.0"], ["Symbol", "sleitnick/symbol@2.0.1"], ["T", "osyrisrblx/t@3.1.1"], ["TableUtil", "sleitnick/table-util@1.2.1"], ["Trove", "sleitnick/trove@1.8.0"], ["ZonePlus", "mattschrubb/zoneplus@3.2.0"], ["ProfileStore", "lm-loleris/profilestore@1.0.3"]]
+dependencies = [["Comm", "sleitnick/comm@1.0.1"], ["Component", "sleitnick/component@2.4.8"], ["Janitor", "howmanysmall/janitor@1.18.3"], ["Observers", "sleitnick/observers@1.0.0"], ["Promise", "evaera/promise@4.0.0"], ["Signal", "sleitnick/signal@2.0.3"], ["Spring", "sleitnick/spring@1.0.0"], ["Symbol", "sleitnick/symbol@2.0.1"], ["T", "osyrisrblx/t@3.1.1"], ["TableUtil", "sleitnick/table-util@1.2.1"], ["Trove", "sleitnick/trove@1.8.0"], ["ZonePlus", "mattschrubb/zoneplus@3.2.0"], ["ProfileStore", "lm-loleris/profilestore@1.0.3"]]
 
 [[package]]
 name = "howmanysmall/janitor"
@@ -46,6 +46,11 @@ dependencies = [["Option", "sleitnick/option@1.0.5"], ["Promise", "evaera/promis
 name = "sleitnick/component"
 version = "2.4.8"
 dependencies = [["Promise", "evaera/promise@4.0.0"], ["Signal", "sleitnick/signal@2.0.3"], ["Symbol", "sleitnick/symbol@2.0.1"], ["Trove", "sleitnick/trove@1.8.0"]]
+
+[[package]]
+name = "sleitnick/observers"
+version = "1.0.0"
+dependencies = []
 
 [[package]]
 name = "sleitnick/option"

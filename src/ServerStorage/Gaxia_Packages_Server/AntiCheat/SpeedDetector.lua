@@ -58,7 +58,7 @@ function SpeedDetector.Sample(player: Player, snapshot: any): any?
 			-- one flag every (STREAK_REQUIRED * SAMPLER_INTERVAL) seconds —
 			-- enough cadence to escalate to "hard" without spamming OnFlag.
 			streaks[player.UserId] = 0
-			return { reason = "Speed", severity = SPEED_SEVERITY }
+			return { reason = "Speed", severity = SPEED_SEVERITY, source = "server" }
 		end
 	else
 		streaks[player.UserId] = 0
