@@ -13,7 +13,7 @@
 5. [Shared Modules](#5-shared-modules)
 6. [Util Modules](#6-util-modules)
 7. [Client UI](#7-client-ui)
-8. [Server Services](#8-server-services) — **Config / EConfig / Flags** (อ่านก่อน) + 51 services จัดกลุ่ม:
+8. [Server Services](#8-server-services) — **Config / EConfig / Flags** (อ่านก่อน) + API modules ในหัวข้อ 8.1–8.53 จัดกลุ่ม:
    - **Core (8.1–8.15):** DataManager · PlayerService · ItemService · EconomyService · ToolService · ZonePlus · ChatCommandSystem · AdminCommands · QuestSystem · AchievementSystem · LevelSystem · DataMigration · LeaderboardService · CrossServerMessaging · WebhookService
    - **Moderation (8.16–8.21):** Ban · Analytics · Journal · AntiCheatAdmin · Protection · Lifecycle
    - **Economy (8.22–8.28):** Vault · Shop · Monetization · Trade · Inventory · Loot · ItemDef
@@ -35,10 +35,10 @@
 
 | หมวด | จำนวน | ใช้ทำอะไร |
 |---|---|---|
-| **Shared modules** | 11 | Signal, Maid, Promise, Tween ฯลฯ — ใช้ได้ทุก context |
+| **Shared modules** | 41 | Signal, Maid, Promise, Tween ฯลฯ — ใช้ได้ทุก context |
 | **Util** | 6 | Table, String, Math helpers |
-| **Client UI** | 6 controllers + 10 templates | Notification, HealthBar, Menu, Inventory ฯลฯ |
-| **Server services** | 14 | DataManager, Player, Item, Economy, Tool, Zone, Chat, Admin, Quest, Achievement, Level, Migration, Leaderboard, Messages |
+| **Client UI** | 23 UI modules, including 10 template builders | Notification, HealthBar, Menu, Inventory ฯลฯ |
+| **Server API modules** | 8.1–8.53 | Services, helpers และ orchestrators ที่อธิบายในหัวข้อ server ตามชื่อจริง |
 | **AntiCheat** | server detectors + 1 client tripwire | server-state checks, bounded RPC gateway, and observe-first enforcement |
 | **Bootstrap** | 2 | ServerBootstrap + ClientBootstrap |
 
@@ -58,7 +58,7 @@
 
 ```lua
 local ServerStorage = game:GetService("ServerStorage")
-local GaxiaServer = require(ServerStorage.Gaxia_Packages_Server.init)
+local GaxiaServer = require(ServerStorage.Gaxia_Packages_Server)
 
 -- ฟัง player join
 GaxiaServer.Player.OnPlayerJoined:Connect(function(player)
@@ -91,7 +91,7 @@ end
 
 ```lua
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Gaxia = require(ReplicatedStorage.Gaxia_Packages.init)
+local Gaxia = require(ReplicatedStorage.Gaxia_Packages)
 
 -- แสดง notification
 Gaxia.UI.NotificationService.Notify("Welcome", "ยินดีต้อนรับสู่เกม!", 5, "success")
@@ -128,7 +128,7 @@ ReplicatedStorage/
 │   │       └── Table, String, Math, Instance, Player, Debug
 │   └── Client/                  ← ใช้ได้แค่ client
 │       ├── ClientAntiCheat, PromptManager
-│       └── UI/                  ← 6 controllers + 1 templates module
+│       └── UI/                  ← UI modules + template builders (see source)
 │           ├── UIController, NotificationService
 │           ├── HealthBarController, MenuController
 │           ├── InventoryController, HUDController
@@ -144,7 +144,7 @@ ReplicatedStorage/
 ServerStorage/
 └── Gaxia_Packages_Server/       ← server-only
     ├── init                     ← Server Master Loader
-    ├── Lib/                     ← 14 services
+    ├── Lib/                     ← 56 source modules (services + helpers)
     │   ├── DataManager, PlayerService
     │   ├── ItemService, EconomyService
     │   ├── ToolService, ZonePlus
@@ -152,7 +152,7 @@ ServerStorage/
     │   ├── QuestSystem, AchievementSystem
     │   ├── LevelSystem, DataMigration
     │   ├── LeaderboardService, CrossServerMessaging
-    └── AntiCheat/               ← orchestrator + 9 detectors
+    └── AntiCheat/               ← orchestrator + 15 detector modules
         ├── init                 ← orchestrator
         ├── SpeedDetector, FlyDetector
         ├── NoClipDetector, TeleportDetector
@@ -182,12 +182,12 @@ StarterPlayer/StarterPlayerScripts/
 
 ### Client side / Shared (ใช้ในทุก context)
 ```lua
-local Gaxia = require(game.ReplicatedStorage.Gaxia_Packages.init)
+local Gaxia = require(game.ReplicatedStorage.Gaxia_Packages)
 ```
 
 ### Server side
 ```lua
-local GaxiaServer = require(game.ServerStorage.Gaxia_Packages_Server.init)
+local GaxiaServer = require(game.ServerStorage.Gaxia_Packages_Server)
 ```
 
 ### โครงสร้าง
@@ -222,10 +222,9 @@ local GaxiaServer = require(game.ServerStorage.Gaxia_Packages_Server.init)
 | `GaxiaServer.Messages` | CrossServerMessaging |
 | `GaxiaServer.AntiCheat` | AntiCheat orchestrator |
 
-> ⚠️ **อย่า require folder ตรงๆ** — ต้องเข้าผ่าน `.init`:
+> **Package root เป็น ModuleScript หลัง Rojo build:** require root โดยตรง:
 > ```lua
-> require(game.ReplicatedStorage.Gaxia_Packages)        -- ❌ ผิด
-> require(game.ReplicatedStorage.Gaxia_Packages.init)   -- ✅ ถูก
+> require(game.ReplicatedStorage.Gaxia_Packages)   -- ✅ ถูก
 > ```
 
 ---
@@ -955,7 +954,7 @@ local overridden = GaxiaServer.EConfig.IsOverridden("Raid.LootFraction")
 ```lua
 local Gaxia = require(ReplicatedStorage.Gaxia_Packages)   -- shared
 local mult = Gaxia.Flags.Get("Economy.GlobalMultiplier", 1)
-Gaxia.Flags.OnChanged:Connect(function(key, value) end)
+Gaxia.Flags.OnChanged("Economy.GlobalMultiplier", function(newValue, oldValue) end)
 ```
 
 **Naming:** flag key = dot-path เทียบ Config section — `Economy.MaxTransaction`, `AntiCheat.Speed.ToleranceMultiplier`, `Webhook.Enabled`, ฯลฯ. ทุก service section ด้านล่างที่มี **Config** block แสดง key ที่อ่าน — wrap ด้วย `EConfig.Get("Section.Key", default)` ที่ call-time ก็ได้ live override.
@@ -2853,7 +2852,7 @@ permanent ban จาก trap ไม่ได้เปิดเป็นค่า
 
 ```lua
 local ServerStorage = game:GetService("ServerStorage")
-local GaxiaServer = require(ServerStorage.Gaxia_Packages_Server.init)
+local GaxiaServer = require(ServerStorage.Gaxia_Packages_Server)
 
 local Enforcement = GaxiaServer.Enforcement
 
@@ -2875,7 +2874,7 @@ end)
 -- ServerScriptService/ClickerLogic (Script)
 local Players = game:GetService("Players")
 local ServerStorage = game:GetService("ServerStorage")
-local GaxiaServer = require(ServerStorage.Gaxia_Packages_Server.init)
+local GaxiaServer = require(ServerStorage.Gaxia_Packages_Server)
 local Net = GaxiaServer.Shared.Net
 
 Net.Server.RegisterEvent("Clicker.Click", {
@@ -2912,7 +2911,7 @@ end)
 ```lua
 -- StarterPlayer/StarterPlayerScripts/ClickerUI (LocalScript)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Gaxia = require(ReplicatedStorage.Gaxia_Packages.init)
+local Gaxia = require(ReplicatedStorage.Gaxia_Packages)
 
 -- ทำปุ่ม Click
 local btn = Gaxia.UI.UIController.CloneTemplate("ButtonTemplate")
@@ -2931,7 +2930,7 @@ end)
 -- Server: ShopService.lua
 local Players = game:GetService("Players")
 local ServerStorage = game:GetService("ServerStorage")
-local GaxiaServer = require(ServerStorage.Gaxia_Packages_Server.init)
+local GaxiaServer = require(ServerStorage.Gaxia_Packages_Server)
 local Net = GaxiaServer.Shared.Net
 
 local SHOP_ITEMS = {
@@ -3095,11 +3094,14 @@ end)
 
 ## 12. Troubleshooting
 
-### "Attempted to call require with invalid argument(s)"
-**ผิด:** `require(game.ReplicatedStorage.Gaxia_Packages)`
-**ถูก:** `require(game.ReplicatedStorage.Gaxia_Packages.init)`
+### Package root require error
+Package roots ที่สร้างด้วย Rojo `init.lua` เป็น ModuleScript จึง require โดยตรง:
+`require(game.ReplicatedStorage.Gaxia_Packages)` และ
+`require(game.ServerStorage.Gaxia_Packages_Server)`
 
-Roblox runtime ไม่ auto-resolve `Folder/init` (Rojo convention only)
+ถ้าเห็น error ให้ตรวจว่า package ถูก sync/build แล้ว และอย่าเรียก `require` กับ
+Folder โดยตรง; เอกสารนี้อ้างอิง ModuleScript root ที่สร้างด้วย Rojo เท่านั้น
+อย่าสมมติว่า loader เวอร์ชันที่ติดตั้งรองรับ Folder/init layout.
 
 ### "Infinite yield possible on ..."
 ที่ใช้ `WaitForChild` ในที่ที่ instance ยังไม่ replicate
@@ -3156,7 +3158,7 @@ session ผ่าน ProfileStore. ตรวจ `Config.Data.StoreName`, DataSto
 ## 13. FAQ
 
 **Q: ใช้กับ Rojo / external workflow ได้ไหม?**
-A: ได้ ต้องสร้าง `default.project.json` map paths ให้ตรง. Source code อยู่ใน `G:\My Drive\roblox-multi-ai\src\`
+A: ได้ ต้องสร้าง `default.project.json` map paths ให้ตรง. Source code อยู่ใน repository directory ภายใต้ `src/`
 
 **Q: Anti-Cheat กิน performance ไหม?**
 A: ใช้ shared sampler 0.5s loop ตัวเดียว iterate players → snapshot → dispatch. Event-driven detectors zero idle cost. ตามที่ทดสอบ — < 1% CPU

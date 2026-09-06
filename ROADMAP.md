@@ -21,7 +21,7 @@
 
 ---
 
-> **PROGRESS:** ✅ Phase 17 · ✅ Config A/B/C · ✅ **Phase 18** (Lifecycle/Component/Guard + Cooldown/ItemDef/Interaction/RNG/Pool/Scheduler/Serializer/Settings) · ✅ **Phase 19** (Guard↔Net · ReplicatedState v2 nested · Command pattern · StateBinding) · ✅ **Phase 20** (Monetization idempotent receipts + ShopService) · ✅ **Phase 21** (BanService · Journal · AntiCheatAdmin dashboard · FeatureFlags · Analytics · WorldBounds+flag-decay · Heuristic) · ✅ **Phase 22** (22a Theme/Responsive/Router/Localization · 22b Components/GamepadNav/RebindMenu · 22c Accessibility/Toast/Haptics) · ✅ **Phase 23** (genre pack: Codex/Refine/Vault/Placement/Idle/Loot/AI/Raid+Protection) · ✅ **Phase 24** (retention: DailyReward/Mail/Trade/Inventory-depth/Event+Visit/Teleport/MemoryStore/Party) · ✅ **Phase 25** (juice: VFX/SFX/Animation/MotionUI/Motion3D/Ragdoll) — **🎉 FRAMEWORK PHASES 17–25 COMPLETE (v1.0.0)** · ▶️ **Tooling track partial:** ✅ Gaxia.VERSION+CHANGELOG · ✅ GuiCodec (GUI⇄code) · ✅ scaffold.mjs (service generator) · ✅ **Rojo adopted (CLI 7.7.0-rc.1; `default.project.json` + `plugin.project.json`; renamed framework `init.lua` → `loader.lua` to dodge Rojo's `init.*` $path constraint)** · ✅ **Gaxia Companion Studio plugin** (UI↔Script converter + 1-click Install Gaxia in `plugin/src/`) · ⏸️ CI / sample game
+> **PROGRESS:** ✅ Phase 17 · ✅ Config A/B/C · ✅ **Phase 18** (Lifecycle/Component/Guard + Cooldown/ItemDef/Interaction/RNG/Pool/Scheduler/Serializer/Settings) · ✅ **Phase 19** (Guard↔Net · ReplicatedState v2 nested · Command pattern · StateBinding) · ✅ **Phase 20** (Monetization idempotent receipts + ShopService) · ✅ **Phase 21** (BanService · Journal · AntiCheatAdmin dashboard · FeatureFlags · Analytics · WorldBounds+flag-decay · Heuristic) · ✅ **Phase 22** (22a Theme/Responsive/Router/Localization · 22b Components/GamepadNav/RebindMenu · 22c Accessibility/Toast/Haptics) · ✅ **Phase 23** (genre pack: Codex/Refine/Vault/Placement/Idle/Loot/AI/Raid+Protection) · ✅ **Phase 24** (retention: DailyReward/Mail/Trade/Inventory-depth/Event+Visit/Teleport/MemoryStore/Party) · ✅ **Phase 25** (juice: VFX/SFX/Animation/MotionUI/Motion3D/Ragdoll) — **🎉 FRAMEWORK PHASES 17–25 COMPLETE (v1.0.0)** · ▶️ **Tooling track partial:** ✅ Gaxia.VERSION+CHANGELOG · ✅ GuiCodec (GUI⇄code) · ✅ scaffold.mjs (service generator) · ✅ **Rojo adopted (CLI 7.7.0-rc.1; `default.project.json` + `plugin.project.json`; `init.lua` directories build to ModuleScript roots; consumers require package roots directly)** · ✅ **Gaxia Companion Studio plugin** (UI↔Script converter + 1-click Install Gaxia in `plugin/src/`) · ⏸️ CI / sample game
 >
 > **POST-v1.0.0 (this session — 2026-06-08):** ✅ **WebhookService** (`Gaxia.Webhook` — Discord/generic, queue+429 retry, auto-report Bans+AntiCheat) · ✅ **Two-layer Config** (server-private Config + runtime Flags via `EConfig.Get/Enabled/Set/Clear` + `/flag` `/ac` admin commands) · ✅ **Config sweep** (13 services wired, BanService→`Config.Admin.Stores.Bans` bug closed, XP curve + Inventory.MaxItemCount + 11 other knobs moved to Config) · ✅ **luau-lsp cyclic-dep fix** (31 services use Instance-typed local + `:: any` cast to break loader↔service false-positive) · ✅ **ProfileStore adopted** (superseding the earlier ProfileService bundle; data persists in production, not just the Studio mock) · ✅ **MANUAL.md full sweep** (15 → 49 services documented; new "Config / EConfig / Flags" preamble in §8)
 >
@@ -95,7 +95,7 @@
 | 19.3 | **Replication pattern ระดับสูง** — snapshot/command แทน RemoteEvent ดิบ | L | med |
 | 19.4 | **UI state-binding layer** — `Bind(gui, prop, observable)` แทน HUD polling 0.2s / RenderStepped loops | M | med |
 
-✅ **Exit:** remote ปฏิเสธ payload ผิดรูป · nested state replicate ได้ · HUD เลิก poll
+✅ **Exit:** remote ปฏิเสธ payload ผิดรูป · nested state replicate ได้ · HUD ใช้ state binding เป็นหลัก (ยังมี polling fallback ใน controller)
 
 ---
 
@@ -128,7 +128,7 @@
 
 > *แยก exit gate ได้: **21a moderation** (21.1–21.3, 21.6) · **21b telemetry/runtime** (21.4 FeatureFlags, 21.5 Analytics, 21.7 heuristic)*
 
-✅ **Exit:** flag persist ข้าม restart · ban escalate · toggle detector ตอน runtime · analytics event ไหล
+✅ **Exit:** flag เป็น session-scoped และ reset เมื่อ restart · ban persist แยกผ่าน BanService · toggle detector ตอน runtime · analytics event ไหล
 
 ---
 
@@ -196,7 +196,7 @@
 | 24.3 | **TradeService / GiftingService** — two-party both-confirm atomic swap (item+currency) — dupe surface #1, vet ครั้งเดียวให้แน่น | L | med |
 | 24.4 | **Inventory depth** — unique item instance, stack, equip slot (ปลดล็อก RPG/gacha/crafting) | L | med |
 | 24.5 | **EventService + VisitService** — seasonal/timed content + read-only base visiting | M | med |
-| 24.6 | **TeleportService wrapper** — TeleportAsync retry + teleport-data + reserved-server + `GetPlayerPlaceInstanceAsync` (dependency ของ 24.8) — ไม่มี TeleportService ใน repo เลย | M | med |
+| 24.6 | **TeleportService wrapper** — TeleportAsync retry + teleport-data + reserved-server + `GetPlayerPlaceInstanceAsync` (dependency ของ 24.8) — implemented in `Lib/TeleportService.lua` | M | med |
 | 24.7 | **MemoryStore wrapper** — queue/sorted-map cross-server ephemeral (matchmaking 24.8 + เป็น backing ของ global cooldown 18.4) | M | med |
 | 24.8 | **PartyService** — grouping/matchmaking บน CrossServerMessaging + Teleport(24.6) → reserved server (ปลดล็อก co-op/lobby) | L | low |
 
@@ -230,9 +230,9 @@
 >
 > **สถานะ (v1.0.0):** ✅ `Gaxia.VERSION` + `CHANGELOG.md` · ✅ **GuiCodec** (`Gaxia.GuiCodec` — `ToCode` Instance→Luau + `Make` code→Instance, verified) · ✅ **scaffold.mjs** (`new:service` generator + init wiring, verified dry-run)
 > **⏸️ ค้าง — ต้องตัดสินใจ/ติดตั้งเครื่องมือก่อน:**
-> - **Rojo `default.project.json`** — fork: ปัจจุบัน runtime คือ `Gaxia_Packages` (Folder) + `init` (ModuleScript child) ตามที่ MCP push สร้าง และโค้ดทั่ว framework `require(...):WaitForChild("init")`. แต่ Rojo เห็น `Gaxia_Packages/init.lua` = ทำให้ `Gaxia_Packages` เป็น **ModuleScript** (ไม่มี `init` child) → ต้อง refactor require ทุกที่ให้ require `Gaxia_Packages` ตรงๆ (ดูคอมเมนต์ใน server `init.lua` ที่ flag ไว้แล้ว). **เป็น decision repo-wide — รอ review**
-> - **CI (luau-lsp/selene/stylua) + headless test runner** — เครื่องไม่มี rojo/selene/stylua ติดตั้ง → เขียน config ได้แต่ verify ไม่ได้ในรอบนี้
-> - **build `.rbxm` deterministic · sample game `gaxia-starter` · Companion Plugin** — งานใหญ่/interactive (โดยเฉพาะ Companion Plugin = one-click install + editor tools) ควร build + ทดสอบใน Studio แบบ interactive ตอน review
+> - **Rojo `default.project.json`** — ✅ resolved: `Gaxia_Packages` และ `Gaxia_Packages_Server` เป็น ModuleScript roots produced by the `init.lua` convention. This documentation targets the built topology; consumers require the roots directly, without `.init`.
+> - **CI (luau-lsp/selene/stylua) + headless test runner** — toolchain ติดตั้งแล้วและมี config; ยังเหลือการผูกเข้า CI/headless runtime tests และ cleanup warnings/format drift ที่มีอยู่ใน source/vendor
+> - **sample game `gaxia-starter`** — ยังเป็นงาน interactive ที่ต้อง build + ทดสอบใน Studio; Rojo build และ Companion Plugin ทำเสร็จแล้ว
 
 - **Rojo `default.project.json` + toolchain** (aftman/rokit: rojo/luau-lsp/stylua/selene) — src/ เป็น Rojo shape อยู่แล้ว · เลิกพึ่ง MCP /submit อย่างเดียว
 - **One-command bootstrap** — copy 2 bootstrap เข้า ServerScriptService/StarterPlayerScripts อัตโนมัติ (ฆ่ากับดักอันดับ 1)

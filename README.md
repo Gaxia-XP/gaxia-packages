@@ -25,6 +25,10 @@ rojo serve
 
 For more help, check out [the Rojo documentation](https://rojo.space/docs).
 
+## API documentation
+
+See [`docs/GAXIA_PACKAGES_API.md`](docs/GAXIA_PACKAGES_API.md) for the first-party API reference, signatures, examples, use cases, runtime boundaries, and verification checklist. See its verification status for coverage limitations.
+
 ## OSS dependency smoke test
 
 Close Roblox Studio, then run the isolated CLI smoke test:
