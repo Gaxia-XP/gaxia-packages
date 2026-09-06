@@ -1,0 +1,36 @@
+{
+  "name": "GaxiaOssDependenciesSmoke",
+  "globIgnorePaths": [
+    "**/*.spec.lua",
+    "**/*.spec.luau",
+    "**/*.test.lua",
+    "**/*.test.luau",
+    "**/__tests__/**",
+    "**/jest.config.luau"
+  ],
+  "tree": {
+    "$className": "DataModel",
+
+    "ReplicatedStorage": {
+      "$ignoreUnknownInstances": true,
+      "Gaxia_Packages": {
+        "$path": "../src/ReplicatedStorage/Gaxia_Packages",
+        "$ignoreUnknownInstances": true,
+        "Packages": {
+          "$path": "../Packages"
+        }
+      }
+    },
+
+    "ServerStorage": {
+      "$ignoreUnknownInstances": true,
+      "Gaxia_Packages_Server": {
+        "$path": "../src/ServerStorage/Gaxia_Packages_Server",
+        "$ignoreUnknownInstances": true,
+        "ServerPackages": {
+          "$path": "../ServerPackages"
+        }
+      }
+    }
+  }
+}

@@ -11,8 +11,8 @@
 --           Toggle with the P key, or call PetController.Open() from game code.
 -- ─────────────────────────────────────────────────────────────
 
-local RunService        = game:GetService("RunService")
-local UserInputService  = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 
 export type PetController = {
 	Open: () -> (),
@@ -22,44 +22,46 @@ export type PetController = {
 
 -- Client-only module; return a typed stub on the server so the union collapses.
 if not RunService:IsClient() then
-	return ({
-		Open = function() end,
-		Close = function() end,
-		Toggle = function() end,
-	} :: any) :: PetController
+	return (
+		{
+			Open = function() end,
+			Close = function() end,
+			Toggle = function() end,
+		} :: any
+	) :: PetController
 end
 
 local UIController = require(script.Parent:WaitForChild("UIController"))
-local Toast        = require(script.Parent:WaitForChild("Toast"))
+local Toast = require(script.Parent:WaitForChild("Toast"))
 -- Net via the shared package (Gaxia_Packages/init), same as every server service
 -- consumes it — survives a Shared/ folder move that a hand-counted path would not.
-local SharedPkg    = require(script.Parent.Parent.Parent) :: any
-local Net          = SharedPkg.Net
+local SharedPkg = require(script.Parent.Parent.Parent) :: any
+local Net = SharedPkg.Net
 
 -- ── Constants ──
-local TEMPLATE_NAME    : string = "MenuTemplate"
-local TOGGLE_KEY       : Enum.KeyCode = Enum.KeyCode.P
-local PLACEHOLDER_ICON : string = "rbxasset://textures/ui/GuiImagePlaceholder.png" -- provisional; swap real pet art server-side
-local SLOT_SIZE        : UDim2 = UDim2.fromOffset(78, 92)
-local EQUIPPED_COLOR   : Color3 = Color3.fromRGB(80, 200, 120)
-local NEUTRAL_TEXT     : Color3 = Color3.fromRGB(235, 238, 245)
-local MUTED_TEXT       : Color3 = Color3.fromRGB(190, 195, 205)
+local TEMPLATE_NAME: string = "MenuTemplate"
+local TOGGLE_KEY: Enum.KeyCode = Enum.KeyCode.P
+local PLACEHOLDER_ICON: string = "rbxasset://textures/ui/GuiImagePlaceholder.png" -- provisional; swap real pet art server-side
+local SLOT_SIZE: UDim2 = UDim2.fromOffset(78, 92)
+local EQUIPPED_COLOR: Color3 = Color3.fromRGB(80, 200, 120)
+local NEUTRAL_TEXT: Color3 = Color3.fromRGB(235, 238, 245)
+local MUTED_TEXT: Color3 = Color3.fromRGB(190, 195, 205)
 
 local RARITY_COLOR: { [string]: Color3 } = {
-	common    = Color3.fromRGB(150, 155, 165),
-	uncommon  = Color3.fromRGB(95, 195, 110),
-	rare      = Color3.fromRGB(70, 140, 245),
-	epic      = Color3.fromRGB(180, 110, 240),
+	common = Color3.fromRGB(150, 155, 165),
+	uncommon = Color3.fromRGB(95, 195, 110),
+	rare = Color3.fromRGB(70, 140, 245),
+	epic = Color3.fromRGB(180, 110, 240),
 	legendary = Color3.fromRGB(255, 200, 80),
 }
 
 -- ── State ──
-local snapshot   : { [string]: any }? = nil
-local panel      : Frame? = nil
-local multLabel  : TextLabel? = nil
-local equipLabel : TextLabel? = nil
-local buyButton  : TextButton? = nil
-local grid       : Frame? = nil
+local snapshot: { [string]: any }? = nil
+local panel: Frame? = nil
+local multLabel: TextLabel? = nil
+local equipLabel: TextLabel? = nil
+local buyButton: TextButton? = nil
+local grid: Frame? = nil
 
 local PetController = {}
 
@@ -81,10 +83,16 @@ end
 
 -- ── One owned-pet slot (clickable: toggles equip/unequip) ──
 
-local function buildSlot(inst: { [string]: any }, def: { [string]: any }?, isEquipped: boolean, parent: Instance): ()
+local function buildSlot(
+	inst: { [string]: any },
+	def: { [string]: any }?,
+	isEquipped: boolean,
+	parent: Instance
+): ()
 	local displayName: string = (def and def.displayName) or inst.petId
 	local rarity: string = (def and def.rarity) or "common"
-	local iconId: string = (def and typeof(def.icon) == "string" and def.icon ~= "" and def.icon) or PLACEHOLDER_ICON
+	local iconId: string = (def and typeof(def.icon) == "string" and def.icon ~= "" and def.icon)
+		or PLACEHOLDER_ICON
 
 	local btn = Instance.new("ImageButton")
 	btn.Name = inst.uid
@@ -144,9 +152,9 @@ local function buildSlot(inst: { [string]: any }, def: { [string]: any }?, isEqu
 
 	btn.Activated:Connect(function()
 		if isEquipped then
-			Net.FireServer("PetUnequip", { uid = inst.uid })
+			Net.Client.Fire("PetUnequip", { uid = inst.uid })
 		else
-			Net.FireServer("PetEquip", { uid = inst.uid })
+			Net.Client.Fire("PetEquip", { uid = inst.uid })
 		end
 	end)
 
@@ -210,11 +218,9 @@ end
 -- ── Request fresh state (RemoteFunction) ──
 
 local function requestState(): ()
-	local ok, snap = pcall(function()
-		return Net.InvokeServer("PetGetState")
-	end)
-	if ok and typeof(snap) == "table" then
-		snapshot = snap
+	local result = Net.Client.Invoke("PetGetState", {})
+	if result.ok and typeof(result.data) == "table" then
+		snapshot = result.data
 		rebuild()
 	end
 end
@@ -318,7 +324,7 @@ function PetController.Open(): ()
 	bb.Parent = info
 	buyButton = bb
 	bb.Activated:Connect(function()
-		Net.FireServer("PetBuyEgg", { egg = "BasicEgg" })
+		Net.Client.Fire("PetBuyEgg", { egg = "BasicEgg" })
 	end)
 
 	-- Grid of owned pets.
@@ -370,7 +376,11 @@ pcall(function()
 			local nm: string = (def and def.displayName) or res.petId or "a pet"
 			Toast.Show({ Title = "Egg Hatched!", Text = `You got {nm}!`, Variant = "success" })
 		else
-			Toast.Show({ Title = "Hatch Failed", Text = tostring(res.reason or "try again"), Variant = "error" })
+			Toast.Show({
+				Title = "Hatch Failed",
+				Text = tostring(res.reason or "try again"),
+				Variant = "error",
+			})
 		end
 	end)
 end)

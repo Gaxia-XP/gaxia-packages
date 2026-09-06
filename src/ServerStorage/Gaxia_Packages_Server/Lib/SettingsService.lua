@@ -3,37 +3,53 @@
 -- SettingsService.lua
 -- Location: ServerStorage/Gaxia_Packages_Server/Lib/SettingsService
 -- Purpose : Server-authoritative bridge to Profile.Data.Settings with a
---           key + type WHITELIST, plus a client RemoteFunction so the (already
---           built) settings UI can read/write. Persisted Settings (Music/SFX…)
---           were previously dead — no endpoint reached them. Unknown keys and
---           bad-typed values are rejected (anti-exploit).
+--           key + type whitelist. Client requests use the registered Net
+--           RPCs below; this service never owns a raw RemoteFunction.
 --
--- Access  : Gaxia.Settings  (server) — touch it at boot to activate the bridge:
---   Gaxia.Settings.RegisterSetting("Quality", function(v) return typeof(v)=="number" end)
+-- Access  : Gaxia.Settings (server)
+--   Gaxia.Settings.RegisterSetting("Quality", function(v) return typeof(v) == "number" end)
 --   Gaxia.Settings.Set(player, "Music", false)
--- Client  : RemoteFunction ReplicatedStorage.Events.Gaxia_Settings
---   remote:InvokeServer("get"|"getAll"|"set", key, value)
+-- Client  : Shared.Settings (client)
+--   Settings.Get("Music") / Settings.GetAll() / Settings.Set("Music", false)
+--
+-- Transport contract:
+--   Settings.Read { key = string? }  -- omitted key returns all settings
+--   Settings.Set  { key = string, value = any }
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
+local ServerStorage = game:GetService("ServerStorage")
 
-local SETTINGS_KEY : string = "Settings"        -- Profile.Data.Settings
-local REMOTE_NAME  : string = "Gaxia_Settings"
+local SETTINGS_KEY: string = "Settings" -- Profile.Data.Settings
+local READ_RPC: string = "Settings.Read"
+local SET_RPC: string = "Settings.Set"
+local MAX_SETTING_KEY_BYTES: number = 64
+
+-- Require NetService through static descendants rather than the lazy Gaxia
+-- loader. SettingsService can be required from that loader's no-yield
+-- metamethod, while these descendants already exist when the package loads.
+local packageRoot = ReplicatedStorage:FindFirstChild("Gaxia_Packages")
+assert(packageRoot, "[SettingsService] ReplicatedStorage.Gaxia_Packages missing")
+local sharedFolder = packageRoot:FindFirstChild("Shared")
+assert(sharedFolder, "[SettingsService] Gaxia_Packages.Shared missing")
+local netModule = sharedFolder:FindFirstChild("NetService")
+assert(netModule and netModule:IsA("ModuleScript"), "[SettingsService] Shared.NetService missing")
+local Net: any = require(netModule)
 
 local SettingsService = {}
 
 -- key → validator(value) -> boolean. Defaults mirror DataManager.DEFAULT_PROFILE.Settings.
-local function isBool(v: any): boolean
-	return typeof(v) == "boolean"
+local function isBool(value: any): boolean
+	return typeof(value) == "boolean"
 end
+
 local whitelist: { [string]: (value: any) -> boolean } = {
 	Music = isBool,
-	SFX   = isBool,
+	SFX = isBool,
 }
 
--- Lazy DataManager (require the loader at CALL time, not module load — module
+-- Lazy DataManager (require the loader at call time, not module load — module
 -- load runs under the no-yield loader metamethod; calls run in normal context).
 local GaxiaServer: any = nil
 local function getData(): any
@@ -46,7 +62,7 @@ local function getData(): any
 	return GaxiaServer.Data
 end
 
--- ── Public API ──
+-- ── Public server API ──
 
 function SettingsService.RegisterSetting(key: string, validator: (value: any) -> boolean): ()
 	if type(key) ~= "string" or #key == 0 or type(validator) ~= "function" then
@@ -69,15 +85,15 @@ function SettingsService.GetAll(player: Player): { [string]: any }
 	local settings = Data and Data.Get(player, SETTINGS_KEY)
 	local out: { [string]: any } = {}
 	if typeof(settings) == "table" then
-		for k, v in pairs(settings) do
-			out[k] = v
+		for key, value in pairs(settings) do
+			out[key] = value
 		end
 	end
 	return out
 end
 
--- Validate against the whitelist, then persist. Returns false on unknown key /
--- bad value / profile-not-loaded.
+-- Validate against the whitelist, then persist. Returns false on unknown key,
+-- bad value, or profile-not-loaded.
 function SettingsService.Set(player: Player, key: string, value: any): boolean
 	local check = whitelist[key]
 	if not check then
@@ -100,42 +116,74 @@ function SettingsService.Set(player: Player, key: string, value: any): boolean
 	return Data.Set(player, SETTINGS_KEY, settings) == true
 end
 
--- ── Client bridge (RemoteFunction) ──
--- Created at module load (no yield: FindFirstChild + Instance.new). The game must
--- touch Gaxia.Settings server-side at boot so this runs before the client invokes.
-local function getOrCreateEvents(): Instance
-	local events = ReplicatedStorage:FindFirstChild("Events")
-	if events then
-		return events
-	end
-	local folder = Instance.new("Folder")
-	folder.Name = "Events"
-	folder.Parent = ReplicatedStorage
-	return folder
+-- ── Registered Net RPCs ──
+
+local function isSettingKey(value: any): boolean
+	return typeof(value) == "string" and #value > 0 and #value <= MAX_SETTING_KEY_BYTES
 end
 
-local events = getOrCreateEvents()
-local existing = events:FindFirstChild(REMOTE_NAME)
-if existing and not existing:IsA("RemoteFunction") then
-	existing:Destroy()
-	existing = nil
-end
-local remote: RemoteFunction = (existing :: RemoteFunction?) or (function()
-	local r = Instance.new("RemoteFunction")
-	r.Name = REMOTE_NAME
-	r.Parent = events
-	return r
-end)()
-
-remote.OnServerInvoke = function(player: Player, op: any, key: any, value: any): any
-	if op == "get" and typeof(key) == "string" then
-		return SettingsService.Get(player, key)
-	elseif op == "getAll" then
-		return SettingsService.GetAll(player)
-	elseif op == "set" and typeof(key) == "string" then
-		return SettingsService.Set(player, key, value)
+local function hasOnlyFields(payload: { [any]: any }, allowed: { [string]: boolean }): boolean
+	for field in pairs(payload) do
+		if typeof(field) ~= "string" or allowed[field] ~= true then
+			return false
+		end
 	end
-	return nil
+	return true
 end
+
+-- A read either targets one bounded key or uses an empty payload to request a
+-- copy of the caller's complete settings table. Reject surplus fields instead
+-- of silently accepting a future client-controlled protocol extension.
+local function isReadPayload(payload: any): boolean
+	if typeof(payload) ~= "table" or not hasOnlyFields(payload, { key = true }) then
+		return false
+	end
+	return payload.key == nil or isSettingKey(payload.key)
+end
+
+-- `value` must be present. NetProtocol's tiny budget bounds its supported
+-- primitive/table contents before this endpoint-specific shape check runs;
+-- the setting's own whitelist remains the domain validator.
+local function isSetPayload(payload: any): boolean
+	if typeof(payload) ~= "table" or not hasOnlyFields(payload, { key = true, value = true }) then
+		return false
+	end
+	return isSettingKey(payload.key) and payload.value ~= nil
+end
+
+-- Net supplies this Player from Roblox, never from the payload. Still require
+-- a currently connected player for a state-changing request so a request that
+-- races PlayerRemoving cannot mutate detached profile state.
+local function maySetOwnSettings(context: any, _payload: any): boolean
+	local player = context.player
+	return typeof(player) == "Instance" and player:IsA("Player") and player.Parent == Players
+end
+
+Net.Server.RegisterFunction(READ_RPC, {
+	schema = isReadPayload,
+	handler = function(context: any, payload: any): any
+		if payload.key == nil then
+			return SettingsService.GetAll(context.player)
+		end
+		return SettingsService.Get(context.player, payload.key)
+	end,
+	rate = 4,
+	burst = 8,
+	budget = "tiny",
+	concurrency = 2,
+})
+
+Net.Server.RegisterFunction(SET_RPC, {
+	schema = isSetPayload,
+	validate = maySetOwnSettings,
+	mutation = true,
+	handler = function(context: any, payload: any): boolean
+		return SettingsService.Set(context.player, payload.key, payload.value)
+	end,
+	rate = 2,
+	burst = 4,
+	budget = "tiny",
+	concurrency = 1,
+})
 
 return SettingsService

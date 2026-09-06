@@ -13,8 +13,8 @@
 5. [Shared Modules](#5-shared-modules)
 6. [Util Modules](#6-util-modules)
 7. [Client UI](#7-client-ui)
-8. [Server Services](#8-server-services) — **Config / EConfig / Flags** (อ่านก่อน) + 51 services จัดกลุ่ม:
-   - **Core (8.1–8.15):** DataManager · PlayerService · ItemService · EconomyService · ToolService · ZoneService · ChatCommandSystem · AdminCommands · QuestSystem · AchievementSystem · LevelSystem · DataMigration · LeaderboardService · CrossServerMessaging · WebhookService
+8. [Server Services](#8-server-services) — **Config / EConfig / Flags** (อ่านก่อน) + API modules ในหัวข้อ 8.1–8.53 จัดกลุ่ม:
+   - **Core (8.1–8.15):** DataManager · PlayerService · ItemService · EconomyService · ToolService · ZonePlus · ChatCommandSystem · AdminCommands · QuestSystem · AchievementSystem · LevelSystem · DataMigration · LeaderboardService · CrossServerMessaging · WebhookService
    - **Moderation (8.16–8.21):** Ban · Analytics · Journal · AntiCheatAdmin · Protection · Lifecycle
    - **Economy (8.22–8.28):** Vault · Shop · Monetization · Trade · Inventory · Loot · ItemDef
    - **Live-ops (8.29–8.35):** Idle · DailyReward · Mail · Raid · Party · Event · Visit
@@ -35,11 +35,11 @@
 
 | หมวด | จำนวน | ใช้ทำอะไร |
 |---|---|---|
-| **Shared modules** | 11 | Signal, Maid, Promise, Tween ฯลฯ — ใช้ได้ทุก context |
+| **Shared modules** | 41 | Signal, Maid, Promise, Tween ฯลฯ — ใช้ได้ทุก context |
 | **Util** | 6 | Table, String, Math helpers |
-| **Client UI** | 6 controllers + 10 templates | Notification, HealthBar, Menu, Inventory ฯลฯ |
-| **Server services** | 14 | DataManager, Player, Item, Economy, Tool, Zone, Chat, Admin, Quest, Achievement, Level, Migration, Leaderboard, Messages |
-| **AntiCheat** | 9 detectors + 1 client | Speed, Fly, NoClip, Teleport, Remote rate limit ฯลฯ |
+| **Client UI** | 23 UI modules, including 10 template builders | Notification, HealthBar, Menu, Inventory ฯลฯ |
+| **Server API modules** | 8.1–8.53 | Services, helpers และ orchestrators ที่อธิบายในหัวข้อ server ตามชื่อจริง |
+| **AntiCheat** | server detectors + 1 client tripwire | server-state checks, bounded RPC gateway, and observe-first enforcement |
 | **Bootstrap** | 2 | ServerBootstrap + ClientBootstrap |
 
 ### หลักการใช้งานสำคัญ
@@ -58,7 +58,7 @@
 
 ```lua
 local ServerStorage = game:GetService("ServerStorage")
-local GaxiaServer = require(ServerStorage.Gaxia_Packages_Server.init)
+local GaxiaServer = require(ServerStorage.Gaxia_Packages_Server)
 
 -- ฟัง player join
 GaxiaServer.Player.OnPlayerJoined:Connect(function(player)
@@ -91,7 +91,7 @@ end
 
 ```lua
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Gaxia = require(ReplicatedStorage.Gaxia_Packages.init)
+local Gaxia = require(ReplicatedStorage.Gaxia_Packages)
 
 -- แสดง notification
 Gaxia.UI.NotificationService.Notify("Welcome", "ยินดีต้อนรับสู่เกม!", 5, "success")
@@ -120,42 +120,45 @@ end)
 ReplicatedStorage/
 ├── Gaxia_Packages/              ← ใช้ได้ทั้ง server + client
 │   ├── init                     ← Master Loader
-│   ├── Shared/                  ← 11 modules
+│   ├── Shared/
 │   │   ├── Signal, Maid, Janitor, Trove, Promise
 │   │   ├── TweenUtil, Raycaster, Spring
-│   │   ├── Logger, Symbol, Constants
+│   │   ├── Logger, Symbol, Constants, CentralManager, Observers
 │   │   └── Util/                ← 6 utility modules
 │   │       └── Table, String, Math, Instance, Player, Debug
 │   └── Client/                  ← ใช้ได้แค่ client
-│       ├── ClientAntiCheat
-│       └── UI/                  ← 6 controllers + 1 templates module
+│       ├── ClientAntiCheat, PromptManager
+│       └── UI/                  ← UI modules + template builders (see source)
 │           ├── UIController, NotificationService
 │           ├── HealthBarController, MenuController
 │           ├── InventoryController, HUDController
 │           └── Templates         ← 10 code-first builders (v16)
-└── Events/                      ← 3 RemoteEvents
-    ├── AntiCheat_Report
-    ├── UI_Notify
-    └── System_Heartbeat
+└── Events/                      ← runtime network surface
+    ├── Net/                     ← NetService-owned C2S transport (logical names are hashed on wire)
+    ├── Friend/Inbound            ← server → client notices only
+    ├── Party/InviteInbound       ← server → client notices only
+    ├── Guild/Inbound             ← server → client notices only
+    ├── Admin/Inbound             ← server → client notices only
+    └── Chat/SystemMessage        ← server → client notice only
 
 ServerStorage/
 └── Gaxia_Packages_Server/       ← server-only
     ├── init                     ← Server Master Loader
-    ├── Lib/                     ← 14 services
+    ├── Lib/                     ← 56 source modules (services + helpers)
     │   ├── DataManager, PlayerService
     │   ├── ItemService, EconomyService
-    │   ├── ToolService, ZoneService
+    │   ├── ToolService, ZonePlus
     │   ├── ChatCommandSystem, AdminCommands
     │   ├── QuestSystem, AchievementSystem
     │   ├── LevelSystem, DataMigration
     │   ├── LeaderboardService, CrossServerMessaging
-    └── AntiCheat/               ← orchestrator + 9 detectors
+    └── AntiCheat/               ← orchestrator + 15 detector modules
         ├── init                 ← orchestrator
         ├── SpeedDetector, FlyDetector
         ├── NoClipDetector, TeleportDetector
-        ├── RemoteRateLimiter, StatGuard
+        ├── RemoteTrap, StatGuard
         ├── ToolDuplicationGuard, AnimationGuard
-        └── ExploitSignatureScanner
+        └── ExploitSignatureScanner, HeartbeatGuard, ...
 
 StarterGui/
 └── Gaxia_UI/                    ← ScreenGui (auto-cloned to PlayerGui)
@@ -179,12 +182,12 @@ StarterPlayer/StarterPlayerScripts/
 
 ### Client side / Shared (ใช้ในทุก context)
 ```lua
-local Gaxia = require(game.ReplicatedStorage.Gaxia_Packages.init)
+local Gaxia = require(game.ReplicatedStorage.Gaxia_Packages)
 ```
 
 ### Server side
 ```lua
-local GaxiaServer = require(game.ServerStorage.Gaxia_Packages_Server.init)
+local GaxiaServer = require(game.ServerStorage.Gaxia_Packages_Server)
 ```
 
 ### โครงสร้าง
@@ -192,9 +195,13 @@ local GaxiaServer = require(game.ServerStorage.Gaxia_Packages_Server.init)
 | Path | คือ |
 |---|---|
 | `Gaxia.Signal` | Shared modules (flat) |
+| `Gaxia.Net` | NetService gateway (`.Server.Register*`, `.Client.Fire/Invoke`) |
+| `Gaxia.Central` | named/priority heartbeat scheduler |
+| `Gaxia.Observers` | Sleitnick Observers 1.0.0 (direct API) |
 | `Gaxia.Util.Table` | Util submodules (nested) |
 | `Gaxia.UI.NotificationService` | Client UI (client only) |
 | `Gaxia.AntiCheat` | ClientAntiCheat (client only) |
+| `Gaxia.Prompt` | current ProximityPrompt manager (client only) |
 | `Gaxia.Logger` | singleton logger |
 | `Gaxia.Constants` | frozen constants |
 | `Gaxia.Tween(inst, info, props)` | convenience tween |
@@ -204,7 +211,7 @@ local GaxiaServer = require(game.ServerStorage.Gaxia_Packages_Server.init)
 | `GaxiaServer.Item` | ItemService |
 | `GaxiaServer.Economy` | EconomyService |
 | `GaxiaServer.Tool` | ToolService |
-| `GaxiaServer.Zone` | ZoneService |
+| `GaxiaServer.Zone` | ZonePlus 3.2.0 (direct API) |
 | `GaxiaServer.Chat` | ChatCommandSystem |
 | `GaxiaServer.Admin` | AdminCommands |
 | `GaxiaServer.Quest` | QuestSystem |
@@ -215,10 +222,9 @@ local GaxiaServer = require(game.ServerStorage.Gaxia_Packages_Server.init)
 | `GaxiaServer.Messages` | CrossServerMessaging |
 | `GaxiaServer.AntiCheat` | AntiCheat orchestrator |
 
-> ⚠️ **อย่า require folder ตรงๆ** — ต้องเข้าผ่าน `.init`:
+> **Package root เป็น ModuleScript หลัง Rojo build:** require root โดยตรง:
 > ```lua
-> require(game.ReplicatedStorage.Gaxia_Packages)        -- ❌ ผิด
-> require(game.ReplicatedStorage.Gaxia_Packages.init)   -- ✅ ถูก
+> require(game.ReplicatedStorage.Gaxia_Packages)   -- ✅ ถูก
 > ```
 
 ---
@@ -256,31 +262,16 @@ mySignal:Destroy()
 
 **ใช้ตอนไหน:** สร้าง event ของตัวเอง — เช่น `OnEnemyKilled`, `OnQuestComplete`
 
-### 5.2 Maid — Cleanup tracker (LIFO)
+### 5.2 Maid — Deprecated alias of Janitor
 
 ```lua
-local Maid = Gaxia.Maid
-local maid = Maid.new()
-
--- รับ task ได้หลายแบบ
-maid:GiveTask(part)                                    -- Instance → :Destroy()
-maid:GiveTask(connection)                              -- RBXScriptConnection → :Disconnect()
-maid:GiveTask(function() print("cleanup!") end)        -- function → call()
-maid:GiveTask(someTable)                               -- table with :Destroy → :Destroy()
-
--- Client-only: bind to render step
-maid:GiveBindToRenderStep("MyLoop", Enum.RenderPriority.Camera.Value, function(dt)
-    -- runs every frame
-end)
--- เลิก loop อัตโนมัติเมื่อ maid:DoCleaning()
-
--- เคลียร์ทั้งหมด (reverse order — LIFO)
-maid:DoCleaning()
--- หรือ
-maid:Destroy()
+assert(Gaxia.Maid == Gaxia.Janitor)
+local janitor = Gaxia.Maid.new()
+janitor:Add(connection)
+janitor:Cleanup()
 ```
 
-**ใช้ตอนไหน:** ป้องกัน memory leak — ผูก task ทั้งหมดที่ต้อง cleanup ของ object เดียวกัน
+ชื่อ `Maid` คงไว้เฉพาะช่วยย้ายโค้ด แต่ API คือ Janitor โดยตรง โค้ดใหม่ควรใช้ `Gaxia.Janitor`
 
 ### 5.3 Janitor — เหมือน Maid แต่มี named index
 
@@ -319,7 +310,7 @@ local part = trove:Add(Instance.new("Part"))
 part.Parent = workspace
 
 -- Construct สำเร็จรูป
-local maid = trove:Construct(Gaxia.Maid)  -- เทียบเท่า trove:Add(Maid.new())
+local janitor = trove:Construct(Gaxia.Janitor)
 
 -- Connect signal helper
 trove:Connect(workspace.ChildAdded, function(child)
@@ -549,6 +540,107 @@ C.MAX_PLAYERS = 100  -- error!
 - `CHARACTER_LOAD_TIMEOUT` = 10
 - `MAX_PLAYERS` = 50
 
+### 5.12 Observers — lifecycle observers
+
+`Gaxia.Observers` คือ API ตรงของ `sleitnick/observers@1.0.0` และ callback
+สามารถคืน cleanup function ซึ่งจะถูกรันเมื่อ instance/player/tag นั้นออกจาก scope
+หรือเมื่อเรียก stop observer:
+
+```lua
+local stop = Gaxia.Observers.observeTag("CustomPrompt", function(prompt)
+	local connection = prompt.Triggered:Connect(function(player)
+		print(player, prompt)
+	end)
+
+	return function()
+		connection:Disconnect()
+	end
+end)
+
+stop()
+```
+
+API upstream ที่มี: `observeTag`, `observeAttribute`, `observeProperty`,
+`observePlayer`, `observeCharacter`, `observeLocalCharacter` และ
+`observeInstanceHandle`
+
+### 5.13 Central — named priority scheduler
+
+ใช้เมื่อมี periodic jobs หลายตัวที่ต้องมีชื่อ, priority และ lifecycle ร่วมกัน:
+
+```lua
+local handle = Gaxia.Central:Register({
+	name = "round-timer",
+	duration = 1,
+	priority = 100,
+}, function(elapsed)
+	print("tick", elapsed)
+end)
+
+handle:Pause()
+handle:Resume()
+handle:Cancel() -- หรือ Gaxia.Central:Cancel("round-timer")
+```
+
+### 5.14 Net — C2S RPC gateway
+
+สร้าง client-to-server endpoint ใหม่ผ่าน definition API เท่านั้น. `NetService`
+เป็นเจ้าของ connection, rate/concurrency gate, bounded payload validation,
+replay window และ request-id cache; service ของเกมให้ระบุ schema, context
+validation และ authoritative handler. อย่าสร้าง `RemoteEvent`/`RemoteFunction`
+แล้วต่อ `OnServerEvent`/`OnServerInvoke` เอง.
+
+```lua
+-- Server
+local Players = game:GetService("Players")
+local Net = GaxiaServer.Shared.Net
+
+Net.Server.RegisterEvent("Clicker.Click", {
+    schema = function(payload)
+        return typeof(payload) == "table" and next(payload) == nil
+    end,
+    budget = "tiny",
+    rate = 10,
+    burst = 20,
+    concurrency = 1,
+    mutation = true,
+    validate = function(context)
+        return context.player.Parent == Players
+            and GaxiaServer.Data.IsLoaded(context.player)
+    end,
+    handler = function(context)
+        local player = context.player
+        GaxiaServer.Economy.Add(player, "Coins", 1)
+        GaxiaServer.Player.SetLeaderstat(player, "Coins", GaxiaServer.Economy.Get(player, "Coins"))
+    end,
+})
+
+-- Client
+Gaxia.Net.Client.Fire("Clicker.Click", {})
+```
+
+ใช้ `Net.Server.RegisterFunction` / `Net.Client.Invoke` เมื่อรอผลตอบกลับ;
+`Invoke` คืน `{ ok = true, data = ... }` หรือ `{ ok = false, code = ... }`.
+Mutation ได้ request ID อัตโนมัติต่อการเรียกใหม่; หาก retry ต้องเก็บและส่ง
+optional `requestId` ตัวเดิมเป็น argument ที่สามเอง จึงจะไม่ทำ side effect ซ้ำใน
+cache window. Gateway จะ reject payload ที่ malformed, เกิน budget, NaN/∞,
+replay, over-rate, busy หรือผิด schema ก่อนถึง handler แต่การ reject ไม่ใช่
+หลักฐานที่ทำให้ auto-ban.
+
+การพราง envelope และชื่อบน wire เป็นเพียง deterrent ต่อ RemoteSpy ขั้นพื้นฐาน
+เท่านั้น: executor อ่าน client code/key ได้เสมอ จึงต้องตรวจ permission, state,
+ownership, price และ cooldown จาก server ใน `validate`/handler ทุกครั้ง.
+
+ฝั่ง server ใช้ `Net.Server.GetMetrics("Clicker.Click")` หรือไม่ส่งชื่อเพื่อดู
+ทุก RPC ได้; ค่า metrics มี received/accepted/rejected แยก reason code,
+in-flight, handler errors, idempotent hits และ latency aggregate โดยไม่เก็บ
+payload ของผู้เล่น.
+
+`RegistrationHandle:Destroy()` หยุดรับ request ใหม่และเปิดให้ register ชื่อเดิม
+ชนิดเดิมได้อีกครั้ง โดย replay/cache generation ใหม่ไม่ปนกับของเดิม; handler ที่
+กำลังทำงานอยู่ยังนับใน concurrency ของ logical RPC เดิมจนจบ. ชื่อเดิมสลับระหว่าง
+`RemoteEvent` กับ `RemoteFunction` ไม่ได้ เพราะ wire remote ถูกสร้างไว้แล้ว.
+
 ---
 
 ## 6. Util Modules
@@ -561,21 +653,19 @@ C.MAX_PLAYERS = 100  -- error!
 local Table = Gaxia.Util.Table
 
 -- Copy
-Table.DeepCopy(t)         -- recursive clone (cycle-safe)
-Table.ShallowCopy(t)      -- one-level copy
+Table.Copy(t)             -- one-level copy
+Table.Copy(t, true)       -- recursive clone (ห้ามมี cycle)
 
 -- Merge
-Table.Merge(t1, t2)       -- new table, t2 wins
-Table.Reconcile(target, template)  -- fills missing keys recursively (ใช้กับ saved data)
+Table.Assign(t1, t2)      -- new table, later tables win
+local reconciled = Table.Reconcile(target, template) -- immutable; ต้องใช้ค่าที่ return
 
 -- Functional
 Table.Filter(t, function(v, k) return v > 0 end)
 Table.Map(t, function(v) return v * 2 end)
 Table.Reduce(t, function(acc, v) return acc + v end, 0)
 Table.Find(t, function(v) return v.name == "Bob" end)  -- returns (value, key)
-Table.Contains(t, target)
-Table.Count(t)
-Table.Count(t, predicate)
+Table.Some(t, function(v) return v == target end)
 Table.IsEmpty(t)
 
 -- Keys / Values
@@ -584,9 +674,9 @@ Table.Values(t)
 
 -- Array
 Table.Reverse({1,2,3})         -- {3,2,1}
-Table.Shuffle({1,2,3,4,5})     -- IN-PLACE Fisher-Yates
-Table.Random({1,2,3})          -- random element
-Table.Flatten({1, {2, {3}}}, 2) -- {1,2,3} (depth-limited)
+Table.Shuffle({1,2,3,4,5})     -- คืน array ใหม่ ไม่แก้ input
+Table.Sample({1,2,3}, 1)[1]    -- random element
+Table.Flat({1, {2, {3}}}, 2)   -- {1,2,3} (depth-limited)
 ```
 
 ### 6.2 Util.String
@@ -807,6 +897,22 @@ btn.Parent = parent
 
 **Code-first ข้อดี:** สร้าง variant ใหม่ง่าย — copy/paste builder, แก้ properties, ได้ template ใหม่. ไม่ต้องเปิด Studio ไม่ต้อง save .rbxm
 
+### 7.8 PromptManager — current ProximityPrompt
+
+`Gaxia.Prompt` ใช้ฝั่ง client เพื่อเก็บ prompt ที่ UI แบบ custom กำลังแสดง,
+แสดง highlight และรองรับปุ่ม hold บนจอสัมผัส:
+
+```lua
+local Prompt = Gaxia.Prompt
+
+Prompt:SetCurrentPrompt(proximityPrompt)
+Prompt:ManualHoldCurrent()
+Prompt:ManualStopHoldCurrent()
+Prompt:SetCurrentPrompt(nil) -- clear และถอด highlight
+```
+
+เมื่อ prompt ถูกลบออกจากเกม manager จะ clear state และ connection ให้อัตโนมัติ
+
 ---
 
 ## 8. Server Services
@@ -848,7 +954,7 @@ local overridden = GaxiaServer.EConfig.IsOverridden("Raid.LootFraction")
 ```lua
 local Gaxia = require(ReplicatedStorage.Gaxia_Packages)   -- shared
 local mult = Gaxia.Flags.Get("Economy.GlobalMultiplier", 1)
-Gaxia.Flags.OnChanged:Connect(function(key, value) end)
+Gaxia.Flags.OnChanged("Economy.GlobalMultiplier", function(newValue, oldValue) end)
 ```
 
 **Naming:** flag key = dot-path เทียบ Config section — `Economy.MaxTransaction`, `AntiCheat.Speed.ToleranceMultiplier`, `Webhook.Enabled`, ฯลฯ. ทุก service section ด้านล่างที่มี **Config** block แสดง key ที่อ่าน — wrap ด้วย `EConfig.Get("Section.Key", default)` ที่ call-time ก็ได้ live override.
@@ -857,7 +963,7 @@ Gaxia.Flags.OnChanged:Connect(function(key, value) end)
 
 ---
 
-### 8.1 DataManager — ProfileService wrapper
+### 8.1 DataManager — ProfileStore wrapper
 
 ```lua
 local Data = GaxiaServer.Data
@@ -874,7 +980,7 @@ end)
 local coins = Data.Get(player, "Coins")
 local all = Data.Get(player)   -- whole table
 
--- Write (auto-save ผ่าน ProfileService)
+-- Write (auto-save ผ่าน ProfileStore)
 Data.Set(player, "Coins", 500)
 
 -- Yield รอโหลด
@@ -883,7 +989,7 @@ local data = Data.WaitFor(player, 10)  -- 10s timeout
 -- Check
 if Data.IsLoaded(player) then ... end
 
--- Force save (ProfileService ก็ auto-save อยู่แล้ว — แค่ nudge)
+-- Force save (ProfileStore จัดการ save ของ session อยู่แล้ว — แค่ nudge)
 Data.Save(player)
 
 -- ฟัง data change
@@ -895,7 +1001,7 @@ end)
 Data.OnReleased:Connect(function(player) end)
 ```
 
-> **Schema อยู่ใน DataManager.lua** — แก้ `DEFAULT_PROFILE` ได้, มี `Reconcile` ทำให้ field ใหม่ใส่ค่า default อัตโนมัติ
+> **Schema อยู่ใน DataManager.lua** — แก้ `DEFAULT_PROFILE` ได้, มี ProfileStore `Reconcile` ทำให้ field ใหม่ใส่ค่า default อัตโนมัติ
 
 ### 8.2 PlayerService — Player lifecycle
 
@@ -1021,38 +1127,33 @@ end)
 - ถ้า UID ซ้ำ → destroy + fire OnDuplicate
 - WeakTable registry → tool ที่ถูก destroy จริงๆ จะ evict อัตโนมัติ
 
-### 8.6 ZoneService — Trigger zones
+### 8.6 ZonePlus — Trigger zones
 
 ```lua
 local Zone = GaxiaServer.Zone
 
--- สร้าง zone จาก BasePart (ใช้ part เป็น region)
+-- สร้าง zone จาก BasePart/Model/Folder
 local part = workspace.SafeZoneRegion  -- ตั้งเป็น Anchored, CanCollide=false, Transparent
-local safeZone = Zone.Create("SafeZone", part)
+local safeZone = Zone.new(part)
 
 -- ฟัง enter / leave
-safeZone.OnEntered:Connect(function(player)
+safeZone.playerEntered:Connect(function(player)
     print(`{player.Name} เข้าโซนปลอดภัย`)
 end)
 
-safeZone.OnLeft:Connect(function(player)
+safeZone.playerExited:Connect(function(player)
     print(`{player.Name} ออกจากโซน`)
 end)
 
 -- Query
-safeZone:IsInside(player)   -- bool
-safeZone:GetPlayers()       -- array of players in zone
-
--- ดึง zone กลับ
-local sz = Zone.Get("SafeZone")
+safeZone:findPlayer(player) -- bool
+safeZone:getPlayers()       -- array of players in zone
 
 -- Destroy
-Zone.Destroy("SafeZone")
--- หรือ
-safeZone:Destroy()
+safeZone:destroy()
 ```
 
-**กลไก:** Sample ทุก 0.5s (SAMPLER_INTERVAL) ใช้ OBB check ไม่ใช่ Touched event (เสถียรกว่า)
+`GaxiaServer.Zone` คือ ZonePlus 3.2.0 โดยตรง ไม่มี named-zone registry ของ Gaxia แล้ว
 
 ### 8.7 ChatCommandSystem — Slash commands
 
@@ -1187,7 +1288,13 @@ GUI แบบ role-gated ที่ครอบ command registry เดิม —
   - **`/unban` พิเศษ:** เปิดเป็นรายการ ban ที่ยัง active อยู่ (`ชื่อ (userId) — reason · permanent/เหลือ Xh`) พร้อมปุ่ม Unban ต่อแถว — กดแล้วรายการ refresh ทันที. มีช่องกรอก userId เองด้านล่างสำหรับ record ที่เกิน cap (`Config.Admin.BanListLimit`, default 50). ข้อมูลมาจาก `Gaxia.Ban.ListBans()` (session cache + DataStore `ListKeysAsync`)
 - **Audit tab** — feed สดของ 50 คำสั่งล่าสุดทั้ง server (caller, คำสั่ง, args, สำเร็จ/ไม่) — เห็นเฉพาะ moderator+
 
-**Server surface:** `ReplicatedStorage/Events/Admin/Action` (RemoteFunction — envelope `{type="schema"|"players"|"bans"|"run"|"role", …}`; `bans` ต้อง admin+) + `Events/Admin/Inbound` (RemoteEvent — audit broadcast + role hint). Panel เป็น convenience ล้วน: ทุก `run` วิ่งผ่าน `AdminCommands.Run` ที่เช็ค role แบบ authoritative → client ปลอมแปลงไม่ได้. `schema` ถูกกรองตาม role — client ของ moderator ไม่เคยรับรู้ว่ามีคำสั่ง owner-only อยู่.
+**Server surface:** request ของ panel ใช้ logical Net RPC แยกตาม intent เช่น
+`Admin.Role`, `Admin.Schema`, `Admin.Players`, `Admin.Bans` และ
+`Admin.Command.<canonicalName>`; ไม่มี `Events/Admin/Action` envelope แล้ว.
+Gateway ตรวจ role ก่อนงาน list/DataStore และทุก command ยังวิ่งผ่าน
+`AdminCommands.Run` ที่ตรวจสิทธิ์แบบ authoritative. `Events/Admin/Inbound`
+ยังเป็น RemoteEvent **server → client** สำหรับ audit broadcast + role hint เท่านั้น
+(จึงไม่ใช่ทางให้ client mutate state).
 
 **Client access:** `Gaxia.UI.AdminPanel.Open() / .Close() / .Toggle()` (toolbar + F2 wire ให้อัตโนมัติตอน client boot)
 
@@ -1329,7 +1436,7 @@ Migration.Register(2, 3, function(data)
     data.legacyBonus = (data.coins or 0) * 0.1
 end)
 
--- เรียกหลัง ProfileService Reconcile (ใน DataManager.OnLoaded)
+-- เรียกหลัง ProfileStore Reconcile (ใน DataManager.OnLoaded)
 GaxiaServer.Data.OnLoaded:Connect(function(player, data)
     Migration.Migrate(data)
 end)
@@ -1458,7 +1565,7 @@ WH.OnSend:Connect(function(channel, ok) end)                  -- observability
 WH.OnError:Connect(function(channel, reason) warn(reason) end)
 ```
 
-**Auto-report (zero-wiring):** ตั้ง `AutoReport.Bans` / `AutoReport.AntiCheat` ให้ชี้ channel ที่มี URL → ส่ง report อัตโนมัติเมื่อ `Ban.OnBan`/`Ban.OnUnban` ยิง และเมื่อ AntiCheat ทำ **hard action**. ถ้า channel ที่ชี้ไม่มี URL → เงียบ (ไม่ subscribe). WebhookService ถูก eager-load ตอน boot เพื่อให้ auto-report ทำงานทันที.
+**Auto-report (zero-wiring):** ตั้ง `AutoReport.Bans` / `AutoReport.AntiCheat` ให้ชี้ channel ที่มี URL → ส่ง report อัตโนมัติเมื่อ `Ban.OnBan`/`Ban.OnUnban` ยิง และเมื่อ `AntiCheatEnforcement` ตัดสินใจว่าจะ act/observe. Candidate hard flag ไม่ใช่การลงโทษเอง; report แยก candidate ออกจาก action ที่ apply จริง. ถ้า channel ที่ชี้ไม่มี URL → เงียบ (ไม่ subscribe). WebhookService ถูก eager-load ตอน boot เพื่อให้ auto-report ทำงานทันที.
 
 **Use case — shop stock (manual):**
 ```lua
@@ -1481,7 +1588,7 @@ GaxiaServer.Webhook.Discord("ShopStock", {
 
 ---
 
-### 8.16 Ban — Persistent bans + auto-escalation จาก AntiCheat
+### 8.16 Ban — Persistent bans + enforcement executor
 
 ```lua
 local Ban = GaxiaServer.Ban
@@ -1496,11 +1603,18 @@ Ban.OnUnban:Connect(function(userId) end)
 **กลไก:**
 - บันทึกลง DataStore (`Config.Admin.Stores.Bans`, fallback `"GaxiaBans"`) + session cache — Studio ไม่มี real DataStore ก็ทำงานได้ (in-memory)
 - `PlayerAdded` gate — kick อัตโนมัติทันทีที่ player เข้า ถ้ายังแบนอยู่
-- Auto-escalation: subscribe `AntiCheat.OnAction` (hard) → นับ strikes → kick → temp-ban → perm-ban ตาม `Config.AntiCheat.BanPolicy`
+- `BanService` เป็น store/join gate และรับ explicit `Ban`/`Unban` เท่านั้น; มันไม่ subscribe AntiCheat evidence หรือเลือก policy เอง
+
+**Automatic AntiCheat policy:** อยู่ที่ `GaxiaServer.Enforcement` เพียงจุดเดียว.
+ค่า default คือ `Config.AntiCheat.Enforcement.Mode = "observe"` — journal และ
+webhook จะบันทึก decision แต่ไม่ kick/ban. แม้เปิด `"enforce"` แล้ว จะพิจารณา
+เฉพาะ candidate hard ที่มาจาก `server`, `trap` หรือ trusted `transport` source ที่
+allowlist ไว้ในอนาคต; gateway rejection ที่ ship อยู่ใช้ source `client`. Client report
+และ client heartbeat เป็น telemetry/liveness เท่านั้นและไม่สามารถก่อ automatic action ได้.
+`TempBan` และ `PermBan` ปิดเป็นค่าเริ่มต้น.
 
 **Role ระดับสูงโดน auto-ban / auto-kick ไม่ได้:**
-- Escalation **ข้าม** place creator (เช็ค `game.CreatorId` แบบ sync — ไม่รอ role โหลด) และทุกคนที่ role ≥ `Config.AntiCheat.BanPolicy.ExemptRole` (default `"admin"`) — ได้แค่ warn ลง console ว่า "would have acted on: …" ตั้ง `ExemptRole = false` ถ้าจะเหลือแค่ creator; ตั้ง `"moderator"` ได้แต่จะเสีย auto-ban deterrent กับ staff tier ล่างสุด
-- Kick อัตโนมัติใน `Gaxia_ServerBootstrap` (default OnAction handler) เช็ค `Ban.IsEscalationExempt(userId)` ตัวเดียวกัน — exempt = ไม่โดนทั้ง ban ทั้ง kick
+- Enforcement **ข้าม** place creator (เช็ค `game.CreatorId` แบบ sync — ไม่รอ role โหลด) และทุกคนที่ role ≥ `Config.AntiCheat.BanPolicy.ExemptRole` (default `"admin"`) — ได้แค่ warn ว่า would-have-acted. ตั้ง `ExemptRole = false` ถ้าจะเหลือแค่ creator.
 - ⚠️ ข้อจำกัด: role ที่ได้จาก `/role` (DataStore) โหลด async ตอนเข้าเกม — hard-flag รัวภายในวินาทีแรก ๆ อาจ strike admin ที่ role ยังโหลดไม่เสร็จ (creator กับ role จาก `Config.Admin.Bootstrap` ปลอดภัยเพราะเช็ค/seed แบบ sync)
 - `PlayerAdded` gate **self-heal**: ถ้า creator มี ban record ค้าง (เช่น auto-ban ที่เกิดก่อนมี exemption) ระบบจะลบ record + warn แทนการ kick — เจ้าของเกมล็อกตัวเองออกจากเกมไม่ได้อีก (เฉพาะ creator: staff tier ต่ำกว่ายังโดนแบนโดย admin ได้จริง gate จึงต้องเตะตามปกติ)
 - เส้นทาง manual (`/ban`, `/acban`) ใช้ `protectTarget` เหมือนเดิม: ห้าม self / ห้าม creator / ห้าม rank เท่ากันหรือสูงกว่า — admin ยังตั้งใจแบน moderator ที่ rank ต่ำกว่าได้
@@ -1543,8 +1657,9 @@ Journal.Clear()                        -- reset buffer (สำหรับ test)
 ```
 
 **กลไก:**
-- Subscribe `AntiCheat.OnFlag` + `AntiCheat.OnAction` อัตโนมัติ (deferred)
-- Ring buffer 250 entries ใน memory + per-player history table
+- Subscribe `AntiCheat.OnFlag`, action **candidate**, และ `Enforcement.OnDecision` อัตโนมัติ (deferred)
+- Entry มี `source` (`server` / `transport` / `trap` / `client` / `client_liveness`) และ `event` (`flag` / `candidate` / `enforcement`) เพื่อแยก evidence, would-act และ action ที่ apply จริง
+- Ring buffer 250 entries และ per-player history 100 entries ใน memory
 - Default sink = `warn` — entry ไม่หายแม้ sink error
 
 ---
@@ -2142,8 +2257,18 @@ local all = Cfg.GetAll(player)   -- { Music=false, SFX=true, … }
 **กลไก:**
 - Whitelist-gated: key ที่ไม่ได้ `RegisterSetting` หรือ value ผิด type → reject + warn (anti-exploit)
 - Default whitelist: `Music` (boolean), `SFX` (boolean) — เพิ่มด้วย `RegisterSetting`
-- Client bridge ผ่าน `RemoteFunction ReplicatedStorage.Events.Gaxia_Settings` — ops: `"get"`, `"getAll"`, `"set"` — สร้างอัตโนมัติตอน module load
+- Client bridge ใช้ logical RPC `Settings.Read` / `Settings.Set` ผ่าน Net gateway; ไม่มี `ReplicatedStorage.Events.Gaxia_Settings` RemoteFunction แล้ว
 - Persist ใต้ profile key `"Settings"` ผ่าน DataManager
+
+ฝั่ง client ใช้ compatibility module นี้ (return shape เดิม: value/table/boolean):
+
+```lua
+local Settings = require(game.ReplicatedStorage.Gaxia_Packages.Shared.Settings)
+
+local music = Settings.Get("Music")
+local all = Settings.GetAll()
+local saved = Settings.Set("Music", false)
+```
 
 ---
 
@@ -2311,7 +2436,11 @@ Rag.OnRecover:Connect(function(char) end)
 
 Per-player buddy list + block list + invite delivery — เก็บใน `profile.Social.Friends` / `profile.Social.Blocks` (ใช้ DataManager profile, ไม่ใช่ DataStore แยก). Online status สองชั้น: **same-server** (instant ผ่าน `PlayerService.OnPlayerJoined/Left`) + **cross-server** cache `Player:GetPresenceAsync` (TTL `OnlineCacheSec`). Invite cross-server ส่งผ่าน `InviteQueue` helper (MemoryStoreSortedMap คีย์ตาม target userId, drain ตอน `PlayerAdded`). Block เป็น **bidirectional + unilateral** — user ที่ถูก block ไม่สามารถส่ง invite, มองเห็น online status, หรือถูก Party/Guild-invite ได้.
 
-**Access:** `Gaxia.Friend` (server) · `ReplicatedStorage/Events/Friend/Action` (RemoteFunction envelope `{type=..., ...}`)
+**Access:** `Gaxia.Friend` (server). Client UI uses separate logical Net RPCs
+(`Friend.SendRequest`, `Friend.AcceptRequest`, `Friend.DeclineRequest`,
+`Friend.Remove`, `Friend.Block`, `Friend.Unblock`, `Friend.SetFavorite`, and
+read endpoints); there is no `Events/Friend/Action` RemoteFunction. The legacy
+`Events/Friend/Inbound` remains server → client only for notices.
 
 **Config** (`Config.Social.Friend` — server-private):
 ```lua
@@ -2358,9 +2487,12 @@ Friend.OnBlocked:Connect(function(player, otherUserId) end)
 
 ### 8.51 Guild — Persistent guilds + 3 roles + shared vault + cross-server live roster
 
-Persistent guild roster — **per-guild DataStore key** `guild:<guildId>` (ไม่ใช้ ProfileService session-claim เพราะ guild มีหลาย member ในหลาย server). Roles 3 ชั้น (Owner / Officer / Member); officer cap = `Config.Social.Guild.OfficerCap` (default 5). Shared **vault** อยู่ใน DataStore key `vault:<guildId>` แยกอีกตัว. ทุก mutation serialize ข้าม server ผ่าน **`GuildLock` MemoryStore mutex** (kick, promote, deposit/withdraw — race-prone ทั้งหมด). `Guild.Create/Disband/Transfer` ถูก auto-report ไปยัง `Webhook.AutoReport.Guild = "GuildEvents"` channel ถ้าตั้งไว้ (no-op ถ้าไม่ได้ config).
+Persistent guild roster — **per-guild DataStore key** `guild:<guildId>` (ไม่ใช้ ProfileStore session-claim เพราะ guild มีหลาย member ในหลาย server). Roles 3 ชั้น (Owner / Officer / Member); officer cap = `Config.Social.Guild.OfficerCap` (default 5). Shared **vault** อยู่ใน DataStore key `vault:<guildId>` แยกอีกตัว. ทุก mutation serialize ข้าม server ผ่าน **`GuildLock` MemoryStore mutex** (kick, promote, deposit/withdraw — race-prone ทั้งหมด). `Guild.Create/Disband/Transfer` ถูก auto-report ไปยัง `Webhook.AutoReport.Guild = "GuildEvents"` channel ถ้าตั้งไว้ (no-op ถ้าไม่ได้ config).
 
-**Access:** `Gaxia.Guild` (server) · `ReplicatedStorage/Events/Guild/Action` (RemoteFunction envelope `{type=..., ...}`)
+**Access:** `Gaxia.Guild` (server). Client UI uses separate logical Net RPCs
+for read, membership, and vault intents; there is no `Events/Guild/Action`
+RemoteFunction. `Events/Guild/Inbound` remains server → client only for
+invite/membership notices.
 
 **Config** (`Config.Social.Guild` — server-private):
 ```lua
@@ -2452,7 +2584,10 @@ Guild.OnVaultChange:Connect(function(guildId, itemId, delta) end)
 
 ส่วนเพิ่มของ `Gaxia.Party` (ส่วน Grouping + matchmaking core ดู [§8.33 Party](#833-party--grouping--matchmaking-สำหรับ-co-op--lobby-flows)). Pending invites เป็น **RAM-only** (module-state) — ไม่ persist ข้าม restart, TTL `Config.Social.Party.InviteTTL` (default 60s). Cross-server delivery ผ่าน parallel queue ใน `InviteQueue` helper (ใช้คนละคีย์กับ Friend เพราะ TTL คนละช่วง: Friend 7 วัน vs Party 60 วินาที — รวม queue ทำให้ expiry ยุ่ง).
 
-**Access:** `Gaxia.Party` (server) · `ReplicatedStorage/Events/Party/InviteAction` (RemoteFunction envelope `{type=..., ...}`)
+**Access:** `Gaxia.Party` (server). Client UI uses separate logical Net RPCs
+for invite and pending-invite actions; there is no `Events/Party/InviteAction`
+RemoteFunction. `Events/Party/InviteInbound` remains server → client only for
+invite notices.
 
 **Config** (`Config.Social.Party` — server-private):
 ```lua
@@ -2566,15 +2701,19 @@ AC.Whitelist(player, "Speed", 60)   -- ยกเว้น 60 วินาที
 AC.Whitelist(player, "Fly")          -- ตลอดไป
 
 -- ฟัง flag events
-AC.OnFlag:Connect(function(player, reason, severity, count)
+AC.OnFlag:Connect(function(player, reason, severity, count, source)
     -- ทุกครั้งที่ flag เพิ่ม
-    print(`FLAG: {player.Name} {reason} {severity} (#{count})`)
+    print(`FLAG: {player.Name} {reason} {severity} from {source} (#{count})`)
 end)
 
--- ฟัง action triggers (threshold ถึง)
-AC.OnAction:Connect(function(player, reason, kind)
+-- ฟัง action candidate (threshold ถึง) — ยังไม่ใช่ Kick/Ban
+AC.OnAction:Connect(function(player, reason, kind, count, source)
     -- kind = "soft" (count = SOFT_THRESHOLD = 3) | "hard" (count = HARD_THRESHOLD = 5)
-    -- ServerBootstrap จะ kick ตรงนี้ — นาย override ได้
+    -- ห้ามใช้ signal นี้ลงโทษเอง; single owner คือ GaxiaServer.Enforcement
+end)
+
+GaxiaServer.Enforcement.OnDecision:Connect(function(player, reason, kind, source, decision, applied)
+    print(`Enforcement: {decision}; applied={applied}; source={source}`)
 end)
 
 -- ── เข้าถึง detector-specific APIs ผ่าน orchestrator ──
@@ -2585,7 +2724,7 @@ AC.Stat.Expect(player, "Coins", newValue)    -- บอก StatGuard ก่อน
 AC.GetDetector("Combat")                     -- defensive lookup (returns module or nil)
 ```
 
-### 9.2 Detectors 9 ตัว
+### 9.2 Detectors และ evidence source
 
 | Detector | ทำอะไร | Severity | ปรับ threshold ได้ |
 |---|---|---|---|
@@ -2593,11 +2732,18 @@ AC.GetDetector("Combat")                     -- defensive lookup (returns module
 | **FlyDetector** | Y velocity > 30 ขณะไม่ใช่ Jumping/Freefall/Climbing | soft | `Constants.FLY_VELOCITY_THRESHOLD` |
 | **NoClipDetector** | HRP chest อยู่ใน CanCollide=true part (ยกเว้น Climb/Swim/Sit) | soft | streak 4 ticks (~2s) |
 | **TeleportDetector** | Position delta > 50 studs/sample | **hard** | `Constants.TELEPORT_MAX_DELTA` |
-| **RemoteRateLimiter** | RemoteEvent fire เกิน 10/sec (burst 20) | soft | `REMOTE_RATE_LIMIT_DEFAULT` |
 | **StatGuard** | Leaderstats เปลี่ยนนอกเหนือ EconomyService | **hard** | — |
 | **ToolDuplicationGuard** | Tool UID ซ้ำ | **hard** | — |
 | **AnimationGuard** | AnimationId ไม่อยู่ใน whitelist | soft | **opt-in** — ปิดถ้า whitelist ว่าง |
-| **ExploitSignatureScanner** | รับ report จาก client | depends | — |
+| **ExploitSignatureScanner** | รับ `AntiCheat.Report` จาก client | telemetry only | ไม่มี automatic action |
+| **HeartbeatGuard** | client heartbeat หายหลัง grace window | telemetry only | ไม่มี automatic action |
+| **CombatGuard / BackpackGuard** | invariant ของ combat/backpack | config | server evidence |
+| **HeuristicDetector / HumanoidStateGuard** | sustained-speed / invalid state | config | detector config |
+| **WorldBoundsDetector** | ออกนอก world bounds | **hard** | `Config.AntiCheat.WorldBounds` |
+| **RemoteTrap** | honeypot หรือยิง raw outbound remote ย้อนทิศ | **hard evidence** (candidate หลังถึง `HardFlagThreshold`) | observe-only rollout |
+
+`RemoteRateLimiter` ถูกลบแล้ว เพราะ listener แยกไม่สามารถหยุด listener อื่นได้.
+Rate/concurrency gate ที่ block จริงอยู่ใน `NetService` ก่อน handler.
 
 ### 9.3 ปรับ AnimationGuard
 
@@ -2645,9 +2791,25 @@ end
 - `getfenv`/`getrenv` mutation (`tostring(print)` heuristic)
 - Foreign ScreenGui injection (Synapse, Krnl, Executor, Dex names)
 
-ส่ง report ผ่าน `AntiCheat_Report` RemoteEvent (1 report / kind / 30s)
+ส่ง report ผ่าน bounded logical RPC `AntiCheat.Report` (1 report / kind / 30s)
+และ heartbeat ผ่าน `AntiCheat.Heartbeat`; ไม่มี raw `AntiCheat_Report` หรือ
+`System_Heartbeat` RemoteEvent แล้ว.
 
-> **สำคัญ:** Client AntiCheat เป็น **bonus tripwire** — server detectors เป็น authority
+> **สำคัญ:** Client AntiCheat เป็น **bonus tripwire** — evidence ของ `client` และ
+> `client_liveness` ถูก journal ได้ แต่ไม่ eligible สำหรับ automatic enforcement.
+
+### 9.6 RemoteTrap และ rollout
+
+`RemoteTrap` สร้าง honeypot ชื่อสุ่มต่อ server และมี listener ขนาดเล็กสำหรับ raw
+remote ที่ framework ใช้ **server → client** อยู่แล้ว (`Friend/Inbound`,
+`Party/InviteInbound`, `Guild/Inbound`, `Admin/Inbound`, `Chat/SystemMessage`).
+หาก client ยิงย้อนทิศ จะสร้าง evidence `source="trap"` โดยไม่ parse payload,
+echo response หรือ mutate gameplay. นี่คือข้อยกเว้นที่ตั้งใจไว้เพียงจุดเดียวจากกฎ
+"NetService owns C2S" เพื่อจับ wrong-direction traffic.
+
+ค่าเริ่มต้นของ enforcement คือ `observe`: trap hit จะถูก journal แต่ไม่ kick/ban.
+ก่อนเปิด `enforce` ต้องทดสอบ Studio และ false-positive matrix ของเกมนั้นก่อน;
+permanent ban จาก trap ไม่ได้เปิดเป็นค่าเริ่มต้น.
 
 ---
 
@@ -2666,10 +2828,10 @@ end
    - **Chat ต้องโหลดก่อน Admin** — AdminCommands.Register() ลงทะเบียน chat bridge ทันทีที่ load, ถ้า Chat ยังไม่ถูก require ตอนนั้น bridge จะหายไป
    - Admin load แล้ว auto-grant owner role ให้ game creator
 3. Require AntiCheat orchestrator → detectors load อัตโนมัติ
-4. ผูก `AC.OnAction` กับ default action:
-   - `soft` → warn player ใน output
-   - `hard` → kick player (with reason)
-5. Dedupe kick — ไม่ kick ซ้ำ reason เดียวกัน
+4. Start `GaxiaServer.Enforcement` ซึ่งเป็น automatic-action owner จุดเดียว
+   - ค่า default `AntiCheat.Enforcement.Mode = "observe"`: บันทึก decision แต่ไม่ลงโทษ
+   - client report/heartbeat ไม่ถูกนำไป automatic action ไม่ว่า mode ใด
+   - cooldown, staff/creator exemption และ action policy อยู่ใน service เดียว
 
 ### 10.2 Gaxia_ClientBootstrap
 
@@ -2685,24 +2847,21 @@ end
 
 ### 10.3 Custom Bootstrap
 
-อยาก override default behavior? ลบ Gaxia_ServerBootstrap แล้วเขียนเอง:
+อยากสังเกต decision หรือควบคุม mode? ใช้ enforcement API โดยไม่ subscribe
+`AntiCheat.OnAction` เพื่อ kick/ban เอง:
 
 ```lua
 local ServerStorage = game:GetService("ServerStorage")
-local GaxiaServer = require(ServerStorage.Gaxia_Packages_Server.init)
+local GaxiaServer = require(ServerStorage.Gaxia_Packages_Server)
 
--- Custom kick logic (e.g. log to Discord, then kick)
-GaxiaServer.AntiCheat.OnAction:Connect(function(player, reason, kind)
-    if kind == "hard" then
-        -- Log to external service
-        myDiscordLogger:Log(player.Name, reason)
-        -- Then kick
-        player:Kick(`Banned for: {reason}`)
-    elseif kind == "soft" then
-        -- Show warning to player
-        WarningRemote:FireClient(player, reason)
-    end
+local Enforcement = GaxiaServer.Enforcement
+
+Enforcement.OnDecision:Connect(function(player, reason, kind, source, decision, applied, strikeCount)
+    myDiscordLogger:Log(player.Name, reason, source, decision, applied, strikeCount)
 end)
+
+-- ต้องผ่าน Studio/false-positive gates ของเกมก่อนจึงค่อยเปิด:
+-- Enforcement.SetMode("enforce")
 ```
 
 ---
@@ -2713,21 +2872,30 @@ end)
 
 ```lua
 -- ServerScriptService/ClickerLogic (Script)
+local Players = game:GetService("Players")
 local ServerStorage = game:GetService("ServerStorage")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local GaxiaServer = require(ServerStorage.Gaxia_Packages_Server.init)
+local GaxiaServer = require(ServerStorage.Gaxia_Packages_Server)
+local Net = GaxiaServer.Shared.Net
 
--- สร้าง RemoteEvent
-local clickRE = Instance.new("RemoteEvent")
-clickRE.Name = "Click"
-clickRE.Parent = ReplicatedStorage.Events
-
--- Rate-limit ผ่าน AntiCheat
-clickRE.OnServerEvent:Connect(function(player)
-    -- AntiCheat's RemoteRateLimiter ดูแลแล้ว
+Net.Server.RegisterEvent("Clicker.Click", {
+    schema = function(payload)
+        return typeof(payload) == "table" and next(payload) == nil
+    end,
+    budget = "tiny",
+    rate = 10,
+    burst = 20,
+    concurrency = 1,
+    mutation = true,
+    validate = function(context)
+        return context.player.Parent == Players
+            and GaxiaServer.Data.IsLoaded(context.player)
+    end,
+    handler = function(context)
+        local player = context.player
     GaxiaServer.Economy.Add(player, "Coins", 1)
     GaxiaServer.Player.SetLeaderstat(player, "Coins", GaxiaServer.Economy.Get(player, "Coins"))
-end)
+    end,
+})
 
 -- Setup leaderstats ตอน player join
 GaxiaServer.Player.OnPlayerJoined:Connect(function(player)
@@ -2743,8 +2911,7 @@ end)
 ```lua
 -- StarterPlayer/StarterPlayerScripts/ClickerUI (LocalScript)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Gaxia = require(ReplicatedStorage.Gaxia_Packages.init)
-local clickRE = ReplicatedStorage.Events.Click
+local Gaxia = require(ReplicatedStorage.Gaxia_Packages)
 
 -- ทำปุ่ม Click
 local btn = Gaxia.UI.UIController.CloneTemplate("ButtonTemplate")
@@ -2753,7 +2920,7 @@ btn.Size = UDim2.new(0, 200, 0, 60)
 btn.Position = UDim2.new(0.5, -100, 0.5, -30)
 btn.AnchorPoint = Vector2.new(0.5, 0.5)
 btn.MouseButton1Click:Connect(function()
-    clickRE:FireServer()
+    Gaxia.Net.Client.Fire("Clicker.Click", {})
 end)
 ```
 
@@ -2761,31 +2928,51 @@ end)
 
 ```lua
 -- Server: ShopService.lua
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
 local ServerStorage = game:GetService("ServerStorage")
-local GaxiaServer = require(ServerStorage.Gaxia_Packages_Server.init)
+local GaxiaServer = require(ServerStorage.Gaxia_Packages_Server)
+local Net = GaxiaServer.Shared.Net
 
 local SHOP_ITEMS = {
     Sword     = {price = 100, currency = "Coins"},
     GoldArmor = {price = 50,  currency = "Gems"},
 }
 
-local buyRE = Instance.new("RemoteEvent")
-buyRE.Name = "ShopBuy"
-buyRE.Parent = ReplicatedStorage.Events
+Net.Server.RegisterEvent("Shop.Buy", {
+    schema = function(payload)
+        if typeof(payload) ~= "table" or typeof(payload.itemId) ~= "string" then
+            return false
+        end
+        for key in pairs(payload) do
+            if key ~= "itemId" then
+                return false
+            end
+        end
+        return true
+    end,
+    budget = "tiny",
+    rate = 2,
+    burst = 4,
+    concurrency = 1,
+    mutation = true,
+    validate = function(context)
+        return context.player.Parent == Players
+            and GaxiaServer.Data.IsLoaded(context.player)
+    end,
+    handler = function(context, payload)
+        local player = context.player
+        -- price/currency มาจาก server catalog ไม่ใช่ payload
+        local item = SHOP_ITEMS[payload.itemId]
+        if not item then return end
 
-buyRE.OnServerEvent:Connect(function(player, itemId)
-    -- Validation (server side ทุกครั้ง)
-    local item = SHOP_ITEMS[itemId]
-    if not item then return end
-    if not GaxiaServer.Data.IsLoaded(player) then return end
+        if GaxiaServer.Economy.Spend(player, item.currency, item.price) then
+            GaxiaServer.Item.Give(player, payload.itemId, 1)
+            GaxiaServer.Shared.Logger:Info("Player {} bought {}", player.Name, payload.itemId)
+        end
+    end,
+})
 
-    -- Atomic check + deduct
-    if GaxiaServer.Economy.Spend(player, item.currency, item.price) then
-        GaxiaServer.Item.Give(player, itemId, 1)
-        Gaxia.Logger:Info("Player {} bought {}", player.Name, itemId)
-    end
-end)
+-- Client: Gaxia.Net.Client.Fire("Shop.Buy", { itemId = "Sword" })
 ```
 
 ### Recipe 3: ระบบ Quest
@@ -2831,16 +3018,16 @@ local GaxiaServer = require(...)
 
 -- สร้าง Part ใน workspace ที่จะใช้เป็น region (Anchored, CanCollide=false, Transparent)
 local regionPart = workspace.SafeZoneRegion
-local zone = GaxiaServer.Zone.Create("SafeZone", regionPart)
+local zone = GaxiaServer.Zone.new(regionPart)
 
-zone.OnEntered:Connect(function(player)
+zone.playerEntered:Connect(function(player)
     -- ลด WalkSpeed
     GaxiaServer.Player.SetWalkSpeed(player, 8)
     -- Whitelist anti-cheat speed ระหว่างอยู่ในโซน
     GaxiaServer.AntiCheat.Whitelist(player, "Speed", math.huge)
 end)
 
-zone.OnLeft:Connect(function(player)
+zone.playerExited:Connect(function(player)
     GaxiaServer.Player.SetWalkSpeed(player, 16)
     GaxiaServer.AntiCheat.ClearFlags(player, "Speed")  -- เอา whitelist ออก
 end)
@@ -2887,18 +3074,18 @@ local Gaxia = require(...)
 local Players = game:GetService("Players")
 
 Players.PlayerAdded:Connect(function(player)
-    local maid
+    local janitor
 
     player.CharacterAdded:Connect(function(character)
         -- เคลียร์ของรอบที่แล้ว
-        if maid then maid:Destroy() end
-        maid = Gaxia.Maid.new()
+        if janitor then janitor:Cleanup() end
+        janitor = Gaxia.Janitor.new()
 
         -- ผูก task กับ character ใหม่
-        maid:GiveTask(character.Humanoid.Died:Connect(function()
+        janitor:Add(character.Humanoid.Died:Connect(function()
             print(`{player.Name} died`)
         end))
-        maid:GiveTask(character)  -- character ถูก Destroy ตอนตาย
+        janitor:Add(character)  -- character ถูก Destroy ตอน cleanup
     end)
 end)
 ```
@@ -2907,11 +3094,14 @@ end)
 
 ## 12. Troubleshooting
 
-### "Attempted to call require with invalid argument(s)"
-**ผิด:** `require(game.ReplicatedStorage.Gaxia_Packages)`
-**ถูก:** `require(game.ReplicatedStorage.Gaxia_Packages.init)`
+### Package root require error
+Package roots ที่สร้างด้วย Rojo `init.lua` เป็น ModuleScript จึง require โดยตรง:
+`require(game.ReplicatedStorage.Gaxia_Packages)` และ
+`require(game.ServerStorage.Gaxia_Packages_Server)`
 
-Roblox runtime ไม่ auto-resolve `Folder/init` (Rojo convention only)
+ถ้าเห็น error ให้ตรวจว่า package ถูก sync/build แล้ว และอย่าเรียก `require` กับ
+Folder โดยตรง; เอกสารนี้อ้างอิง ModuleScript root ที่สร้างด้วย Rojo เท่านั้น
+อย่าสมมติว่า loader เวอร์ชันที่ติดตั้งรองรับ Folder/init layout.
 
 ### "Infinite yield possible on ..."
 ที่ใช้ `WaitForChild` ในที่ที่ instance ยังไม่ replicate
@@ -2951,11 +3141,13 @@ local LIB_SERVICES = {
 ถ้า order สลับกัน — AdminCommands load ก่อน ChatCommandSystem → chat bridge ไม่ register
 
 ### Autocomplete ไม่ขึ้น
-- ลึก 2 ระดับขึ้นไป (`Gaxia.Util.Table.DeepCopy`) — ดู Section 12.1 แก้ guard
+- ลึก 2 ระดับขึ้นไป (`Gaxia.Util.Table.Copy`) — ดู Section 12.1 แก้ guard
 - ลึก 1 ระดับ (`Gaxia.Signal.new`) ขึ้นปกติ — Studio Script Editor รองรับ
 
-### ProfileService error: "Missing or invalid Name parameter"
-DataManager ของ Gaxia แก้ตอน v1 แล้ว — ใช้ `.GetProfileStore` (period) ไม่ใช่ `:GetProfileStore` (colon) เพราะ user's ProfileService implementation
+### ProfileStore session / save error
+DataManager ใช้ `ProfileStore.New(Config.Data.StoreName, DEFAULT_PROFILE)` และเปิด
+session ผ่าน ProfileStore. ตรวจ `Config.Data.StoreName`, DataStore API access และ log
+ของ session; ไม่มี API `GetProfileStore` แบบ ProfileService เดิมแล้ว
 
 ### State หายตอน Play Mode → Stop
 ของที่ **สร้างใน Play Mode** จะ revert เมื่อ Stop — เป็นปกติของ Roblox Studio
@@ -2966,13 +3158,14 @@ DataManager ของ Gaxia แก้ตอน v1 แล้ว — ใช้ `.G
 ## 13. FAQ
 
 **Q: ใช้กับ Rojo / external workflow ได้ไหม?**
-A: ได้ ต้องสร้าง `default.project.json` map paths ให้ตรง. Source code อยู่ใน `G:\My Drive\roblox-multi-ai\src\`
+A: ได้ ต้องสร้าง `default.project.json` map paths ให้ตรง. Source code อยู่ใน repository directory ภายใต้ `src/`
 
 **Q: Anti-Cheat กิน performance ไหม?**
 A: ใช้ shared sampler 0.5s loop ตัวเดียว iterate players → snapshot → dispatch. Event-driven detectors zero idle cost. ตามที่ทดสอบ — < 1% CPU
 
-**Q: ใช้กับ DataStore ตัวอื่น (ไม่ใช่ ProfileService) ได้ไหม?**
-A: ได้ — เขียน wrapper module ของ Data ใหม่. Lib/DataManager.lua ใช้ ProfileService ของ existing user — แก้เป็น MockDataManager หรือ Suphi's DataStoreModule ได้
+**Q: ใช้กับ DataStore ตัวอื่น (ไม่ใช่ ProfileStore) ได้ไหม?**
+A: ได้ — เขียน wrapper module ของ Data ใหม่. Lib/DataManager ใช้ ProfileStore อยู่;
+เปลี่ยนเป็น adapter ของ datastore ที่เลือกได้ แต่ต้องรักษา lifecycle/save semantics เดิม
 
 **Q: เพิ่ม detector ใหม่ของตัวเองได้ไหม?**
 A: ได้! สร้าง ModuleScript ใหม่ใน `AntiCheat/` folder ที่ return:
@@ -2989,18 +3182,14 @@ Orchestrator จะ auto-discover เมื่อโหลด
 A: ไม่ — ลบโมดูลที่ไม่ใช้ออกจาก Studio ได้ Master Loader ใช้ FindFirstChild → ไม่ error ถ้าหาย
 
 **Q: ทำไมต้องมี Maid + Janitor + Trove (3 ตัว)?**
-A: รสนิยม:
-- **Maid** — ง่ายสุด, LIFO order
-- **Janitor** — มี named index
-- **Trove** — modern, สวยสุด, `:Construct()` + `:Extend()` ทำ child cleanup
-
-ใช้ตัวที่ชอบ — ทั้ง 3 มี `:Destroy()` เหมือนกัน
+A: `Maid` เป็นชื่อ deprecated ที่ alias ตรงไป `Janitor` แล้ว; โค้ดใหม่ใช้
+`Janitor` สำหรับ named index หรือ `Trove` สำหรับ `:Construct()` / `:Extend()`.
 
 **Q: ทำไม Gaxia.UI ใช้ใน server ไม่ได้?**
 A: UI controllers access `Players.LocalPlayer` ที่ server เป็น nil → crash UI proxies จึงสร้างเฉพาะ client side. Server ใช้ `GaxiaServer.Shared.Util` ก็พอสำหรับ utility
 
 **Q: เปลี่ยน scheme ของ DEFAULT_PROFILE ได้ไหม?**
-A: ได้ แต่ระวัง — ProfileService Reconcile จะใส่ field ใหม่ให้ player ที่มี data อยู่แล้ว แต่ **ลบ field เก่าออกจาก saved data ไม่ทำ** — ต้อง migrate manually
+A: ได้ แต่ระวัง — ProfileStore `Reconcile` จะใส่ field ใหม่ให้ player ที่มี data อยู่แล้ว แต่ **ลบ field เก่าออกจาก saved data ไม่ทำ** — ต้อง migrate manually
 
 **Q: Studio plugin disconnect บ่อย?**
 A: คลิก **Claude > Connect** บน toolbar Studio

@@ -3,8 +3,8 @@
 -- FriendListPanel.lua
 -- Location: ReplicatedStorage/Gaxia_Packages/Client/UI/FriendListPanel
 -- Purpose : Minimal Friend list UI — renders the player's friend roster from
---           the server Friend RemoteFunction (`Events/Friend/Action`,
---           envelope { type = "list" }). Exposes Open / Close / Toggle so a
+--           the server logical Net RPC (`Friend.GetList`). Exposes Open /
+--           Close / Toggle so a
 --           game-level LocalScript can bind it to a hotkey or button.
 --           Intentionally lean: no tab system, no add-by-name field yet — those
 --           are layered on top by the host game's UI. The shape mirrors the
@@ -39,6 +39,7 @@ if not RunService:IsClient() then
 end
 
 local Theme = require(script.Parent.Parent.Parent.Shared.Theme)
+local Gaxia = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
 
 -- ── Module state ──
 local screenGui: ScreenGui? = nil
@@ -98,15 +99,17 @@ local function rebuild(): ()
 	layout.Padding = UDim.new(0, 4)
 	layout.Parent = list
 
-	-- WaitForChild here (not before) because rebuild() is only ever called from
-	-- Open/Toggle — the server modules may not have created the Events folder
-	-- yet at module-require time, but they will have by the time the user opens
-	-- the panel. 10 s ceiling = generous but bounded so a misconfigured boot
-	-- surfaces a real error instead of a hang.
-	local events = ReplicatedStorage:WaitForChild("Events", 10)
-	local friendFolder = events and events:WaitForChild("Friend", 10)
-	local action = friendFolder and friendFolder:WaitForChild("Action", 10)
-	if not action then
+	-- Resolve Net only while opening: server registration can finish after this
+	-- UI module is required during client boot.
+	local invoked, response = pcall(function()
+		return Gaxia.Net.Client.Invoke("Friend.GetList", {})
+	end)
+	if
+		not invoked
+		or typeof(response) ~= "table"
+		or response.ok ~= true
+		or typeof(response.data) ~= "table"
+	then
 		local empty = Instance.new("TextLabel")
 		empty.Size = UDim2.new(1, 0, 0, 28)
 		empty.BackgroundTransparency = 1
@@ -114,21 +117,18 @@ local function rebuild(): ()
 		empty.TextColor3 = Color3.fromRGB(230, 230, 230)
 		empty.Parent = list
 	else
-		local ok, items = (action :: RemoteFunction):InvokeServer({ type = "list" })
-		if ok and typeof(items) == "table" then
-			for _, rec in ipairs(items) do
-				local row = Instance.new("TextLabel")
-				row.Size = UDim2.new(1, 0, 0, 28)
-				row.BackgroundTransparency = 0.85
-				row.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-				row.BorderSizePixel = 0
-				row.Text = `{rec.online and "● " or "○ "}{rec.name or "?"}`
-				row.TextColor3 = Color3.fromRGB(230, 230, 230)
-				row.TextXAlignment = Enum.TextXAlignment.Left
-				row.Font = Enum.Font.Gotham
-				row.TextSize = 14
-				row.Parent = list
-			end
+		for _, rec in ipairs(response.data) do
+			local row = Instance.new("TextLabel")
+			row.Size = UDim2.new(1, 0, 0, 28)
+			row.BackgroundTransparency = 0.85
+			row.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+			row.BorderSizePixel = 0
+			row.Text = `{rec.online and "● " or "○ "}{rec.name or "?"}`
+			row.TextColor3 = Color3.fromRGB(230, 230, 230)
+			row.TextXAlignment = Enum.TextXAlignment.Left
+			row.Font = Enum.Font.Gotham
+			row.TextSize = 14
+			row.Parent = list
 		end
 	end
 

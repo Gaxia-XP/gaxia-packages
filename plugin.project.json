@@ -1,11 +1,25 @@
 {
   "name": "GaxiaCompanion",
+  "globIgnorePaths": [
+    "**/*.spec.lua",
+    "**/*.spec.luau",
+    "**/*.test.lua",
+    "**/*.test.luau",
+    "**/__tests__/**",
+    "**/jest.config.luau"
+  ],
   "tree": {
     "$path": "plugin/src",
     "Payload": {
       "$className": "Folder",
-      "Gaxia_Packages": { "$path": "src/ReplicatedStorage/Gaxia_Packages" },
-      "Gaxia_Packages_Server": { "$path": "src/ServerStorage/Gaxia_Packages_Server" },
+      "Gaxia_Packages": {
+        "$path": "src/ReplicatedStorage/Gaxia_Packages",
+        "Packages": { "$path": "Packages" }
+      },
+      "Gaxia_Packages_Server": {
+        "$path": "src/ServerStorage/Gaxia_Packages_Server",
+        "ServerPackages": { "$path": "ServerPackages" }
+      },
       "Gaxia_ServerBootstrap": { "$path": "src/ServerScriptService/Gaxia_ServerBootstrap.server.lua" },
       "Gaxia_ClientBootstrap": { "$path": "src/StarterPlayer/StarterPlayerScripts/Gaxia_ClientBootstrap.client.lua" }
     }

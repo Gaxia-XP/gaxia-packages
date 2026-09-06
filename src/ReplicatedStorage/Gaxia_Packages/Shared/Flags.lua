@@ -15,7 +15,11 @@
 local CollectionService = game:GetService("CollectionService")
 
 local RunService = game:GetService("RunService")
+-- WHY the extra Studio clause: in Edit mode via tooling IsServer() is false and
+-- client paths would stall/assert. Edit mode has no real client, so server
+-- semantics are the default there; Play mode and live servers are unaffected.
 local IS_SERVER : boolean = RunService:IsServer()
+	or (RunService:IsStudio() and not RunService:IsRunning())
 
 local FLAGS_STATE : string = "GaxiaFlags"
 

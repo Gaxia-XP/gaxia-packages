@@ -35,9 +35,9 @@ local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
 
-local SharedPkg =
-	require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
+local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
 local Signal = SharedPkg.Signal
+local Net = SharedPkg.Net
 
 local GaxiaServer: any = nil
 local function server(): any
@@ -45,7 +45,7 @@ local function server(): any
 		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
 		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
 		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-			
+
 		GaxiaServer = require(serverInit :: any)
 	end
 	return GaxiaServer
@@ -527,7 +527,93 @@ do
 	end
 end
 
--- ── RemoteFunction surface ──
+-- ── Network surface ──
+-- Friend mutations and reads use separate logical Net RPCs. The legacy
+-- Events/Friend/Action endpoint deliberately has no replacement handler:
+-- clients must use Gaxia.Net.Client.Invoke instead. Events/Friend/Inbound stays
+-- as the outbound compatibility channel until its consumers migrate.
+local MAX_USER_ID = 9007199254740991 -- largest integer exactly representable by Luau numbers
+
+type FieldValidators = { [string]: (any) -> boolean }
+
+local function isFiniteInteger(value: any): boolean
+	return typeof(value) == "number"
+		and value == value
+		and value ~= math.huge
+		and value ~= -math.huge
+		and value % 1 == 0
+end
+
+local function isUserId(value: any): boolean
+	return isFiniteInteger(value) and value > 0 and value <= MAX_USER_ID
+end
+
+local function exactSchema(fields: FieldValidators): (any) -> boolean
+	return function(payload: any): boolean
+		if typeof(payload) ~= "table" then
+			return false
+		end
+		for key, value in pairs(payload) do
+			if typeof(key) ~= "string" then
+				return false
+			end
+			local validate = fields[key]
+			if not validate or not validate(value) then
+				return false
+			end
+		end
+		for key in pairs(fields) do
+			if payload[key] == nil then
+				return false
+			end
+		end
+		return true
+	end
+end
+
+local EMPTY_SCHEMA = exactSchema({})
+
+local function isCurrentPlayer(context: any, _payload: any): boolean
+	local player = context.player
+	return typeof(player) == "Instance"
+		and player:IsA("Player")
+		and player.Parent == game:GetService("Players")
+end
+
+local function operationResult(ok: boolean, reason: string?): { ok: boolean, reason: string? }
+	return { ok = ok, reason = reason }
+end
+
+local function registerRead(name: string, schema: (any) -> boolean, handler: (any, any) -> any): ()
+	Net.Server.RegisterFunction(name, {
+		schema = schema,
+		handler = handler,
+		rate = 2,
+		burst = 4,
+		budget = "tiny",
+		concurrency = 1,
+	})
+end
+
+local function registerMutation(
+	name: string,
+	schema: (any) -> boolean,
+	handler: (any, any) -> any,
+	rate: number?,
+	burst: number?
+): ()
+	Net.Server.RegisterFunction(name, {
+		schema = schema,
+		handler = handler,
+		validate = isCurrentPlayer,
+		mutation = true,
+		rate = rate or 3,
+		burst = burst or 4,
+		budget = "tiny",
+		concurrency = 1,
+	})
+end
+
 do
 	local Events = ReplicatedStorage:FindFirstChild("Events") or Instance.new("Folder")
 	Events.Name = "Events"
@@ -535,48 +621,91 @@ do
 	local FriendFolder = Events:FindFirstChild("Friend") or Instance.new("Folder")
 	FriendFolder.Name = "Friend"
 	FriendFolder.Parent = Events
-	local Action = FriendFolder:FindFirstChild("Action") or Instance.new("RemoteFunction")
-	Action.Name = "Action"
-	Action.Parent = FriendFolder
 	local Inbound = FriendFolder:FindFirstChild("Inbound") or Instance.new("RemoteEvent")
 	Inbound.Name = "Inbound"
 	Inbound.Parent = FriendFolder
 
-	Action.OnServerInvoke = function(player: Player, envelope: any): (boolean, any)
-		if typeof(envelope) ~= "table" or typeof(envelope.type) ~= "string" then
-			return false, "bad envelope"
-		end
-		local t = envelope.type
-		if t == "send" then
-			return Friend.SendRequest(player, envelope.to)
-		end
-		if t == "accept" then
-			return Friend.AcceptRequest(player, envelope.from)
-		end
-		if t == "decline" then
-			return Friend.DeclineRequest(player, envelope.from)
-		end
-		if t == "remove" then
-			return Friend.Remove(player, envelope.other)
-		end
-		if t == "block" then
-			return Friend.Block(player, envelope.other)
-		end
-		if t == "unblock" then
-			return Friend.Unblock(player, envelope.other)
-		end
-		if t == "favorite" then
-			Friend.SetFavorite(player, envelope.other, envelope.fav == true)
-			return true
-		end
-		if t == "list" then
-			return true, Friend.GetList(player)
-		end
-		if t == "blocks" then
-			return true, Friend.GetBlocks(player)
-		end
-		return false, "unknown action"
-	end
+	registerMutation(
+		"Friend.SendRequest",
+		exactSchema({ toUserId = isUserId }),
+		function(context, payload)
+			local ok, reason = Friend.SendRequest(context.player, payload.toUserId)
+			return operationResult(ok, reason)
+		end,
+		0.25,
+		1
+	)
+	registerMutation(
+		"Friend.AcceptRequest",
+		exactSchema({ fromUserId = isUserId }),
+		function(context, payload)
+			local ok, reason = Friend.AcceptRequest(context.player, payload.fromUserId)
+			return operationResult(ok, reason)
+		end,
+		nil,
+		nil
+	)
+	registerMutation(
+		"Friend.DeclineRequest",
+		exactSchema({ fromUserId = isUserId }),
+		function(context, payload)
+			local ok, reason = Friend.DeclineRequest(context.player, payload.fromUserId)
+			return operationResult(ok, reason)
+		end,
+		nil,
+		nil
+	)
+	registerMutation(
+		"Friend.Remove",
+		exactSchema({ otherUserId = isUserId }),
+		function(context, payload)
+			local ok, reason = Friend.Remove(context.player, payload.otherUserId)
+			return operationResult(ok, reason)
+		end,
+		nil,
+		nil
+	)
+	registerMutation(
+		"Friend.Block",
+		exactSchema({ otherUserId = isUserId }),
+		function(context, payload)
+			local ok, reason = Friend.Block(context.player, payload.otherUserId)
+			return operationResult(ok, reason)
+		end,
+		nil,
+		nil
+	)
+	registerMutation(
+		"Friend.Unblock",
+		exactSchema({ otherUserId = isUserId }),
+		function(context, payload)
+			local ok, reason = Friend.Unblock(context.player, payload.otherUserId)
+			return operationResult(ok, reason)
+		end,
+		nil,
+		nil
+	)
+	registerMutation(
+		"Friend.SetFavorite",
+		exactSchema({
+			otherUserId = isUserId,
+			favorite = function(value: any): boolean
+				return typeof(value) == "boolean"
+			end,
+		}),
+		function(context, payload)
+			Friend.SetFavorite(context.player, payload.otherUserId, payload.favorite)
+			return operationResult(true, nil)
+		end,
+		4,
+		8
+	)
+	registerRead("Friend.GetList", EMPTY_SCHEMA, function(context, _payload)
+		return Friend.GetList(context.player)
+	end)
+	registerRead("Friend.GetBlocks", EMPTY_SCHEMA, function(context, _payload)
+		return Friend.GetBlocks(context.player)
+	end)
 
 	-- Push inbound events to the affected player.
 	Friend.OnRequest:Connect(function(toPlayer, fromUserId, fromName)

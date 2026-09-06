@@ -5,7 +5,8 @@
 -- Purpose : Outbound webhooks (Discord-first, but any JSON to any URL). A
 --           per-channel queue throttles + retries (HTTP 429 aware) so reports
 --           are reliable and never block game logic. Auto-reports player Bans
---           and AntiCheat hard actions with zero wiring when a channel is set.
+--           and AntiCheat enforcement decisions with zero wiring when a
+--           channel is set.
 --
 -- SERVER-ONLY. Webhook URLs are secrets: they live in Config.Webhook.Channels
 -- (ServerStorage, never replicated) and are NEVER driven by client RemoteEvents
@@ -310,19 +311,42 @@ local function autoSubscribe(): ()
 	end
 
 	local acCh = autoChannel("AntiCheat")
-	if acCh and s.AntiCheat and s.AntiCheat.OnAction then
-		s.AntiCheat.OnAction:Connect(function(player: any, reason: string, kind: string)
-			if kind ~= "hard" then return end
-			Webhook.Discord(acCh, {
-				title = "⚠️ AntiCheat Action",
-				color = ORANGE,
-				fields = {
-					{ name = "Player", value = (typeof(player) == "Instance" and player.Name or tostring(player)), inline = true },
-					{ name = "Kind", value = kind, inline = true },
-					{ name = "Reason", value = reason or "—" },
-				},
-			})
-		end)
+	local Enforcement = s.Enforcement
+	if acCh and Enforcement and Enforcement.OnDecision then
+		Enforcement.OnDecision:Connect(
+			function(
+				player: any,
+				reason: string,
+				kind: string,
+				source: string?,
+				decision: string,
+				applied: boolean,
+				strikeCount: number
+			)
+				if kind ~= "hard" then
+					return
+				end
+				Webhook.Discord(acCh, {
+					title = if applied
+						then "⚠️ AntiCheat Enforcement Applied"
+						else "👁️ AntiCheat Candidate Observed",
+					color = if applied then RED else ORANGE,
+					fields = {
+						{
+							name = "Player",
+							value = (typeof(player) == "Instance" and player.Name or tostring(
+								player
+							)),
+							inline = true,
+						},
+						{ name = "Decision", value = decision, inline = true },
+						{ name = "Source", value = source or "server", inline = true },
+						{ name = "Strikes", value = tostring(strikeCount), inline = true },
+						{ name = "Reason", value = reason or "—", inline = false },
+					},
+				})
+			end
+		)
 	end
 
 	-- ── Guild auto-report (Phase 26 · Social) ──

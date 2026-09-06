@@ -8,10 +8,10 @@
 --           extensible Register() for game-specific commands.
 -- ─────────────────────────────────────────────────────────────
 
-local Players              = game:GetService("Players")
-local DataStoreService     = game:GetService("DataStoreService")
-local ReplicatedStorage    = game:GetService("ReplicatedStorage")
-local ServerStorage        = game:GetService("ServerStorage")
+local Players = game:GetService("Players")
+local DataStoreService = game:GetService("DataStoreService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
 
 -- ── Lazy server (Config + EConfig) ──
 -- Call-time only: requiring the server package at module load yields under the
@@ -29,29 +29,38 @@ end
 
 -- ── Shared lib (Signal/Maid) ──
 local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal    = SharedPkg.Signal
+local Signal = SharedPkg.Signal
+local Net = SharedPkg.Net
 
 -- ── Lazy direct-path service refs (avoid require recursion) ──
-local _itemServiceRef : any = nil
+local _itemServiceRef: any = nil
 local function getItemService(): any
-	if _itemServiceRef ~= nil then return _itemServiceRef end
-	local lib = (script.Parent :: any)
+	if _itemServiceRef ~= nil then
+		return _itemServiceRef
+	end
+	local lib = script.Parent :: any
 	local mod = lib:FindFirstChild("ItemService")
 	if mod and mod:IsA("ModuleScript") then
 		local ok, m = pcall(require, mod)
-		if ok then _itemServiceRef = m end
+		if ok then
+			_itemServiceRef = m
+		end
 	end
 	return _itemServiceRef
 end
 
-local _playerServiceRef : any = nil
+local _playerServiceRef: any = nil
 local function getPlayerService(): any
-	if _playerServiceRef ~= nil then return _playerServiceRef end
-	local lib = (script.Parent :: any)
+	if _playerServiceRef ~= nil then
+		return _playerServiceRef
+	end
+	local lib = script.Parent :: any
 	local mod = lib:FindFirstChild("PlayerService")
 	if mod and mod:IsA("ModuleScript") then
 		local ok, m = pcall(require, mod)
-		if ok then _playerServiceRef = m end
+		if ok then
+			_playerServiceRef = m
+		end
 	end
 	return _playerServiceRef
 end
@@ -59,7 +68,8 @@ end
 -- ── Server config (declarative admin surface) ──
 -- FindFirstChild (no WaitForChild): loaded under the server loader's no-yield
 -- __index; Config sits at the package root and its body is a pure table.
-local Config = require((script.Parent :: any).Parent:FindFirstChild("Config") :: ModuleScript) :: any
+local Config =
+	require((script.Parent :: any).Parent:FindFirstChild("Config") :: ModuleScript) :: any
 local AdminConfig = (Config.Admin or {}) :: any
 
 -- Operator kill switch (Config.Admin.Enabled = false). Honored the same way
@@ -73,11 +83,11 @@ local ADMIN_ENABLED: boolean = AdminConfig.Enabled ~= false
 -- WHY numeric tiers: a single `>=` check works for arbitrary new roles
 -- without exhaustive string comparisons in every handler. Config.Admin.Tiers
 -- can add/override tiers (e.g. helper = 1).
-local ROLE_TIER : { [string]: number } = {
-	default   = 0,
+local ROLE_TIER: { [string]: number } = {
+	default = 0,
 	moderator = 1,
-	admin     = 2,
-	owner     = 3,
+	admin = 2,
+	owner = 3,
 }
 if typeof(AdminConfig.Tiers) == "table" then
 	for role, tier in pairs(AdminConfig.Tiers) do
@@ -86,13 +96,13 @@ if typeof(AdminConfig.Tiers) == "table" then
 end
 
 -- Alias (alias → real command) + disabled-command sets, built once from Config.
-local ALIASES : { [string]: string } = {}
+local ALIASES: { [string]: string } = {}
 if typeof(AdminConfig.Aliases) == "table" then
 	for alias, real in pairs(AdminConfig.Aliases) do
 		ALIASES[tostring(alias):lower()] = tostring(real):lower()
 	end
 end
-local DISABLED : { [string]: boolean } = {}
+local DISABLED: { [string]: boolean } = {}
 if typeof(AdminConfig.Disabled) == "table" then
 	for _, cmdName in ipairs(AdminConfig.Disabled) do
 		DISABLED[tostring(cmdName):lower()] = true
@@ -109,12 +119,12 @@ local _stores = (AdminConfig.Stores or {}) :: any
 local ROLES_STORE = DataStoreService:GetDataStore(_stores.Roles or "GaxiaRoles")
 
 -- ── In-memory state ──
-local roleByUserId   : { [number]: string }  = {}
+local roleByUserId: { [number]: string } = {}
 
 type CommandOpts = {
-	role    : string,
-	args    : { string }?,
-	help    : string?,
+	role: string,
+	args: { string }?,
+	help: string?,
 }
 
 -- Handlers return (message, failed?). The second value marks a REJECTION
@@ -122,14 +132,18 @@ type CommandOpts = {
 -- Run's pcall can't tell them apart from the string alone, and "didn't error"
 -- used to render guard-blocked bans as green success toasts and ✓ audit rows.
 type CommandEntry = {
-	name    : string,
-	role    : string,
-	args    : { string },
-	help    : string,
-	handler : (caller: Player, args: { string }) -> (string?, boolean?),
+	name: string,
+	role: string,
+	args: { string },
+	help: string,
+	handler: (caller: Player, args: { string }) -> (string?, boolean?),
 }
 
-local commands : { [string]: CommandEntry } = {}
+local commands: { [string]: CommandEntry } = {}
+-- Assigned once the Net gateway is ready below. Keeping the registration hook
+-- next to the command registry means extensions that call Register() after
+-- this module loads receive their own canonical RPC too.
+local registerCommandGateway: ((CommandEntry) -> ())? = nil
 
 local AdminCommands = {}
 AdminCommands.OnCommand = Signal.new() -- (caller, name, args, success, message?)
@@ -158,7 +172,9 @@ end
 
 function AdminCommands.IsAtLeast(player: Player, role: string): boolean
 	local need = ROLE_TIER[role]
-	if need == nil then return false end
+	if need == nil then
+		return false
+	end
 	local cur = ROLE_TIER[AdminCommands.GetRole(player)] or 0
 	return cur >= need
 end
@@ -174,7 +190,9 @@ end
 
 function AdminCommands.IsUserIdAtLeast(userId: number, role: string): boolean
 	local need = ROLE_TIER[role]
-	if need == nil then return false end
+	if need == nil then
+		return false
+	end
 	local cur = ROLE_TIER[AdminCommands.GetRoleForUserId(userId)] or 0
 	return cur >= need
 end
@@ -183,14 +201,18 @@ end
 -- Direct-path require (avoid GaxiaServer recursion). May be nil if Chat module
 -- isn't installed; bridge then becomes a no-op and AdminCommands is callable
 -- only via AdminCommands.Run() directly.
-local _chatRef : any = nil
+local _chatRef: any = nil
 local function getChatSystem(): any
-	if _chatRef ~= nil then return _chatRef end
-	local lib = (script.Parent :: any)
+	if _chatRef ~= nil then
+		return _chatRef
+	end
+	local lib = script.Parent :: any
 	local mod = lib:FindFirstChild("ChatCommandSystem")
 	if mod and mod:IsA("ModuleScript") then
 		local ok, m = pcall(require, mod)
-		if ok then _chatRef = m end
+		if ok then
+			_chatRef = m
+		end
 	end
 	return _chatRef
 end
@@ -202,15 +224,19 @@ end
 -- the admin just modified and the orchestrator may kick them. We resolve the
 -- AntiCheat orchestrator lazily because it sits in a sibling folder, not in
 -- Lib/ — and we cannot use GaxiaServer here without risking require recursion.
-local _antiCheatRef : any = nil
+local _antiCheatRef: any = nil
 local function getAntiCheat(): any
-	if _antiCheatRef ~= nil then return _antiCheatRef end
-	local pkgRoot = (script.Parent :: any).Parent     -- Gaxia_Packages_Server
+	if _antiCheatRef ~= nil then
+		return _antiCheatRef
+	end
+	local pkgRoot = (script.Parent :: any).Parent -- Gaxia_Packages_Server
 	local acFolder = pkgRoot and pkgRoot:FindFirstChild("AntiCheat")
-	local initMod  = acFolder and acFolder
+	local initMod = acFolder and acFolder
 	if initMod and initMod:IsA("ModuleScript") then
 		local ok, m = pcall(require, initMod)
-		if ok then _antiCheatRef = m end
+		if ok then
+			_antiCheatRef = m
+		end
 	end
 	return _antiCheatRef
 end
@@ -223,24 +249,40 @@ end
 -- DELIBERATELY EXCLUDED: "ClientReport" (ExploitSignatureScanner) — client
 -- executor reports must never be masked by an admin action, or /speed on a
 -- target would hide a live executor detection for the whitelist window.
-local ADMIN_WHITELIST_REASONS : { string } = {
-	"Speed", "Fly", "NoClip", "Teleport",
-	"StatTamper", "Heartbeat", "HumanoidState",
-	"Combat", "Backpack", "ToolDupe",
-	"Animation", "RemoteRate",
-	"Heuristic", "WorldBounds",
+local ADMIN_WHITELIST_REASONS: { string } = {
+	"Speed",
+	"Fly",
+	"NoClip",
+	"Teleport",
+	"StatTamper",
+	"Heartbeat",
+	"HumanoidState",
+	"Combat",
+	"Backpack",
+	"ToolDupe",
+	"Animation",
+	"Heuristic",
+	"WorldBounds",
 }
 
 -- Whitelist `player` from every AntiCheat reason for `duration` seconds, and
 -- wipe any pending flag counts so the orchestrator does not act on stale
 -- counts that crossed the threshold *before* the admin action.
 local function whitelistAdminAction(player: Player?, duration: number)
-	if player == nil then return end
+	if player == nil then
+		return
+	end
 	local ac = getAntiCheat()
-	if not ac then return end
+	if not ac then
+		return
+	end
 	for _, reason in ipairs(ADMIN_WHITELIST_REASONS) do
-		if ac.Whitelist then ac.Whitelist(player, reason, duration) end
-		if ac.ClearFlags then ac.ClearFlags(player, reason) end
+		if ac.Whitelist then
+			ac.Whitelist(player, reason, duration)
+		end
+		if ac.ClearFlags then
+			ac.ClearFlags(player, reason)
+		end
 	end
 end
 
@@ -248,13 +290,15 @@ end
 -- enough to actually test a /speed change end-to-end, short enough that a
 -- compromised admin account cannot stay invisible to detectors indefinitely.
 -- Read at call-time from central Config (default unchanged at 30s).
-local DEFAULT_ADMIN_ACTION_WHITELIST_SECONDS : number = 30
+local DEFAULT_ADMIN_ACTION_WHITELIST_SECONDS: number = 30
 local function adminActionWhitelistSeconds(): number
 	local s = server()
-	local v = tonumber(s.EConfig.Get(
-		"Admin.ActionWhitelistSeconds",
-		(s.Config.Admin or {}).ActionWhitelistSeconds or DEFAULT_ADMIN_ACTION_WHITELIST_SECONDS
-	))
+	local v = tonumber(
+		s.EConfig.Get(
+			"Admin.ActionWhitelistSeconds",
+			(s.Config.Admin or {}).ActionWhitelistSeconds or DEFAULT_ADMIN_ACTION_WHITELIST_SECONDS
+		)
+	)
 	-- Coerce: a runtime "/flag set" override is stored unvalidated, and an
 	-- omitted value parses to boolean true. Un-coerced, that value reached
 	-- AntiCheat.Whitelist's os.clock()+duration arithmetic and errored BEFORE
@@ -277,15 +321,21 @@ function AdminCommands.Register(
 	opts: CommandOpts,
 	handler: (caller: Player, args: { string }) -> (string?, boolean?)
 ): ()
-	if not ADMIN_ENABLED then return end
+	if not ADMIN_ENABLED then
+		return
+	end
 	local lname = name:lower()
-	commands[lname] = {
-		name    = lname,
-		role    = opts.role,
-		args    = opts.args or {},
-		help    = opts.help or "",
+	local entry: CommandEntry = {
+		name = lname,
+		role = opts.role,
+		args = opts.args or {},
+		help = opts.help or "",
 		handler = handler,
 	}
+	commands[lname] = entry
+	if registerCommandGateway then
+		registerCommandGateway(entry)
+	end
 
 	-- Forward into chat. The bridge handler returns Run's descriptive message so
 	-- ChatCommandSystem.reply delivers the real outcome — success line, guard
@@ -297,8 +347,8 @@ function AdminCommands.Register(
 		local function bridge(chatName: string)
 			chat.Register(chatName, {
 				roles = { opts.role },
-				args  = {},                 -- pass through raw strings; AdminCommands parses itself
-				help  = opts.help or "",
+				args = {}, -- pass through raw strings; AdminCommands parses itself
+				help = opts.help or "",
 			}, function(caller, argList)
 				local ok, message = AdminCommands.Run(caller, lname, argList)
 				return message or (if ok then nil else `/{lname} failed.`)
@@ -321,10 +371,10 @@ end
 -- the command and want "me" / "self" / "." to resolve to themselves. When
 -- caller is nil (e.g. console-style invocations with no actor), the aliases
 -- silently fall through to normal name matching.
-local SELF_ALIASES : { [string]: boolean } = {
-	["me"]   = true,
+local SELF_ALIASES: { [string]: boolean } = {
+	["me"] = true,
 	["self"] = true,
-	["."]    = true,
+	["."] = true,
 }
 
 -- Marks a handler return as a rejection (see CommandEntry.handler). Use for
@@ -344,26 +394,39 @@ local function findPlayerByPartialName(query: string, caller: Player?): (Player?
 	if q == "" then
 		return nil, "No target player specified."
 	end
-	if caller and SELF_ALIASES[q] then return caller, nil end
+	if caller and SELF_ALIASES[q] then
+		return caller, nil
+	end
 	-- Exact match wins
 	for _, p in Players:GetPlayers() do
-		if p.Name:lower() == q then return p, nil end
+		if p.Name:lower() == q then
+			return p, nil
+		end
 	end
 	-- Unique username prefix; only when none, unique DisplayName prefix.
 	local matches: { Player } = {}
 	for _, p in Players:GetPlayers() do
-		if p.Name:lower():sub(1, #q) == q then table.insert(matches, p) end
+		if p.Name:lower():sub(1, #q) == q then
+			table.insert(matches, p)
+		end
 	end
 	if #matches == 0 then
 		for _, p in Players:GetPlayers() do
-			if p.DisplayName:lower():sub(1, #q) == q then table.insert(matches, p) end
+			if p.DisplayName:lower():sub(1, #q) == q then
+				table.insert(matches, p)
+			end
 		end
 	end
-	if #matches == 1 then return matches[1], nil end
+	if #matches == 1 then
+		return matches[1], nil
+	end
 	if #matches > 1 then
 		local names: { string } = {}
-		for i = 1, math.min(#matches, 5) do names[i] = matches[i].Name end
-		return nil, `Ambiguous target "{query}" matches {#matches} players: {table.concat(names, ", ")}`
+		for i = 1, math.min(#matches, 5) do
+			names[i] = matches[i].Name
+		end
+		return nil,
+			`Ambiguous target "{query}" matches {#matches} players: {table.concat(names, ", ")}`
 	end
 	return nil, `Player not found: {query}`
 end
@@ -392,7 +455,13 @@ function AdminCommands.Run(caller: Player, name: string, argList: { string }): (
 		return false, `Unknown command: /{lname}`
 	end
 	if not AdminCommands.IsAtLeast(caller, cmd.role) then
-		AdminCommands.OnCommand:Fire(caller, name, argList, false, `You don't have permission to run /{lname}.`)
+		AdminCommands.OnCommand:Fire(
+			caller,
+			name,
+			argList,
+			false,
+			`You don't have permission to run /{lname}.`
+		)
 		return false, `You don't have permission to run /{lname}.`
 	end
 
@@ -419,7 +488,9 @@ function AdminCommands.Run(caller: Player, name: string, argList: { string }): (
 	local wlOk, wlErr = pcall(function()
 		local whitelistSeconds = adminActionWhitelistSeconds()
 		whitelistAdminAction(caller, whitelistSeconds)
-		local target = if argList[1] ~= nil then findPlayerByPartialName(argList[1], caller) else nil
+		local target = if argList[1] ~= nil
+			then findPlayerByPartialName(argList[1], caller)
+			else nil
 		if target and target ~= caller then
 			whitelistAdminAction(target, whitelistSeconds)
 		end
@@ -483,30 +554,43 @@ end
 -- ── Built-in commands ──
 
 -- /kick <player> [reason]
-AdminCommands.Register("kick", { role = "moderator", args = { "player", "string" }, help = "Kick a player" },
+AdminCommands.Register(
+	"kick",
+	{ role = "moderator", args = { "player", "string" }, help = "Kick a player" },
 	function(caller: Player, args: { string }): string?
 		local target, why = findPlayerByPartialName(args[1] or "")
-		if not target then return fail(why) end
+		if not target then
+			return fail(why)
+		end
 		local blocked = protectTarget(caller, target)
-		if blocked then return fail(blocked) end
+		if blocked then
+			return fail(blocked)
+		end
 		-- Greedy tail-join: chat splits unquoted words into separate args, so
 		-- "/kick Bob being toxic" used to kick with reason "being". Reason is
 		-- the last declared parameter, so joining the remainder is safe.
 		local reason = if #args >= 2 then table.concat(args, " ", 2) else "Kicked by moderator"
 		target:Kick(reason)
 		return `Kicked {target.Name}`
-	end)
+	end
+)
 
 -- /ban <player> [reason]
 -- Delegates to BanService.Ban — one ban code path for the whole framework.
 -- BanService.Ban persists the table-shape record, fires OnBan (Webhook auto-
 -- report), updates BanService's session cache, and kicks the player itself.
-AdminCommands.Register("ban", { role = "admin", args = { "player", "string" }, help = "Ban a player (persistent)" },
+AdminCommands.Register(
+	"ban",
+	{ role = "admin", args = { "player", "string" }, help = "Ban a player (persistent)" },
 	function(caller: Player, args: { string }): string?
 		local target, why = findPlayerByPartialName(args[1] or "")
-		if not target then return fail(why) end
+		if not target then
+			return fail(why)
+		end
 		local blocked = protectTarget(caller, target)
-		if blocked then return fail(blocked) end
+		if blocked then
+			return fail(blocked)
+		end
 		-- Greedy tail-join (see /kick): the ban record + webhook report used to
 		-- persist only the first word of an unquoted multi-word reason.
 		local reason = if #args >= 2 then table.concat(args, " ", 2) else "Banned"
@@ -517,28 +601,38 @@ AdminCommands.Register("ban", { role = "admin", args = { "player", "string" }, h
 			return `Banned {target.Name} — WARNING: not persisted (session-only)`
 		end
 		return `Banned {target.Name}`
-	end)
+	end
+)
 
 -- /unban <userId>
 -- Delegates to BanService.Unban — clears BanService's cache + DataStore +
 -- fires OnUnban for Webhook auto-report. There is no AdminCommands-owned
 -- ban state left to clear.
-AdminCommands.Register("unban", { role = "admin", args = { "number" }, help = "Unban a userId" },
+AdminCommands.Register(
+	"unban",
+	{ role = "admin", args = { "number" }, help = "Unban a userId" },
 	function(_caller: Player, args: { string }): string?
 		local uid = tonumber(args[1])
-		if not uid then return fail("Invalid userId") end
+		if not uid then
+			return fail("Invalid userId")
+		end
 		local persisted = server().Ban.Unban(uid)
 		if persisted == false then
 			return `Unbanned {uid} — WARNING: persisted record removal failed; the ban may re-apply elsewhere`
 		end
 		return `Unbanned {uid}`
-	end)
+	end
+)
 
 -- /give <player> <itemId> [count]
-AdminCommands.Register("give", { role = "admin", args = { "player", "string", "number" }, help = "Give items" },
+AdminCommands.Register(
+	"give",
+	{ role = "admin", args = { "player", "string", "number" }, help = "Give items" },
 	function(_caller: Player, args: { string }): string?
 		local target, why = findPlayerByPartialName(args[1] or "")
-		if not target then return fail(why) end
+		if not target then
+			return fail(why)
+		end
 		local itemId = args[2]
 		if itemId == nil or itemId:match("^%s*$") then
 			return fail("No itemId specified.")
@@ -574,15 +668,22 @@ AdminCommands.Register("give", { role = "admin", args = { "player", "string", "n
 			return `Gave {delivered}x {itemId} to {target.Name}`
 		end
 		return fail("ItemService not available")
-	end)
+	end
+)
 
 -- /teleport <player> <targetPlayer>
-AdminCommands.Register("teleport", { role = "moderator", args = { "player", "player" }, help = "Teleport A to B" },
+AdminCommands.Register(
+	"teleport",
+	{ role = "moderator", args = { "player", "player" }, help = "Teleport A to B" },
 	function(_caller: Player, args: { string }): string?
 		local who, whyWho = findPlayerByPartialName(args[1] or "")
-		if not who then return fail(whyWho) end
+		if not who then
+			return fail(whyWho)
+		end
 		local to, whyTo = findPlayerByPartialName(args[2] or "")
-		if not to then return fail(whyTo) end
+		if not to then
+			return fail(whyTo)
+		end
 		-- Destination is the TARGET's CFrame, offset back 3 studs so the two
 		-- characters don't spawn inside each other. PlayerService.Teleport takes
 		-- (player, CFrame) — passing the `to` Player directly is the bug that
@@ -611,13 +712,18 @@ AdminCommands.Register("teleport", { role = "moderator", args = { "player", "pla
 			(hrp1 :: BasePart).CFrame = dest
 		end
 		return `Teleported {who.Name} to {to.Name}`
-	end)
+	end
+)
 
 -- /speed <player> <number>
-AdminCommands.Register("speed", { role = "admin", args = { "player", "number" }, help = "Set WalkSpeed" },
+AdminCommands.Register(
+	"speed",
+	{ role = "admin", args = { "player", "number" }, help = "Set WalkSpeed" },
 	function(_caller: Player, args: { string }): string?
 		local target, why = findPlayerByPartialName(args[1] or "")
-		if not target then return fail(why) end
+		if not target then
+			return fail(why)
+		end
 		-- Validate instead of silently defaulting to 16: negative WalkSpeed gets
 		-- the target anti-cheat flagged and kicked once the admin whitelist
 		-- window expires (detector baseline floors at 8 while |speed| is real).
@@ -641,20 +747,27 @@ AdminCommands.Register("speed", { role = "admin", args = { "player", "number" },
 			end
 		else
 			local char = target.Character
-			local hum  = char and char:FindFirstChildOfClass("Humanoid") :: Humanoid?
-			if not hum then return fail(`{target.Name} has no humanoid`) end
+			local hum = char and char:FindFirstChildOfClass("Humanoid") :: Humanoid?
+			if not hum then
+				return fail(`{target.Name} has no humanoid`)
+			end
 			hum.WalkSpeed = n
 		end
 		return `Set {target.Name}.WalkSpeed = {n}`
-	end)
+	end
+)
 
 -- /heal <player>
-AdminCommands.Register("heal", { role = "moderator", args = { "player" }, help = "Heal to full" },
+AdminCommands.Register(
+	"heal",
+	{ role = "moderator", args = { "player" }, help = "Heal to full" },
 	function(_caller: Player, args: { string }): string?
 		local target, why = findPlayerByPartialName(args[1] or "")
-		if not target then return fail(why) end
+		if not target then
+			return fail(why)
+		end
 		local char = target.Character
-		local hum  = char and char:FindFirstChildOfClass("Humanoid") :: Humanoid?
+		local hum = char and char:FindFirstChildOfClass("Humanoid") :: Humanoid?
 		if not hum then
 			return fail(`{target.Name} has no character to heal`)
 		end
@@ -666,38 +779,54 @@ AdminCommands.Register("heal", { role = "moderator", args = { "player" }, help =
 		end
 		hum.Health = hum.MaxHealth
 		return `Healed {target.Name}`
-	end)
+	end
+)
 
 -- /respawn <player>
-AdminCommands.Register("respawn", { role = "moderator", args = { "player" }, help = "Force respawn" },
+AdminCommands.Register(
+	"respawn",
+	{ role = "moderator", args = { "player" }, help = "Force respawn" },
 	function(_caller: Player, args: { string }): string?
 		local target, why = findPlayerByPartialName(args[1] or "")
-		if not target then return fail(why) end
+		if not target then
+			return fail(why)
+		end
 		target:LoadCharacter()
 		return `Respawned {target.Name}`
-	end)
+	end
+)
 
 -- /role <player> <roleName>
-AdminCommands.Register("role", { role = "owner", args = { "player", "string" }, help = "Set player role" },
+AdminCommands.Register(
+	"role",
+	{ role = "owner", args = { "player", "string" }, help = "Set player role" },
 	function(caller: Player, args: { string }): string?
 		local target, why = findPlayerByPartialName(args[1] or "")
-		if not target then return fail(why) end
+		if not target then
+			return fail(why)
+		end
 		-- Same guard as /ban /kick: no self (a bare "/role me" used to silently
 		-- self-demote because args[2] defaulted to "default"), no creator, no
 		-- equal-or-higher rank — an owner cannot demote a peer owner.
 		local blocked = protectTarget(caller, target)
-		if blocked then return fail(blocked) end
+		if blocked then
+			return fail(blocked)
+		end
 		local role = args[2]
 		if role == nil or role:match("^%s*$") then
 			return fail("Usage: /role <player> <roleName>")
 		end
-		if ROLE_TIER[role] == nil then return fail(`Unknown role: {role}`) end
+		if ROLE_TIER[role] == nil then
+			return fail(`Unknown role: {role}`)
+		end
 		-- No minting peers: a freshly granted equal rank could immediately
 		-- demote the grantor (irreversible escalation while no other owner is
 		-- around). Additional owners are seeded via Config.Admin.Bootstrap.
 		local callerTier = ROLE_TIER[AdminCommands.GetRole(caller)] or 0
 		if (ROLE_TIER[role] or 0) >= callerTier then
-			return fail("You can't grant a role at or above your own. Seed peers via Config.Admin.Bootstrap.")
+			return fail(
+				"You can't grant a role at or above your own. Seed peers via Config.Admin.Bootstrap."
+			)
 		end
 		-- A demotion below a Bootstrap floor doesn't stick — the floor re-applies
 		-- in memory on every join and the persisted row is upgrade-only on load.
@@ -705,12 +834,15 @@ AdminCommands.Register("role", { role = "owner", args = { "player", "string" }, 
 		if typeof(AdminConfig.Bootstrap) == "table" then
 			local seeded = (AdminConfig.Bootstrap :: any)[target.UserId]
 			if typeof(seeded) == "string" and (ROLE_TIER[role] or 0) < (ROLE_TIER[seeded] or 0) then
-				return fail(`{target.Name} is Bootstrap-floored to {seeded} — the change would revert on next join. Edit Config.Admin.Bootstrap to demote.`)
+				return fail(
+					`{target.Name} is Bootstrap-floored to {seeded} — the change would revert on next join. Edit Config.Admin.Bootstrap to demote.`
+				)
 			end
 		end
 		AdminCommands.SetRole(target.UserId, role)
 		return `Set {target.Name} role = {role}`
-	end)
+	end
+)
 
 -- ── Persistence: load roles, enforce on join ──
 -- WHY load lazily per-player on PlayerAdded instead of bulk-listing: DataStore
@@ -760,9 +892,11 @@ end
 -- this (game owner there is the group, not a single player).
 local function autoGrantOwner(p: Player)
 	-- Creator auto-grant (User-owned places), gated by Config.Admin.AutoGrantCreator.
-	if AdminConfig.AutoGrantCreator ~= false
+	if
+		AdminConfig.AutoGrantCreator ~= false
 		and game.CreatorType == Enum.CreatorType.User
-		and p.UserId == game.CreatorId then
+		and p.UserId == game.CreatorId
+	then
 		AdminCommands.SetRole(p.UserId, "owner")
 	end
 	-- Config.Admin.Bootstrap floor: in-memory only (re-applied each boot, NOT
@@ -778,7 +912,9 @@ local function autoGrantOwner(p: Player)
 	end
 end
 if ADMIN_ENABLED then
-	for _, p in ipairs(Players:GetPlayers()) do autoGrantOwner(p) end
+	for _, p in ipairs(Players:GetPlayers()) do
+		autoGrantOwner(p)
+	end
 	Players.PlayerAdded:Connect(autoGrantOwner)
 end
 
@@ -824,7 +960,9 @@ end
 local nameByUserId: { [number]: string } = {}
 local function nameForUserId(userId: number): string?
 	local cached = nameByUserId[userId]
-	if cached then return cached end
+	if cached then
+		return cached
+	end
 	local ok, name = pcall(function()
 		return Players:GetNameFromUserIdAsync(userId)
 	end)
@@ -835,12 +973,133 @@ local function nameForUserId(userId: number): string?
 	return nil
 end
 
--- ── Admin Panel RemoteFunction/RemoteEvent surface ──
--- Mirrors the Friend/Guild/Party Remote blocks (Phase 26). The GUI is pure
--- convenience: every `run` goes through AdminCommands.Run, which performs the
--- authoritative role check. A spoofed client cannot escalate.
--- Skipped entirely when the Admin kill switch is off: no Events/Admin remotes
--- are created, so a disabled build exposes no admin surface to clients at all.
+-- ── Admin Panel Net gateway + outbound notification surface ──
+-- The GUI remains a convenience layer. Each operation has a separate gateway
+-- RPC, with its own schema and access check before it reaches potentially
+-- expensive work. AdminCommands.Run still repeats its authoritative role check
+-- as the domain defence-in-depth layer.
+type RpcReply = { ok: boolean, data: any }
+
+local MAX_COMMAND_ARGS = 16
+local MAX_COMMAND_ARG_LENGTH = 256
+local MAX_COMMAND_ARGUMENT_BYTES = 1_024
+
+local function reply(ok: boolean, data: any): RpcReply
+	return { ok = ok, data = data }
+end
+
+local function hasOnlyKeys(payload: any, allowed: { [string]: boolean }): boolean
+	if typeof(payload) ~= "table" then
+		return false
+	end
+	for key in pairs(payload) do
+		if typeof(key) ~= "string" or allowed[key] ~= true then
+			return false
+		end
+	end
+	return true
+end
+
+local function isEmptyPayload(payload: any): boolean
+	return hasOnlyKeys(payload, {})
+end
+
+-- Every command endpoint accepts only a contiguous `args` array. The declared
+-- command signature supplies the per-endpoint ceiling; required/optional
+-- semantics remain in AdminCommands.Run so chat and panel calls share exactly
+-- the same domain behavior.
+local function isCommandArguments(value: any, maxArgs: number): boolean
+	if typeof(value) ~= "table" then
+		return false
+	end
+	local count = 0
+	local totalBytes = 0
+	for index, argument in pairs(value) do
+		if typeof(index) ~= "number" or index % 1 ~= 0 or index < 1 or index > maxArgs then
+			return false
+		end
+		if typeof(argument) ~= "string" or #argument > MAX_COMMAND_ARG_LENGTH then
+			return false
+		end
+		if string.find(argument, "[\r\n%z]") ~= nil then
+			return false
+		end
+		count += 1
+		totalBytes += #argument
+		if totalBytes > MAX_COMMAND_ARGUMENT_BYTES then
+			return false
+		end
+	end
+	for index = 1, count do
+		if value[index] == nil then
+			return false
+		end
+	end
+	return true
+end
+
+local function isLivePlayer(player: Player): boolean
+	return player.Parent == Players
+end
+
+local function validateModerator(context: any, _payload: any): boolean
+	return isLivePlayer(context.player) and AdminCommands.IsAtLeast(context.player, "moderator")
+end
+
+local function validateAdmin(context: any, _payload: any): boolean
+	return isLivePlayer(context.player) and AdminCommands.IsAtLeast(context.player, "admin")
+end
+
+local function registerRead(
+	name: string,
+	validate: (context: any, payload: any) -> boolean,
+	handler: (player: Player, payload: any) -> (boolean, any)
+): ()
+	Net.Server.RegisterFunction(name, {
+		schema = isEmptyPayload,
+		validate = validate,
+		handler = function(context: any, payload: any): RpcReply
+			local ok, data = handler(context.player, payload)
+			return reply(ok, data)
+		end,
+		rate = 3,
+		burst = 6,
+		budget = "tiny",
+		concurrency = 1,
+	})
+end
+
+local registeredCommandEndpoints: { [string]: boolean } = {}
+
+local function commandPayloadIsValid(canonicalName: string, payload: any): boolean
+	local command = commands[canonicalName]
+	if command == nil or not hasOnlyKeys(payload, { args = true }) then
+		return false
+	end
+	return isCommandArguments(payload.args, math.min(#command.args, MAX_COMMAND_ARGS))
+end
+
+local function validateCommand(context: any, canonicalName: string): boolean
+	local command = commands[canonicalName]
+	return isLivePlayer(context.player)
+		and command ~= nil
+		and DISABLED[canonicalName] ~= true
+		and AdminCommands.IsAtLeast(context.player, command.role)
+end
+
+local function runCommand(player: Player, canonicalName: string, payload: any): RpcReply
+	local argList: { string } = table.clone(payload.args)
+	-- Untouched panel TextBoxes submit "". Keep positional blanks intact, but
+	-- omit trailing blanks so existing command defaults continue to work.
+	while #argList > 0 and argList[#argList]:match("^%s*$") do
+		table.remove(argList)
+	end
+	local ok, message = AdminCommands.Run(player, canonicalName, argList)
+	return reply(ok, message or (if ok then nil else "Command failed or role insufficient."))
+end
+
+-- Skipped entirely when the Admin kill switch is off: no admin gateway RPCs or
+-- legacy Events/Admin notification folder are created.
 if ADMIN_ENABLED then
 	local Events = ReplicatedStorage:FindFirstChild("Events") or Instance.new("Folder")
 	Events.Name = "Events"
@@ -848,103 +1107,103 @@ if ADMIN_ENABLED then
 	local AdminFolder = Events:FindFirstChild("Admin") or Instance.new("Folder")
 	AdminFolder.Name = "Admin"
 	AdminFolder.Parent = Events
-	local Action = AdminFolder:FindFirstChild("Action") or Instance.new("RemoteFunction")
-	Action.Name = "Action"
-	Action.Parent = AdminFolder
 	local Inbound = AdminFolder:FindFirstChild("Inbound") or Instance.new("RemoteEvent")
 	Inbound.Name = "Inbound"
 	Inbound.Parent = AdminFolder
 
-	Action.OnServerInvoke = function(player: Player, envelope: any): (boolean, any)
-		if typeof(envelope) ~= "table" or typeof(envelope.type) ~= "string" then
-			return false, "bad envelope"
-		end
-		local t = envelope.type
-		-- Gate the read endpoints: listPlayers includes each player's admin role,
-		-- which is NOT otherwise visible in-game — ungated, any client could
-		-- enumerate the live staff roster to evade or target moderators. "role"
-		-- stays open (it only returns the invoker's own role, which the client
-		-- needs pre-gate to decide whether to show the toolbar button); "run"
-		-- gates itself inside AdminCommands.Run.
-		if t == "schema" then
-			if not AdminCommands.IsAtLeast(player, "moderator") then
-				return false, "forbidden"
-			end
+	registerRead("Admin.Role", function(context: any, _payload: any): boolean
+		return isLivePlayer(context.player)
+	end, function(player: Player, _payload: any): (boolean, any)
+		return true,
+			{
+				role = AdminCommands.GetRole(player),
+				isModerator = AdminCommands.IsAtLeast(player, "moderator"),
+			}
+	end)
+
+	registerRead(
+		"Admin.Schema",
+		validateModerator,
+		function(player: Player, _payload: any): (boolean, any)
 			return true, describeFor(player)
 		end
-		if t == "players" then
-			if not AdminCommands.IsAtLeast(player, "moderator") then
-				return false, "forbidden"
-			end
+	)
+
+	registerRead(
+		"Admin.Players",
+		validateModerator,
+		function(_player: Player, _payload: any): (boolean, any)
 			return true, listPlayers()
 		end
-		if t == "bans" then
-			-- Same tier as /unban, the command this list feeds. Returns active
-			-- ban records with resolved usernames so the panel renders a
-			-- click-to-unban list instead of a raw userId box.
-			if not AdminCommands.IsAtLeast(player, "admin") then
-				return false, "forbidden"
-			end
-			local limit = tonumber(server().EConfig.Get(
-				"Admin.BanListLimit",
-				AdminConfig.BanListLimit or 50
-			)) or 50
+	)
+
+	registerRead(
+		"Admin.Bans",
+		validateAdmin,
+		function(_player: Player, _payload: any): (boolean, any)
+			-- Same tier as /unban, the command this list feeds. Resolve names only
+			-- after the gateway's admin role check, because every lookup may yield.
+			local limit = tonumber(
+				server().EConfig.Get("Admin.BanListLimit", AdminConfig.BanListLimit or 50)
+			) or 50
 			local bans = server().Ban.ListBans(limit)
-			for _, b in ipairs(bans) do
-				b.name = nameForUserId(b.userId)
+			for _, ban in ipairs(bans) do
+				ban.name = nameForUserId(ban.userId)
 			end
 			return true, bans
 		end
-		if t == "role" then
-			return true,
-				{
-					role = AdminCommands.GetRole(player),
-					isModerator = AdminCommands.IsAtLeast(player, "moderator"),
-				}
+	)
+
+	-- There is deliberately no Admin.Run envelope. Each canonical command owns
+	-- one logical RPC, so clients cannot select an arbitrary operation inside a
+	-- shared executable payload. Aliases remain a chat/direct-Run convenience
+	-- and never receive their own gateway endpoint.
+	registerCommandGateway = function(entry: CommandEntry): ()
+		local canonicalName = entry.name
+		if registeredCommandEndpoints[canonicalName] then
+			return
 		end
-		if t == "run" then
-			if typeof(envelope.name) ~= "string" then
-				return false, "bad command name"
-			end
-			local argList: { string } = {}
-			if typeof(envelope.args) == "table" then
-				for _, v in ipairs(envelope.args) do
-					table.insert(argList, tostring(v))
-				end
-			end
-			-- Strip trailing blanks: untouched panel TextBoxes submit "" which is
-			-- truthy in Luau, so every `args[i] or <default>` fallback was dead
-			-- from the panel (bans persisted with reason ""). Trailing only — a
-			-- blank slot between filled slots must keep positions stable.
-			while #argList > 0 and argList[#argList]:match("^%s*$") do
-				table.remove(argList)
-			end
-			-- Surface the handler's descriptive message so the panel toast shows
-			-- the real outcome ("Banned X" / "You can't target yourself" / …)
-			-- rather than a generic line. Falls back to a generic reason when a
-			-- handler returned nothing.
-			local ok, message = AdminCommands.Run(player, envelope.name, argList)
-			return ok, message or (if ok then nil else "Command failed or role insufficient.")
-		end
-		return false, "unknown action"
+		Net.Server.RegisterFunction(`Admin.Command.{canonicalName}`, {
+			schema = function(payload: any): boolean
+				return commandPayloadIsValid(canonicalName, payload)
+			end,
+			validate = function(context: any, _payload: any): boolean
+				return validateCommand(context, canonicalName)
+			end,
+			mutation = true,
+			handler = function(context: any, payload: any): RpcReply
+				return runCommand(context.player, canonicalName, payload)
+			end,
+			rate = 2,
+			burst = 4,
+			budget = "small",
+			concurrency = 1,
+		})
+		registeredCommandEndpoints[canonicalName] = true
+	end
+	local register = assert(registerCommandGateway, "Admin command gateway failed to initialize")
+	for _, command in pairs(commands) do
+		register(command)
 	end
 
 	-- Audit: broadcast every command result to moderator+ clients only.
-	AdminCommands.OnCommand:Connect(function(caller: Player, name: string, args: { string }, success: boolean, message: string?)
-		for _, p in ipairs(Players:GetPlayers()) do
-			if AdminCommands.IsAtLeast(p, "moderator") then
-				Inbound:FireClient(p, {
-					type = "cmd",
-					at = os.time(),
-					caller = caller.Name,
-					name = name,
-					args = args,
-					success = success,
-					message = message,
-				})
+	AdminCommands.OnCommand:Connect(
+		function(caller: Player, name: string, args: { string }, success: boolean, message: string?)
+			for _, p in ipairs(Players:GetPlayers()) do
+				if AdminCommands.IsAtLeast(p, "moderator") then
+					Inbound:FireClient(p, {
+						type = "cmd",
+						at = os.time(),
+						caller = caller.Name,
+						name = name,
+						args = args,
+						success = success,
+						message = message,
+					})
+				end
 			end
 		end
-	end)
+	)
 
 	-- Role hint at join so the client can show/hide the toolbar button.
 	local function pushRoleHint(p: Player)
