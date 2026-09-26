@@ -10,19 +10,31 @@
 	          NOT register.
 ]]
 
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Constants = SharedPkg.Constants or {}
+-- ── Dependencies ──
+local Types  = require(script.Parent.Parent.Types)
+local Config = require(script.Parent.Parent.Config)
 
--- Server Config lives at the package root (sibling of the AntiCheat folder).
--- FindFirstChild (never WaitForChild): detectors are required through the
--- server loader's no-yield __index metamethod; yielding there throws
--- "attempt to yield across metamethod/C-call boundary". Config is a pure
--- table, so require(FindFirstChild(...)) cannot yield.
-local Config = require(script.Parent.Parent:FindFirstChild("Config") :: ModuleScript) :: any
+-- ── Types ──
+-- Keep identical to AntiCheat/init.lua's exported Snapshot and Flag (a
+-- detector cannot require the orchestrator: it requires the detectors).
+type Snapshot = {
+	clock: number,
+	character: Model?,
+	hrp: BasePart?,
+	humanoid: Humanoid?,
+	position: Vector3?,
+	velocity: Vector3?,
+	state: Enum.HumanoidStateType?,
+	walkSpeed: number?,
+}
+type Flag = {
+	reason: string,
+	severity: Types.Severity | string,
+}
+
 local NoClipCfg = Config.AntiCheat.NoClip
 
-local NOCLIP_SEVERITY : string = (NoClipCfg.Severity :: any) or "soft"
+local NOCLIP_SEVERITY : string = NoClipCfg.Severity or "soft"
 
 -- WHY a tight HRP-core probe at offset zero:
 -- Previous versions used a chest probe (offset +2, size 1x2x1) which falsely
@@ -54,7 +66,7 @@ local overlapParams = OverlapParams.new()
 overlapParams.FilterType = Enum.RaycastFilterType.Exclude
 overlapParams.MaxParts = 4
 
-function NoClipDetector.Sample(player: Player, snapshot: any): any?
+function NoClipDetector.Sample(player: Player, snapshot: Snapshot): Flag?
 	local hrp = snapshot.hrp
 	if not hrp or not snapshot.character then
 		streaks[player.UserId] = 0
@@ -68,7 +80,7 @@ function NoClipDetector.Sample(player: Player, snapshot: any): any?
 	-- Movement gate: a player who isn't actually moving horizontally can't be
 	-- noclipping THROUGH something — at worst they're touching geometry. Only
 	-- consider overlaps while actively moving, so leaning doesn't trip the flag.
-	local velocity = snapshot.velocity :: Vector3?
+	local velocity = snapshot.velocity
 	local horizontalSpeed = 0
 	if velocity then
 		horizontalSpeed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude

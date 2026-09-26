@@ -11,21 +11,29 @@
 	whose new value does not match the expected attribute is a violation.
 ]]
 
-
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Trove     = SharedPkg.Trove
+-- ── Dependencies ──
+local Shared    = ReplicatedStorage.Gaxia_Packages.Shared
+local Trove     = require(Shared.Trove)
+local Constants = require(Shared.Constants)
+local Types     = require(script.Parent.Parent.Types)
+local Config    = require(script.Parent.Parent.Config)
 
--- ── Config (server-side, see ServerStorage/Gaxia_Packages_Server/Config) ──
--- FindFirstChild (not WaitForChild): detectors are required THROUGH the server
--- loader's no-yield __index metamethod; WaitForChild would yield across that
--- boundary. Config's body is a pure table (no yields), so require is safe.
-local Config = require(script.Parent.Parent:FindFirstChild("Config") :: ModuleScript) :: any
+-- ── Types ──
+-- The orchestrator API Init receives. Keep identical to AntiCheat/init.lua's
+-- exported DetectorHost (a detector cannot require the orchestrator: it
+-- requires the detectors).
+type DetectorHost = {
+	Flag: (player: Player, reason: string, severity: (Types.Severity | string)?) -> (),
+	IsEnforcing: () -> boolean,
+	IsDetectorEnabled: (name: string) -> boolean,
+}
 
-local EXPECTED_ATTR : string = SharedPkg.Constants.STAT_EXPECTED_ATTRIBUTE
+-- Set by the legitimate leaderstat writer (PlayerService) just before it changes
+-- a value; shared through Shared/Constants.
+local EXPECTED_ATTR : string = Constants.STAT_EXPECTED_ATTRIBUTE
 local LEADERSTATS_NAME : string = "leaderstats"
 local NUMERIC_TYPES: { [string]: boolean } = {
 	IntValue    = true,
@@ -35,8 +43,8 @@ local NUMERIC_TYPES: { [string]: boolean } = {
 local StatGuard = {}
 StatGuard.Name = "Stat"
 
-local orchestratorRef: any = nil
-local playerTroves: { [Player]: any } = {}
+local orchestratorRef: DetectorHost? = nil
+local playerTroves: { [Player]: typeof(Trove.new()) } = {}
 
 -- Hook one ValueObject: any change away from the EXPECTED_ATTR cached value
 -- is a violation, except increases of <= 0 (set/spend lowers balance freely).
@@ -111,7 +119,7 @@ function StatGuard.Expect(player: Player, statName: string, newValue: number)
 	end
 end
 
-function StatGuard.Init(orchestrator: any): ()
+function StatGuard.Init(orchestrator: DetectorHost): ()
 	orchestratorRef = orchestrator
 	for _, p in ipairs(Players:GetPlayers()) do
 		attachPlayer(p)

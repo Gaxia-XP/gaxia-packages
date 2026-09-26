@@ -9,27 +9,32 @@
 	          AnimationId). Add more via AnimationGuard.Allow(id).
 ]]
 
-
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage     = game:GetService("ServerStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Trove     = SharedPkg.Trove
+-- ── Dependencies ──
+local Trove  = require(ReplicatedStorage.Gaxia_Packages.Shared.Trove)
+local Types  = require(script.Parent.Parent.Types)
+local Config = require(script.Parent.Parent.Config)
 
--- ── Config (server-side, see ServerStorage/Gaxia_Packages_Server/Config) ──
--- FindFirstChild (not WaitForChild): detectors are required THROUGH the server
--- loader's no-yield __index metamethod; WaitForChild would yield across that
--- boundary. Config's body is a pure table (no yields), so require is safe.
-local Config = require(script.Parent.Parent:FindFirstChild("Config") :: ModuleScript) :: any
+-- ── Types ──
+-- The orchestrator API Init receives. Keep identical to AntiCheat/init.lua's
+-- exported DetectorHost (a detector cannot require the orchestrator: it
+-- requires the detectors).
+type DetectorHost = {
+	Flag: (player: Player, reason: string, severity: (Types.Severity | string)?) -> (),
+	IsEnforcing: () -> boolean,
+	IsDetectorEnabled: (name: string) -> boolean,
+}
 
 local AnimationGuard = {}
 AnimationGuard.Name = "Animation"
 
 -- AnimationId (rbxassetid://N) → true. Anything outside this set fires a flag.
 local whitelistedIds: { [string]: boolean } = {}
-local orchestratorRef: any = nil
-local playerTroves: { [Player]: any } = {}
+local orchestratorRef: DetectorHost? = nil
+local playerTroves: { [Player]: typeof(Trove.new()) } = {}
 
 -- Roblox sometimes returns Animation ids in different formats; normalise to
 -- the rbxassetid://N canonical form (numeric tail with full scheme).
@@ -117,7 +122,7 @@ local function detachPlayer(player: Player)
 	end
 end
 
-function AnimationGuard.Init(orchestrator: any): ()
+function AnimationGuard.Init(orchestrator: DetectorHost): ()
 	orchestratorRef = orchestrator
 	seedFromAssets()
 	-- Re-seed when new animations are added at runtime (dev workflows).

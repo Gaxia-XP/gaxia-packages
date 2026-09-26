@@ -8,20 +8,29 @@
 	          to catch tools that pre-date the listener.
 ]]
 
+local Players = game:GetService("Players")
 
-local Players           = game:GetService("Players")
-local ServerStorage     = game:GetService("ServerStorage")
+-- ── Dependencies ──
+-- ToolService is required directly (NOT via GaxiaServer): it never requires
+-- AntiCheat, so there is no cycle, and it is a pure API with nothing to start.
+local Types       = require(script.Parent.Parent.Types)
+local Config      = require(script.Parent.Parent.Config)
+local ToolService = require(script.Parent.Parent.Lib.ToolService)
 
--- ── Config (server-side, see ServerStorage/Gaxia_Packages_Server/Config) ──
--- FindFirstChild (not WaitForChild): detectors are required THROUGH the server
--- loader's no-yield __index metamethod; WaitForChild would yield across that
--- boundary. Config's body is a pure table (no yields), so require is safe.
-local Config = require(script.Parent.Parent:FindFirstChild("Config") :: ModuleScript) :: any
+-- ── Types ──
+-- The orchestrator API Init receives. Keep identical to AntiCheat/init.lua's
+-- exported DetectorHost (a detector cannot require the orchestrator: it
+-- requires the detectors).
+type DetectorHost = {
+	Flag: (player: Player, reason: string, severity: (Types.Severity | string)?) -> (),
+	IsEnforcing: () -> boolean,
+	IsDetectorEnabled: (name: string) -> boolean,
+}
 
 local ToolDuplicationGuard = {}
 ToolDuplicationGuard.Name = "ToolDupe"
 
-local orchestratorRef: any = nil
+local orchestratorRef: DetectorHost? = nil
 
 -- Resolve the Player who currently owns the given Tool instance (parented to
 -- their Backpack or equipped on their Character). Returns nil for orphan tools.
@@ -42,7 +51,7 @@ end
 
 -- Walk the player's Backpack + Character for tools and call ToolService.Track
 -- so any pre-existing duplicate UID is detected on join.
-local function scanPlayer(player: Player, ToolService: any)
+local function scanPlayer(player: Player)
 	local backpack = player:FindFirstChildOfClass("Backpack")
 	if backpack then
 		for _, child in ipairs(backpack:GetChildren()) do
@@ -56,40 +65,23 @@ local function scanPlayer(player: Player, ToolService: any)
 	end
 end
 
-function ToolDuplicationGuard.Init(orchestrator: any): ()
+function ToolDuplicationGuard.Init(orchestrator: DetectorHost): ()
 	orchestratorRef = orchestrator
-	-- WHY direct path require (NOT via GaxiaServer):
-	-- AntiCheat is loaded *inside* GaxiaServer.init's body, so requiring
-	-- GaxiaServer here would form a recursion cycle that Roblox rejects with
-	-- "Requested module was required recursively". Loading ToolService by its
-	-- absolute Lib path breaks the cycle — ToolService has no dependency on
-	-- the AntiCheat orchestrator, so a direct require is safe.
-	local libFolder = (script.Parent :: any).Parent:FindFirstChild("Lib")
-	local toolMod = libFolder and libFolder:FindFirstChild("ToolService")
-	if not toolMod or not toolMod:IsA("ModuleScript") then
-		warn("[ToolDuplicationGuard] ToolService module not found — guard disabled")
-		return
-	end
-	local ok, Tool = pcall(require, toolMod)
-	if not ok or not Tool or not (Tool :: any).OnDuplicate then
-		warn(`[ToolDuplicationGuard] ToolService.OnDuplicate signal not found — guard disabled ({tostring(Tool)})`)
-		return
-	end
 
-	Tool.OnDuplicate:Connect(function(dupe: Tool)
+	ToolService.OnDuplicate:Connect(function(dupe: Tool)
 		local owner = findOwner(dupe)
-		if owner then
+		if owner and orchestratorRef then
 			orchestratorRef.Flag(owner, "ToolDupe", Config.AntiCheat.ToolDupe.Severity)
 		end
 	end)
 
 	-- Scan existing + future players for already-present tools so initial state
 	-- (e.g. dev rejoining a place with manually-placed tools) is covered.
-	for _, p in ipairs(Players:GetPlayers()) do scanPlayer(p, Tool) end
+	for _, p in ipairs(Players:GetPlayers()) do scanPlayer(p) end
 	Players.PlayerAdded:Connect(function(p)
 		-- Wait briefly so the default Roblox character setup has time to populate the Backpack.
 		task.wait(1)
-		scanPlayer(p, Tool)
+		scanPlayer(p)
 	end)
 end
 

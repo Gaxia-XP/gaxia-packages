@@ -7,21 +7,32 @@
 	          ticks to avoid false positives from explosions / knockbacks.
 ]]
 
+-- ── Dependencies ──
+local Types  = require(script.Parent.Parent.Types)
+local Config = require(script.Parent.Parent.Config)
 
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Constants = SharedPkg.Constants or {}
+-- ── Types ──
+-- Keep identical to AntiCheat/init.lua's exported Snapshot and Flag (a
+-- detector cannot require the orchestrator: it requires the detectors).
+type Snapshot = {
+	clock: number,
+	character: Model?,
+	hrp: BasePart?,
+	humanoid: Humanoid?,
+	position: Vector3?,
+	velocity: Vector3?,
+	state: Enum.HumanoidStateType?,
+	walkSpeed: number?,
+}
+type Flag = {
+	reason: string,
+	severity: Types.Severity | string,
+}
 
--- Server Config lives at the package root (sibling of the AntiCheat folder).
--- FindFirstChild (never WaitForChild): detectors are required through the
--- server loader's no-yield __index metamethod, and yielding there throws
--- "attempt to yield across metamethod/C-call boundary". Config's body is a
--- pure table, so require(FindFirstChild(...)) cannot yield.
-local Config = require(script.Parent.Parent:FindFirstChild("Config") :: ModuleScript) :: any
 local SpeedCfg = Config.AntiCheat.Speed
 
-local SPEED_TOLERANCE : number = (SpeedCfg.ToleranceMultiplier :: any) or 1.5
-local SPEED_SEVERITY  : string = (SpeedCfg.Severity :: any) or "soft"
+local SPEED_TOLERANCE : number = SpeedCfg.ToleranceMultiplier or 1.5
+local SPEED_SEVERITY  : string = SpeedCfg.Severity or "soft"
 local MIN_WALK_SPEED  : number = 8      -- floor when WalkSpeed is artificially low (sliding effects)
 local STREAK_REQUIRED : number = 2      -- consecutive over-speed ticks before flagging
 
@@ -31,7 +42,7 @@ local streaks: { [number]: number } = {}
 local SpeedDetector = {}
 SpeedDetector.Name = "Speed"
 
-function SpeedDetector.Sample(player: Player, snapshot: any): any?
+function SpeedDetector.Sample(player: Player, snapshot: Snapshot): Flag?
 	local hrp = snapshot.hrp
 	local humanoid = snapshot.humanoid
 	if not hrp or not humanoid then
@@ -41,7 +52,7 @@ function SpeedDetector.Sample(player: Player, snapshot: any): any?
 
 	-- Project velocity onto the horizontal plane — vertical movement is the
 	-- FlyDetector's domain.
-	local velocity = snapshot.velocity :: Vector3?
+	local velocity = snapshot.velocity
 	if not velocity then return nil end
 	local horizontal = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
 

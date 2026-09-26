@@ -9,22 +9,41 @@
 	          free: position is already in the shared per-tick snapshot.
 	          Tunables live in Config.AntiCheat.WorldBounds.
 ]]
-local CollectionService = game:GetService("CollectionService")
 
--- Server Config (sibling of the AntiCheat folder). FindFirstChild — no-yield
--- metamethod rule (detectors load through the loader's __index).
-local Config = require(script.Parent.Parent:FindFirstChild("Config") :: ModuleScript) :: any
-local Cfg = Config.AntiCheat.WorldBounds or {}
+-- ── Dependencies ──
+local Types  = require(script.Parent.Parent.Types)
+local Config = require(script.Parent.Parent.Config)
 
-local MIN_Y    : number = (Cfg.MinY :: any) or -500     -- below this Y = under the map
-local MAX_XZ   : number = (Cfg.MaxXZ :: any) or 10000   -- |X| or |Z| beyond this = off the map
-local SEVERITY : string = (Cfg.Severity :: any) or "hard"
+-- ── Types ──
+-- Keep identical to AntiCheat/init.lua's exported Snapshot and Flag (a
+-- detector cannot require the orchestrator: it requires the detectors).
+type Snapshot = {
+	clock: number,
+	character: Model?,
+	hrp: BasePart?,
+	humanoid: Humanoid?,
+	position: Vector3?,
+	velocity: Vector3?,
+	state: Enum.HumanoidStateType?,
+	walkSpeed: number?,
+}
+type Flag = {
+	reason: string,
+	severity: Types.Severity | string,
+}
+
+-- The section is optional: every tunable falls back to its default without it.
+local Cfg = Config.AntiCheat.WorldBounds
+
+local MIN_Y    : number = if Cfg then Cfg.MinY or -500 else -500          -- below this Y = under the map
+local MAX_XZ   : number = if Cfg then Cfg.MaxXZ or 10000 else 10000       -- |X| or |Z| beyond this = off the map
+local SEVERITY : string = if Cfg then Cfg.Severity or "hard" else "hard"
 
 local WorldBoundsDetector = {}
 WorldBoundsDetector.Name = "WorldBounds"
 
-function WorldBoundsDetector.Sample(player: Player, snapshot: any): any?
-	local pos = snapshot.position :: Vector3?
+function WorldBoundsDetector.Sample(player: Player, snapshot: Snapshot): Flag?
+	local pos = snapshot.position
 	if not pos then
 		return nil
 	end

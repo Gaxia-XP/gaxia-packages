@@ -14,15 +14,26 @@ local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CollectionService = game:GetService("CollectionService")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Trove     = SharedPkg.Trove
+-- ── Dependencies ──
+local Trove  = require(ReplicatedStorage.Gaxia_Packages.Shared.Trove)
+local Types  = require(script.Parent.Parent.Types)
+local Config = require(script.Parent.Parent.Config)
 
--- Server config (FindFirstChild = no-yield; Config is a pure table at the package
--- root). Climbing/Swimming default to "soft" so a false-positive doesn't instant-
--- kick; a game with custom climbing can set Enabled = false.
-local Config = require((script.Parent :: any).Parent:FindFirstChild("Config") :: ModuleScript) :: any
-local HS_CONFIG = (Config.AntiCheat and Config.AntiCheat.HumanoidState) or {}
-local STATE_SEVERITY : string = (HS_CONFIG.Severity :: any) or "soft"
+-- ── Types ──
+-- The orchestrator API Init receives. Keep identical to AntiCheat/init.lua's
+-- exported DetectorHost (a detector cannot require the orchestrator: it
+-- requires the detectors).
+type DetectorHost = {
+	Flag: (player: Player, reason: string, severity: (Types.Severity | string)?) -> (),
+	IsEnforcing: () -> boolean,
+	IsDetectorEnabled: (name: string) -> boolean,
+}
+
+-- Server config. Climbing/Swimming default to "soft" so a false-positive doesn't
+-- instant-kick; a game with custom climbing can set Enabled = false. The section
+-- is optional (severity falls back to "soft" without it).
+local HS_CONFIG = Config.AntiCheat.HumanoidState
+local STATE_SEVERITY : string = if HS_CONFIG then HS_CONFIG.Severity or "soft" else "soft"
 
 -- ── Tunables ──
 -- Radius around the HRP we sweep for valid climb / swim surroundings.
@@ -36,8 +47,8 @@ local DOUBLE_JUMP_STREAK : number = 2
 local HumanoidStateGuard = {}
 HumanoidStateGuard.Name = "HumanoidState"
 
-local orchestratorRef : any = nil
-local playerTroves : { [Player]: any } = {}
+local orchestratorRef : DetectorHost? = nil
+local playerTroves : { [Player]: typeof(Trove.new()) } = {}
 -- (humanoid) → { jumpsAirborne, lastJumpClock }
 type JumpState = { jumpsAirborne: number, lastJumpClock: number }
 local jumpState : { [Humanoid]: JumpState } = setmetatable({}, { __mode = "k" }) :: any
@@ -163,7 +174,7 @@ local function detachPlayer(player: Player)
 	end
 end
 
-function HumanoidStateGuard.Init(orchestrator: any): ()
+function HumanoidStateGuard.Init(orchestrator: DetectorHost): ()
 	orchestratorRef = orchestrator
 	for _, p in ipairs(Players:GetPlayers()) do attachPlayer(p) end
 	Players.PlayerAdded:Connect(attachPlayer)

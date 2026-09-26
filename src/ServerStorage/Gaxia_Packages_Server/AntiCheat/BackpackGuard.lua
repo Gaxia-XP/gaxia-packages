@@ -17,36 +17,30 @@ local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterPack       = game:GetService("StarterPack")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Trove     = SharedPkg.Trove
+-- ── Dependencies ──
+-- ToolService is required directly (it never requires AntiCheat, so no cycle).
+local Trove       = require(ReplicatedStorage.Gaxia_Packages.Shared.Trove)
+local Types       = require(script.Parent.Parent.Types)
+local Config      = require(script.Parent.Parent.Config)
+local ToolService = require(script.Parent.Parent.Lib.ToolService)
 
--- ── Config (server-side, see ServerStorage/Gaxia_Packages_Server/Config) ──
--- FindFirstChild (not WaitForChild): detectors are required THROUGH the server
--- loader's no-yield __index metamethod; WaitForChild would yield across that
--- boundary. Config's body is a pure table (no yields), so require is safe.
-local Config = require(script.Parent.Parent:FindFirstChild("Config") :: ModuleScript) :: any
+-- ── Types ──
+-- The orchestrator API Init receives. Keep identical to AntiCheat/init.lua's
+-- exported DetectorHost (a detector cannot require the orchestrator: it
+-- requires the detectors).
+type DetectorHost = {
+	Flag: (player: Player, reason: string, severity: (Types.Severity | string)?) -> (),
+	IsEnforcing: () -> boolean,
+	IsDetectorEnabled: (name: string) -> boolean,
+}
 
 local UID_ATTR : string = "UID"
 
 local BackpackGuard = {}
 BackpackGuard.Name = "Backpack"
 
-local orchestratorRef : any = nil
-local playerTroves : { [Player]: any } = {}
-
--- Direct-path lazy require — same pattern ToolDuplicationGuard uses to avoid
--- recursion with GaxiaServer.init.
-local _toolServiceRef : any = nil
-local function getToolService(): any
-	if _toolServiceRef ~= nil then return _toolServiceRef end
-	local libFolder = (script.Parent :: any).Parent:FindFirstChild("Lib")
-	local toolMod = libFolder and libFolder:FindFirstChild("ToolService")
-	if toolMod and toolMod:IsA("ModuleScript") then
-		local ok, mod = pcall(require, toolMod)
-		if ok then _toolServiceRef = mod end
-	end
-	return _toolServiceRef
-end
+local orchestratorRef : DetectorHost? = nil
+local playerTroves : { [Player]: typeof(Trove.new()) } = {}
 
 -- A Tool is authorised iff it carries a UID attribute AND ToolService still
 -- has it in its registry. The registry uses weak values, so destroyed tools
@@ -67,8 +61,7 @@ end
 local function isAuthorised(tool: Tool): boolean
 	local uid = tool:GetAttribute(UID_ATTR)
 	if typeof(uid) ~= "string" or uid == "" then return false end
-	local TS = getToolService()
-	return TS ~= nil and TS.IsTracked(tool) == true
+	return ToolService.IsTracked(tool) == true
 end
 
 local function inspectAddition(player: Player, child: Instance)
@@ -136,7 +129,7 @@ local function detachPlayer(player: Player)
 	end
 end
 
-function BackpackGuard.Init(orchestrator: any): ()
+function BackpackGuard.Init(orchestrator: DetectorHost): ()
 	orchestratorRef = orchestrator
 	for _, p in ipairs(Players:GetPlayers()) do attachPlayer(p) end
 	Players.PlayerAdded:Connect(attachPlayer)

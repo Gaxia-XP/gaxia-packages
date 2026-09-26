@@ -22,14 +22,20 @@
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Trove     = SharedPkg.Trove
+-- ── Dependencies ──
+local Trove  = require(ReplicatedStorage.Gaxia_Packages.Shared.Trove)
+local Types  = require(script.Parent.Parent.Types)
+local Config = require(script.Parent.Parent.Config)
 
--- ── Config (server-side, see ServerStorage/Gaxia_Packages_Server/Config) ──
--- FindFirstChild (not WaitForChild): detectors are required THROUGH the server
--- loader's no-yield __index metamethod; WaitForChild would yield across that
--- boundary. Config's body is a pure table (no yields), so require is safe.
-local Config = require(script.Parent.Parent:FindFirstChild("Config") :: ModuleScript) :: any
+-- ── Types ──
+-- The orchestrator API Init receives. Keep identical to AntiCheat/init.lua's
+-- exported DetectorHost (a detector cannot require the orchestrator: it
+-- requires the detectors).
+type DetectorHost = {
+	Flag: (player: Player, reason: string, severity: (Types.Severity | string)?) -> (),
+	IsEnforcing: () -> boolean,
+	IsDetectorEnabled: (name: string) -> boolean,
+}
 
 -- ── Tunables ──
 -- AUTH_WINDOW must exceed network round-trip + any TakeDamage queuing slop.
@@ -42,12 +48,12 @@ local NOISE_FLOOR : number = 0.5
 local CombatGuard = {}
 CombatGuard.Name = "Combat"
 
-local orchestratorRef : any = nil
+local orchestratorRef : DetectorHost? = nil
 
 -- (humanoid) → { amount, expiresAtClock }
 type Auth = { amount: number, expiresAtClock: number }
 local pending : { [Humanoid]: Auth } = setmetatable({}, { __mode = "k" }) :: any
-local playerTroves : { [Player]: any } = {}
+local playerTroves : { [Player]: typeof(Trove.new()) } = {}
 
 -- Public: declare an authorised incoming damage tick. The next health drop on
 -- `victim` within AUTH_WINDOW will be considered legitimate up to `amount`.
@@ -109,7 +115,7 @@ local function detachPlayer(player: Player)
 	end
 end
 
-function CombatGuard.Init(orchestrator: any): ()
+function CombatGuard.Init(orchestrator: DetectorHost): ()
 	orchestratorRef = orchestrator
 	for _, p in ipairs(Players:GetPlayers()) do attachPlayer(p) end
 	Players.PlayerAdded:Connect(attachPlayer)
