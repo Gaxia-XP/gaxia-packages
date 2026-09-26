@@ -40,6 +40,13 @@ never loaded.
 Signals declare their payloads, so `:Connect(function(player, ...)` callbacks are typed
 (e.g. `Economy.OnTransaction` → `kind: "add" | "spend" | "set" | "transfer"`). Public
 functions are annotated, and the stub-returning UI modules are typed.
+- Config sections carry types (`AdminConfig`, `AntiCheatConfig`, `WebhookConfig`,
+  `PlayerConfig`), so `Config.AntiCheat.BanPolicy.` autocompletes and a mistyped
+  `Severity` is flagged.
+- The AntiCheat detector contract (`AntiCheatSnapshot`, `AntiCheatFlag`, `DetectorHost`)
+  is defined once in `Types.lua` instead of copied into each detector.
+- New `Config/Player.lua` (`MaxWalkSpeed`, default 500 as before): the clamp in
+  `Player.SetWalkSpeed` can now be configured.
 
 ### Fixed — AntiCheat detectors never loaded (now in observe mode)
 Since e3b2e06 (2026-07-17) the orchestrator scanned the wrong parent, so none of the 15
@@ -55,6 +62,10 @@ false-positive causes found in simulation are fixed too:
 Play-test with a non-creator account before setting `Enforce = true` (MANUAL §9.0).
 
 ### Fixed
+- Runtime flags with dotted names (all of them: `AntiCheat.Enforce`,
+  `AntiCheat.Detector.Speed.Enabled`, …) threw "Attribute name is not valid", so
+  `EConfig.Set`, `/flag`, `/ac` and `AntiCheat.SetEnabled/SetDetectorEnabled` failed.
+  Flags now stores each name under a valid attribute name; callers keep the dotted names.
 - DataManager kicked every player on a normal leave ("Profile released.").
 - Chat command replies were dropped when no command had run in the server's first 30 s:
   the reply remote was created lazily and the client stopped waiting for it.

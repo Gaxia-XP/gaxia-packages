@@ -292,7 +292,15 @@ Server ประกาศรายชื่อ service ที่ทำงาน�
   local Signal = require(Shared.Signal)
   local Trove  = require(Shared.Trove)
   ```
-- Type ที่ใช้ร่วมกัน (ชื่อ service, AntiCheat severity ฯลฯ): `require(ServerStorage.Gaxia_Packages_Server.Types)`
+- Type ที่ใช้ร่วมกัน (ชื่อ service, AntiCheat severity, สัญญาของ detector `AntiCheatSnapshot`/`AntiCheatFlag`/`DetectorHost` ฯลฯ): `require(ServerStorage.Gaxia_Packages_Server.Types)`
+- Config มี type ทุก section ที่ทำไว้แล้ว (`Config.Admin`, `Config.AntiCheat`, `Config.Webhook`, `Config.Player`) → `GaxiaServer.Config.AntiCheat.BanPolicy.` autocomplete ได้ และ `Severity = "hrad"` จะขึ้น error; type export อยู่ใน module เช่น `AntiCheatConfig`, `AdminConfig`
+- Promise: `Gaxia.Promise` ไม่มี type (vendored) → API ที่คืน promise ประกาศด้วย `PromiseTypes`:
+  ```lua
+  local PromiseTypes = require(ReplicatedStorage.Gaxia_Packages.Shared.PromiseTypes)
+  local function loadMap(): PromiseTypes.Promise<Model> ... end
+  local ok, map = loadMap():await()   -- ok: boolean · map: Model
+  ```
+  (method ที่เปลี่ยนค่า เช่น `:andThen` คืน `PromiseTypes.AnyPromise`)
 - เครื่องมือตรวจ: `node tools/check-architecture.mjs` (กติกาของ module ใน framework — ต้องมี `luau-ast`)
 
 ---
@@ -943,10 +951,10 @@ local overridden = GaxiaServer.EConfig.IsOverridden("Raid.LootFraction")
 ```lua
 local Gaxia = require(ReplicatedStorage.Gaxia_Packages)   -- shared
 local mult = Gaxia.Flags.Get("Economy.GlobalMultiplier", 1)
-Gaxia.Flags.OnChanged:Connect(function(key, value) end)
+local conn = Gaxia.Flags.OnChanged("Economy.GlobalMultiplier", function(new, old) end)   -- RBXScriptConnection?
 ```
 
-**Naming:** flag key = dot-path เทียบ Config section — `Economy.MaxTransaction`, `AntiCheat.Speed.ToleranceMultiplier`, `Webhook.Enabled`, ฯลฯ. ทุก service section ด้านล่างที่มี **Config** block แสดง key ที่อ่าน — wrap ด้วย `EConfig.Get("Section.Key", default)` ที่ call-time ก็ได้ live override.
+**Naming:** ใช้ชื่อแบบมีจุดได้เลย — Flags แปลงเป็นชื่อ attribute ที่ Roblox ยอมรับให้เอง (`AntiCheat.Enforce` → attribute `AntiCheat_2EEnforce` ใน `ReplicatedStorage.GaxiaState.GaxiaFlags`) ทั้งตอน Set/Get/OnChanged; ห้ามอ่าน attribute ตรงๆ ให้ใช้ Flags API เสมอ. flag key = dot-path เทียบ Config section — `Economy.MaxTransaction`, `AntiCheat.Speed.ToleranceMultiplier`, `Webhook.Enabled`, ฯลฯ. ทุก service section ด้านล่างที่มี **Config** block แสดง key ที่อ่าน — wrap ด้วย `EConfig.Get("Section.Key", default)` ที่ call-time ก็ได้ live override.
 
 **Session-scoped:** Flag เก็บเป็น `ReplicatedState` attributes — restart server = reset. ตั้งใจ (ไม่ persist override กัน typo รอดข้ามรอบ); ถ้าต้องการถาวร — แก้ที่ Config.
 
@@ -1014,7 +1022,7 @@ PS.SetLeaderstat(player, "Coins", 100)
 local coins = PS.GetLeaderstat(player, "Coins")
 
 -- Character helpers
-PS.SetWalkSpeed(player, 16)
+PS.SetWalkSpeed(player, 16)       -- clamp ที่ [0, Config.Player.MaxWalkSpeed] (default 500; flag "Player.MaxWalkSpeed")
 PS.SetJumpPower(player, 50)
 PS.Teleport(player, CFrame.new(0, 50, 0))
 
@@ -1797,7 +1805,8 @@ Mon.OnPurchase:Connect(function(player, productId, receipt) end)
 - `HandleReceipt` ตรวจ `ProcessedReceipts` ใน profile ก่อน — ถ้าเคย grant แล้วคืน `PurchaseGranted` ทันที (ไม่ double-grant)
 - PurchaseId persist + `Data.Save` nudge ก่อน return — crash ก็ไม่หาย
 - `OwnsGamePass` cache per-player (weak table) — ไม่ yield ซ้ำบน server loop
-- `MarketplaceService.ProcessReceipt` ผูกตอน module load → ต้อง touch `Gaxia.Monetization` ตอน boot
+- `MarketplaceService.ProcessReceipt` ผูกตอน service **Init** → ต้องใส่ `"Monetization"` ใน Features (§4.1) หรือ touch `GaxiaServer.Monetization` ตอน boot — ไม่งั้น receipt แรกมาถึงก่อนผูก = ผู้เล่นไม่ได้ของ
+- Types: `Monetization.ReceiptInfo`, `Monetization.GrantFn` (callback ของ `RegisterProduct`)
 
 ---
 
