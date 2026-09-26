@@ -9,45 +9,34 @@
 
 -- ── Services ──
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
 
--- ── Shared ──
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal    = SharedPkg.Signal
+-- ── Dependencies ──
+local Shared      = ReplicatedStorage.Gaxia_Packages.Shared
+local Signal      = require(Shared.Signal)
+local Lifecycle   = require(script.Parent.ServiceLifecycle)
+local Config      = require(script.Parent.Parent.Config)
+local EConfig     = require(script.Parent.EffectiveConfig)
+local DataManager = require(script.Parent.DataManager)
 
--- ── Lazy server (DataManager + Config + EConfig) ──
-local GaxiaServer: any = nil
-local function server(): any
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer
-end
-local function getData(): any
-	return server().Data
-end
+-- ── Types ──
+export type TransactionKind = "add" | "spend" | "set" | "transfer"
 
 -- ── Effective caps (Config default <- runtime Flag override) ──
 local DEFAULT_MAX_TRANSACTION : number = 1_000_000     -- ultimate fallback if Config absent
 local DEFAULT_MAX_BALANCE     : number = 1_000_000_000
 
 local function maxTransaction(): number
-	local s = server()
-	return s.EConfig.Get("Economy.MaxTransaction", (s.Config.Economy or {}).MaxTransaction or DEFAULT_MAX_TRANSACTION)
+	return EConfig.Get("Economy.MaxTransaction", Config.Economy.MaxTransaction or DEFAULT_MAX_TRANSACTION)
 end
 local function maxBalance(): number
-	local s = server()
-	return s.EConfig.Get("Economy.MaxBalance", (s.Config.Economy or {}).MaxBalance or DEFAULT_MAX_BALANCE)
+	return EConfig.Get("Economy.MaxBalance", Config.Economy.MaxBalance or DEFAULT_MAX_BALANCE)
 end
 
 -- ── Module ──
 local EconomyService = {}
 
--- (player, currency, delta, newBalance, kind) — kind ∈ "add" | "spend" | "set" | "transfer"
-EconomyService.OnTransaction = Signal.new()
+-- (player, currency, delta, newBalance, kind)
+EconomyService.OnTransaction = Signal.new() :: Signal.Signal<Player, string, number, number, TransactionKind>
 
 -- ── Helpers ──
 
@@ -69,9 +58,7 @@ end
 
 function EconomyService.Get(player: Player, currency: string): number
 	if not validateCurrency(currency) then return 0 end
-	local Data = getData()
-	if not Data then return 0 end
-	local v = Data.Get(player, currency)
+	local v = DataManager.Get(player, currency)
 	return typeof(v) == "number" and v or 0
 end
 
@@ -82,9 +69,7 @@ function EconomyService.Add(player: Player, currency: string, amount: number): b
 
 	local current = EconomyService.Get(player, currency)
 	local newBalance = math.min(current + amt, maxBalance())
-	local Data = getData()
-	if not Data then return false end
-	local ok = Data.Set(player, currency, newBalance)
+	local ok = DataManager.Set(player, currency, newBalance)
 	if ok then
 		EconomyService.OnTransaction:Fire(player, currency, newBalance - current, newBalance, "add")
 	end
@@ -100,9 +85,7 @@ function EconomyService.Spend(player: Player, currency: string, amount: number):
 	if current < amt then return false end                  -- insufficient balance — atomic check
 
 	local newBalance = current - amt
-	local Data = getData()
-	if not Data then return false end
-	local ok = Data.Set(player, currency, newBalance)
+	local ok = DataManager.Set(player, currency, newBalance)
 	if ok then
 		EconomyService.OnTransaction:Fire(player, currency, -amt, newBalance, "spend")
 	end
@@ -115,9 +98,7 @@ function EconomyService.Set(player: Player, currency: string, amount: number): b
 	if typeof(amount) ~= "number" or amount ~= amount then return false end
 	local clamped = math.max(0, math.min(math.floor(amount), maxBalance()))
 	local current = EconomyService.Get(player, currency)
-	local Data = getData()
-	if not Data then return false end
-	local ok = Data.Set(player, currency, clamped)
+	local ok = DataManager.Set(player, currency, clamped)
 	if ok then
 		EconomyService.OnTransaction:Fire(player, currency, clamped - current, clamped, "set")
 	end
@@ -141,5 +122,11 @@ function EconomyService.Transfer(from: Player, to: Player, currency: string, amo
 	EconomyService.OnTransaction:Fire(to,   currency,  amt, EconomyService.Get(to,   currency), "transfer")
 	return true
 end
+
+-- Pure API: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(EconomyService, {
+	Name = "Economy",
+	Needs = {},
+})
 
 return EconomyService

@@ -12,68 +12,51 @@
 	          Phase 17.4: DataMigration.Migrate runs on load (after Reconcile) to upgrade old schemas.
 ]]
 
--- Server-only guard: returning an empty table on the client keeps require() safe.
-
 -- ── Services ──
-local Players           = game:GetService("Players")
+local Players          = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerScriptService = game:GetService("ServerScriptService")
-local DataStoreService   = game:GetService("DataStoreService")
+local DataStoreService = game:GetService("DataStoreService")
 
--- ── Shared utilities ──
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
-local Util   = SharedPkg.Util
+-- ── Dependencies ──
+local Shared        = ReplicatedStorage.Gaxia_Packages.Shared
+local Signal        = require(Shared.Signal)
+local Table         = require(Shared.Util.Table)
+local Lifecycle     = require(script.Parent.ServiceLifecycle)
+local Config        = require(script.Parent.Parent.Config)
+local DataMigration = require(script.Parent.DataMigration)
+-- ProfileService (bundled child, loleris STANDALONE) stays lazily required on the
+-- first profile load: its module body probes the DataStore API, connects Heartbeat
+-- and registers its own BindToClose, which must not happen just because something
+-- required DataManager.
 
--- ── Config (server-side, see ServerStorage/Gaxia_Packages_Server/Config) ──
--- FindFirstChild (not WaitForChild) + Config's body has no yields, so requiring it
--- here is safe under the loader's no-yield metamethod. Config is the single place
--- DataStore names + resilience tunables are set — nothing below is hardcoded.
-local Config = require(script.Parent.Parent:FindFirstChild("Config") :: ModuleScript) :: any
+-- ── Settings (from Config.Data, read in Init) ──
+-- Read in Init rather than at module load: a place whose Config.Data lacks a
+-- section then fails only DataManager's Init (warned; GaxiaServer.Data returns
+-- nil) instead of making every module that requires DataManager fail to load.
+local PROFILE_STORE_NAME: string = ""
+local PROFILE_KEY_PREFIX: string = ""
+local WAIT_FOR_DEFAULT_TIMEOUT: number = 30
+local SHUTDOWN_FLUSH_DEADLINE: number = 25
+local WRITE_MAX_ATTEMPTS: number = 1
+local WRITE_BASE_BACKOFF: number = 1
+local WRITE_BUDGET_WAIT_STEP: number = 0.5
+local WRITE_BUDGET_MAX_WAIT: number = 0
+local BACKUP_ENABLED: boolean = false
+local BACKUP_STORE_NAME: string = ""
 
--- ── ProfileService (lazily resolved — see getProfileStore below) ──
--- WHY lazy: ProfileService is a bundled CHILD ModuleScript of DataManager
--- (Lib/DataManager/ProfileService.lua → script.ProfileService), so it is always
--- present in the built place — no runtime stub tree, no boot race. But DataManager
--- is first required THROUGH the server loader's no-yield __index metamethod, and
--- require()-ing ProfileService yields (its module body spins up DataStore / auto-
--- save state). Yielding across that metamethod boundary throws "attempt to yield
--- across metamethod/C-call boundary", so we resolve on first player load instead
--- (a normal coroutine, where yielding is fine).
-
--- ── DataMigration (sibling Lib module, lazily resolved) ──
--- WHY lazy + FindFirstChild (NOT a top-level WaitForChild require):
--- DataManager is first required THROUGH the server loader's __index metamethod,
--- and Luau forbids yielding across that boundary. Requiring DataMigration at
--- module top — or even WaitForChild-ing it — yields under the metamethod and
--- throws "attempt to yield across metamethod/C-call boundary". We resolve it on
--- first player load instead (onPlayerAdded runs in a normal coroutine where
--- yielding is fine). Sibling-direct also avoids the circular require that going
--- through Gaxia_Packages_Server.init.Migration would cause.
-local dataMigration: any = nil
-local function getMigration(): any
-	if not dataMigration then
-		local mod = script.Parent:FindFirstChild("DataMigration")
-		if mod then
-			dataMigration = require(mod)
-		end
-	end
-	return dataMigration
+local function readConfig(): ()
+	local cfg = Config.Data
+	PROFILE_STORE_NAME       = cfg.StoreName
+	PROFILE_KEY_PREFIX       = cfg.KeyPrefix
+	WAIT_FOR_DEFAULT_TIMEOUT = cfg.WaitForDefaultTimeout
+	SHUTDOWN_FLUSH_DEADLINE  = cfg.ShutdownFlushDeadline
+	WRITE_MAX_ATTEMPTS       = cfg.Write.MaxAttempts
+	WRITE_BASE_BACKOFF       = cfg.Write.BaseBackoff
+	WRITE_BUDGET_WAIT_STEP   = cfg.Write.BudgetWaitStep
+	WRITE_BUDGET_MAX_WAIT    = cfg.Write.BudgetMaxWait
+	BACKUP_ENABLED           = cfg.Backup.Enabled
+	BACKUP_STORE_NAME        = cfg.Backup.StoreName
 end
-
--- ── Constants (from Config.Data) ──
-local PROFILE_STORE_NAME: string = Config.Data.StoreName
-local PROFILE_KEY_PREFIX: string = Config.Data.KeyPrefix
-local WAIT_FOR_DEFAULT_TIMEOUT: number = Config.Data.WaitForDefaultTimeout
-
--- ── Phase 17.2 / 17.3 — resilience + shutdown (from Config.Data) ──
-local SHUTDOWN_FLUSH_DEADLINE: number = Config.Data.ShutdownFlushDeadline
-local WRITE_MAX_ATTEMPTS: number     = Config.Data.Write.MaxAttempts
-local WRITE_BASE_BACKOFF: number     = Config.Data.Write.BaseBackoff
-local WRITE_BUDGET_WAIT_STEP: number = Config.Data.Write.BudgetWaitStep
-local WRITE_BUDGET_MAX_WAIT: number  = Config.Data.Write.BudgetMaxWait
-local BACKUP_ENABLED: boolean        = Config.Data.Backup.Enabled
-local BACKUP_STORE_NAME: string      = Config.Data.Backup.StoreName
 
 -- ── Types ──
 export type PlayerData = {
@@ -111,13 +94,15 @@ DataManager.DEFAULT_PROFILE = {
 } :: PlayerData
 
 -- ── Signals ──
-DataManager.OnLoaded      = Signal.new()
-DataManager.OnReleased    = Signal.new()
-DataManager.OnDataChanged = Signal.new()
+-- (player, data) once the player's profile is loaded, reconciled and migrated
+DataManager.OnLoaded      = Signal.new() :: Signal.Signal<Player, PlayerData>
+-- (player) after the player's profile is released (leave or shutdown)
+DataManager.OnReleased    = Signal.new() :: Signal.Signal<Player>
+-- (player, key, value) after DataManager.Set
+DataManager.OnDataChanged = Signal.new() :: Signal.Signal<Player, string, any>
 
 -- ── Internal state ──
--- profileStore is resolved lazily (see the ProfileService WHY above): the require
--- yields, which is illegal under the loader's metamethod, so we defer it to first
+-- profileStore is resolved lazily (see the ProfileService note above) on the first
 -- player load. GetProfileStore is called with a DOT (not colon): it is declared as
 -- a plain function; calling with `:` would pass the module as the first arg and
 -- trigger "Missing or invalid Name parameter".
@@ -126,9 +111,7 @@ local function getProfileStore(): any
 	if profileStore then
 		return profileStore
 	end
-	local ProfileService = require(
-		script:WaitForChild("ProfileService")
-	) :: any
+	local ProfileService = require(script.ProfileService)
 	profileStore = ProfileService.GetProfileStore(PROFILE_STORE_NAME, DataManager.DEFAULT_PROFILE)
 	return profileStore
 end
@@ -137,28 +120,6 @@ local loadedProfiles: { [number]: any } = {}
 local isClosing: boolean = false
 -- Phase 17.2: lazily-fetched backup store handle (nil until first successful GetDataStore, or if disabled).
 local backupStore: any = nil
-
--- ── Helpers ──
--- Safely fetch a Reconcile function from Util.Table; fall back to a simple shallow reconcile
--- so missing helpers do not block data loads in dev.
-local function reconcile(target: { [any]: any }, template: { [any]: any })
-	local utilTable = Util and (Util :: any).Table
-	if utilTable and typeof(utilTable.Reconcile) == "function" then
-		utilTable.Reconcile(target, template)
-		return
-	end
-	for k, v in pairs(template) do
-		if target[k] == nil then
-			if typeof(v) == "table" then
-				local copy = {}
-				for kk, vv in pairs(v) do copy[kk] = vv end
-				target[k] = copy
-			else
-				target[k] = v
-			end
-		end
-	end
-end
 
 -- ── Phase 17.2 — DataStore resilience ──
 -- WHY: DataManager itself never wrote to a raw DataStore before; the ONLY raw write is the
@@ -298,19 +259,14 @@ local function onPlayerAdded(player: Player)
 
 	profile:AddUserId(player.UserId)
 	profile:Reconcile()
-	reconcile(profile.Data, DataManager.DEFAULT_PROFILE)
+	Table.Reconcile(profile.Data, DataManager.DEFAULT_PROFILE)
 
 	-- ── Schema migration (Phase 17.4) ──
 	-- WHY here: run AFTER Reconcile (so every template field exists) and BEFORE
 	-- loadedProfiles is populated (so no consumer can Get() un-migrated data).
 	-- Migrate reads/writes profile.Data.__version and walks single-step
 	-- migrations up to DataMigration's currentVersion; no-op when already current.
-	-- getMigration() is resolved here (not at module top) to stay clear of the
-	-- loader's no-yield metamethod boundary.
-	local migration = getMigration()
-	if migration then
-		migration.Migrate(profile.Data)
-	end
+	DataMigration.Migrate(profile.Data)
 
 	profile:ListenToRelease(function()
 		-- Our own releases (PlayerRemoving, shutdown flush) clear the map entry BEFORE
@@ -349,13 +305,6 @@ local function onPlayerRemoving(player: Player)
 	end
 end
 
--- Hook current + future players (a player may already exist if module loads after PlayerAdded fires).
-for _, player in ipairs(Players:GetPlayers()) do
-	task.spawn(onPlayerAdded, player)
-end
-Players.PlayerAdded:Connect(onPlayerAdded)
-Players.PlayerRemoving:Connect(onPlayerRemoving)
-
 -- ── Phase 17.3 — shutdown flush (defense-in-depth) ──
 -- WHY: the real loleris ProfileService registers its OWN game:BindToClose that saves+releases
 -- every active session, so the core save guarantee already exists in production. This block is
@@ -393,7 +342,7 @@ local function flushProfileOnClose(userId: number, profile: any): ()
 	end
 end
 
-game:BindToClose(function()
+local function onClose(): ()
 	isClosing = true
 
 	-- Snapshot the keys first: flushProfileOnClose mutates loadedProfiles as it runs.
@@ -431,7 +380,7 @@ game:BindToClose(function()
 	if remaining > 0 then
 		warn(`[DataManager] BindToClose deadline hit with {remaining} profile(s) unflushed`)
 	end
-end)
+end
 
 -- Test-only seed: install a synthetic profile so MockPlayer calls don't throw
 -- "profile not loaded". Real Player profiles still go through ProfileService.
@@ -447,8 +396,25 @@ function DataManager._SeedForTest(player: any, data: { [string]: any }?): ()
 		Data = data or {},
 		Save = function(_self) end,
 	}
-	reconcile(synthetic.Data, DataManager.DEFAULT_PROFILE)
+	Table.Reconcile(synthetic.Data, DataManager.DEFAULT_PROFILE)
 	loadedProfiles[player.UserId] = synthetic
 end
+
+Lifecycle.Define(DataManager, {
+	Name = "Data",
+	Needs = {},
+	Init = function()
+		-- Config first: a broken Config.Data fails Init before any hook is connected.
+		readConfig()
+		-- Hook current + future players (a player may already exist if the service
+		-- starts after PlayerAdded fired). Loads yield, so each runs on its own thread.
+		for _, player in ipairs(Players:GetPlayers()) do
+			task.spawn(onPlayerAdded, player)
+		end
+		Players.PlayerAdded:Connect(onPlayerAdded)
+		Players.PlayerRemoving:Connect(onPlayerRemoving)
+		game:BindToClose(onClose)
+	end,
+})
 
 return DataManager
