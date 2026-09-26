@@ -8,6 +8,25 @@ this framework uses a single rolling version until a public release cut.
 
 ## Unreleased
 
+### Changed — framework cleanup uses Trove; Maid is deprecated
+One cleanup library instead of three. Every framework module that used `Maid`
+now uses `Trove` (the one `Component` already depends on): the five AntiCheat
+guards (Animation / Backpack / Combat / HumanoidState / Stat), `ZoneService`,
+`TooltipSystem`, `DialogSystem`, `CutsceneSystem` and `EffectsController`.
+- Mapping: `Maid.new` → `Trove.new`, `:GiveTask` → `:Add`, `:DoCleaning` → `:Clean`,
+  `:Destroy` → `:Destroy`.
+- **Fixed as a side effect** — `CutsceneSystem.Stop()` (and cancelling the
+  `Play` promise) destroyed the cutscene's Maid, then the play thread destroyed
+  it a second time. `Maid:Destroy()` clears the metatable, so that second call
+  errored in the play thread; after `Stop()` this meant the `Play` promise
+  never settled. `Trove:Destroy()` is safe to call twice.
+- `Maid` stays in `Shared/` for existing game code but warns on first require;
+  MANUAL §5.2 has the Maid → Trove mapping. It will be removed in a later version.
+- Behaviour differences to know when migrating your own code: `Trove:Clean()`
+  order is not guaranteed (Maid was LIFO), `:Add()` during `:Clean()` errors,
+  and function tasks run via `task.spawn`. None of the migrated call sites
+  depend on these.
+
 ### Added — Pet Coins multiplier wired into the Idle & Quest faucets
 `PetService.GetCoinMultiplier` (built in the Pet MVP) was previously **dead** — no
 faucet consumed it, so equipped pets had no in-game effect. The two **generated**

@@ -17,7 +17,7 @@ local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Maid      = SharedPkg.Maid
+local Trove     = SharedPkg.Trove
 
 -- ── Config (server-side, see ServerStorage/Gaxia_Packages_Server/Config) ──
 -- FindFirstChild (not WaitForChild): detectors are required THROUGH the server
@@ -31,7 +31,7 @@ local BackpackGuard = {}
 BackpackGuard.Name = "Backpack"
 
 local orchestratorRef : any = nil
-local playerMaids : { [Player]: any } = {}
+local playerTroves : { [Player]: any } = {}
 
 -- Direct-path lazy require — same pattern ToolDuplicationGuard uses to avoid
 -- recursion with GaxiaServer.init.
@@ -76,21 +76,21 @@ local function inspectAddition(player: Player, child: Instance)
 end
 
 local function attachContainer(player: Player, container: Instance)
-	local maid = playerMaids[player]
-	if not maid then return end
+	local trove = playerTroves[player]
+	if not trove then return end
 	-- Scan existing children once, then listen for future additions.
 	for _, child in ipairs(container:GetChildren()) do
 		inspectAddition(player, child)
 	end
-	maid:GiveTask(container.ChildAdded:Connect(function(child)
+	trove:Add(container.ChildAdded:Connect(function(child)
 		inspectAddition(player, child)
 	end))
 end
 
 local function attachPlayer(player: Player)
-	if playerMaids[player] then return end
-	local maid = Maid.new()
-	playerMaids[player] = maid
+	if playerTroves[player] then return end
+	local trove = Trove.new()
+	playerTroves[player] = trove
 
 	local function hookCharacter(character: Model)
 		attachContainer(player, character)
@@ -103,19 +103,19 @@ local function attachPlayer(player: Player)
 		if bp then attachContainer(player, bp) end
 	end
 	hookBackpack()
-	maid:GiveTask(player.ChildAdded:Connect(function(child)
+	trove:Add(player.ChildAdded:Connect(function(child)
 		if child:IsA("Backpack") then attachContainer(player, child) end
 	end))
 
 	if player.Character then hookCharacter(player.Character) end
-	maid:GiveTask(player.CharacterAdded:Connect(hookCharacter))
+	trove:Add(player.CharacterAdded:Connect(hookCharacter))
 end
 
 local function detachPlayer(player: Player)
-	local maid = playerMaids[player]
-	if maid then
-		maid:DoCleaning()
-		playerMaids[player] = nil
+	local trove = playerTroves[player]
+	if trove then
+		trove:Clean()
+		playerTroves[player] = nil
 	end
 end
 

@@ -35,7 +35,7 @@
 
 | หมวด | จำนวน | ใช้ทำอะไร |
 |---|---|---|
-| **Shared modules** | 11 | Signal, Maid, Promise, Tween ฯลฯ — ใช้ได้ทุก context |
+| **Shared modules** | 11 | Signal, Trove, Promise, Tween ฯลฯ — ใช้ได้ทุก context |
 | **Util** | 6 | Table, String, Math helpers |
 | **Client UI** | 6 controllers + 10 templates | Notification, HealthBar, Menu, Inventory ฯลฯ |
 | **Server services** | 14 | DataManager, Player, Item, Economy, Tool, Zone, Chat, Admin, Quest, Achievement, Level, Migration, Leaderboard, Messages |
@@ -256,7 +256,19 @@ mySignal:Destroy()
 
 **ใช้ตอนไหน:** สร้าง event ของตัวเอง — เช่น `OnEnemyKilled`, `OnQuestComplete`
 
-### 5.2 Maid — Cleanup tracker (LIFO)
+### 5.2 Maid — Cleanup tracker (LIFO) · ⚠️ DEPRECATED
+
+> **เลิกใช้แล้ว** — framework ใช้ **Trove** (§5.4) แทนทั้งหมด Maid ยังอยู่เพื่อให้โค้ดเกมเดิมไม่พัง
+> (require แล้วจะขึ้น warn) และจะถูกลบในเวอร์ชันถัดไป
+>
+> | Maid | Trove |
+> |---|---|
+> | `Maid.new()` | `Trove.new()` |
+> | `maid:GiveTask(x)` | `trove:Add(x)` |
+> | `maid:GiveTask(sig:Connect(fn))` | `trove:Connect(sig, fn)` |
+> | `maid:GiveBindToRenderStep(name, prio, fn)` | `trove:BindToRenderStep(name, prio, fn)` |
+> | `maid:DoCleaning()` | `trove:Clean()` |
+> | `maid:Destroy()` | `trove:Destroy()` (เรียกซ้ำได้ ไม่ error) |
 
 ```lua
 local Maid = Gaxia.Maid
@@ -319,7 +331,7 @@ local part = trove:Add(Instance.new("Part"))
 part.Parent = workspace
 
 -- Construct สำเร็จรูป
-local maid = trove:Construct(Gaxia.Maid)  -- เทียบเท่า trove:Add(Maid.new())
+local sig = trove:Construct(Gaxia.Signal)  -- เทียบเท่า trove:Add(Signal.new())
 
 -- Connect signal helper
 trove:Connect(workspace.ChildAdded, function(child)
@@ -339,7 +351,13 @@ trove:Clean()
 trove:Destroy()
 ```
 
-**ใช้ตอนไหน:** เขียน class ใหม่ — ใช้ Trove เพราะ API สวยกว่า Maid
+**ใช้ตอนไหน:** ตัวมาตรฐานของ framework สำหรับ cleanup ทุกที่ (แทน Maid)
+
+**ต่างจาก Maid ตรงไหน:**
+- ลำดับตอน `:Clean()` **ไม่รับประกัน** (Maid เคลียร์ย้อนหลัง LIFO) — อย่าเขียนโค้ดที่พึ่งลำดับ
+- เรียก `:Add()` ระหว่างที่ trove กำลัง `:Clean()` อยู่จะ **error** — ถ้า cleanup callback อาจสร้างของใหม่ ให้สลับไปใช้ trove ใหม่ก่อน clean (ดู `EffectsController.ClearAll`)
+- function ที่ `:Add()` ไว้จะถูกเรียกผ่าน `task.spawn`
+- `:Destroy()` = `:Clean()` เรียกซ้ำได้ และใช้ trove ต่อได้หลัง clean
 
 ### 5.5 Promise — Async pattern
 
@@ -2887,18 +2905,17 @@ local Gaxia = require(...)
 local Players = game:GetService("Players")
 
 Players.PlayerAdded:Connect(function(player)
-    local maid
+    local trove = Gaxia.Trove.new()
 
     player.CharacterAdded:Connect(function(character)
-        -- เคลียร์ของรอบที่แล้ว
-        if maid then maid:Destroy() end
-        maid = Gaxia.Maid.new()
+        -- เคลียร์ของรอบที่แล้ว (trove ใช้ต่อได้หลัง Clean)
+        trove:Clean()
 
         -- ผูก task กับ character ใหม่
-        maid:GiveTask(character.Humanoid.Died:Connect(function()
+        trove:Connect(character.Humanoid.Died, function()
             print(`{player.Name} died`)
-        end))
-        maid:GiveTask(character)  -- character ถูก Destroy ตอนตาย
+        end)
+        trove:Add(character)  -- character ถูก Destroy ตอนตาย
     end)
 end)
 ```
@@ -2988,13 +3005,10 @@ Orchestrator จะ auto-discover เมื่อโหลด
 **Q: ต้องใช้ทุก service / detector ไหม?**
 A: ไม่ — ลบโมดูลที่ไม่ใช้ออกจาก Studio ได้ Master Loader ใช้ FindFirstChild → ไม่ error ถ้าหาย
 
-**Q: ทำไมต้องมี Maid + Janitor + Trove (3 ตัว)?**
-A: รสนิยม:
-- **Maid** — ง่ายสุด, LIFO order
-- **Janitor** — มี named index
-- **Trove** — modern, สวยสุด, `:Construct()` + `:Extend()` ทำ child cleanup
-
-ใช้ตัวที่ชอบ — ทั้ง 3 มี `:Destroy()` เหมือนกัน
+**Q: ทำไมมี Maid + Janitor + Trove (3 ตัว)? ควรใช้ตัวไหน?**
+A: ใช้ **Trove** — เป็นตัวมาตรฐานที่ framework ใช้เอง (และ `Component` ก็ใช้ Trove ข้างใน)
+- **Maid** — deprecated แล้ว เหลือไว้ให้โค้ดเก่าไม่พัง ดูตารางเทียบ API ใน §5.2
+- **Janitor** — ยังมีให้ใช้ถ้าต้องการ named index แต่ framework ไม่ได้ใช้
 
 **Q: ทำไม Gaxia.UI ใช้ใน server ไม่ได้?**
 A: UI controllers access `Players.LocalPlayer` ที่ server เป็น nil → crash UI proxies จึงสร้างเฉพาะ client side. Server ใช้ `GaxiaServer.Shared.Util` ก็พอสำหรับ utility

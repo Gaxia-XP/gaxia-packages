@@ -15,7 +15,7 @@ local RunService        = game:GetService("RunService")
 -- ── Shared ──
 local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
 local Signal    = SharedPkg.Signal
-local Maid      = SharedPkg.Maid
+local Trove     = SharedPkg.Trove
 
 -- Constants is a frozen table; fall back to defaults if missing.
 local Constants = SharedPkg.Constants or {}
@@ -62,7 +62,7 @@ local function newZone(name: string, region: BasePart): Zone
 		OnEntered = Signal.new(),
 		OnLeft    = Signal.new(),
 		_inside   = {} :: { [Player]: boolean },
-		_maid     = Maid.new(),
+		_trove    = Trove.new(),
 	}, Zone)
 
 	-- Heartbeat-style polling. Sampling instead of Touched events because
@@ -95,7 +95,7 @@ local function newZone(name: string, region: BasePart): Zone
 	end)
 
 	-- Fire OnLeft when a tracked player leaves the game so external state stays consistent.
-	s._maid:GiveTask(Players.PlayerRemoving:Connect(function(player)
+	s._trove:Add(Players.PlayerRemoving:Connect(function(player)
 		if s._inside[player] then
 			s._inside[player] = nil
 			-- Emit Left when a tracked player disconnects so listeners
@@ -123,7 +123,7 @@ end
 
 function Zone:Destroy(): ()
 	local s = self :: any
-	s._maid:DoCleaning()
+	s._trove:Clean()
 	-- Drop the BasePart reference so the sampler loop exits naturally.
 	s.Region = nil
 	s.OnEntered:DisconnectAll()

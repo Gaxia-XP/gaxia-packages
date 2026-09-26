@@ -27,7 +27,7 @@ local function server(): any
 	return _server
 end
 
--- ── Shared lib (Signal/Maid) ──
+-- ── Shared lib (Signal) ──
 local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
 local Signal    = SharedPkg.Signal
 

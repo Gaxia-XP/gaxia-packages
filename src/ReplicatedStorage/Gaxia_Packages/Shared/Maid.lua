@@ -6,10 +6,17 @@
               Instance, function, or any table with a :Destroy method via
               :GiveTask. :DoCleaning / :Destroy unwind in reverse insertion
               order. Provides :GiveBindToRenderStep with auto-unbind.
+
+    DEPRECATED: the framework now uses Trove (Gaxia.Trove) for cleanup.
+    Kept only so existing game code keeps working; migrate with
+    Maid.new → Trove.new, :GiveTask → :Add, :DoCleaning → :Clean,
+    :GiveBindToRenderStep → :BindToRenderStep. Will be removed later.
 --]]
 
 
 local RunService = game:GetService("RunService")
+
+warn("[Gaxia_Packages] Maid is deprecated — use Gaxia.Trove instead (see MANUAL §5.2)")
 
 -- ── Types ──
 

@@ -38,7 +38,7 @@ export type GaxiaPackage = {
 	VERSION : string,
 	-- ── Shared (always available) ──
 	Signal    : typeof(require(script.Shared.Signal)),
-	Maid      : typeof(require(script.Shared.Maid)),
+	Maid      : typeof(require(script.Shared.Maid)),     -- DEPRECATED: use Trove
 	Janitor   : typeof(require(script.Shared.Janitor)),
 	Trove     : typeof(require(script.Shared.Trove)),
 	Promise   : typeof(require(script.Shared.Promise)),

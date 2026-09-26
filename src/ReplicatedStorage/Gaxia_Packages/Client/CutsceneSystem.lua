@@ -33,7 +33,7 @@ local TweenService      = game:GetService("TweenService")
 local LocalPlayer : Player = Players.LocalPlayer
 local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
 local Promise = SharedPkg.Promise
-local Maid    = SharedPkg.Maid
+local Trove   = SharedPkg.Trove
 
 -- ── Constants ──
 local UI_ROOT_NAME : string = "Gaxia_UI"
@@ -45,7 +45,7 @@ local Module = {}
 
 local _isPlaying : boolean = false
 local _cancelFlag : { cancelled: boolean } = { cancelled = false }
-local _activeMaid : any = nil
+local _activeTrove : any = nil
 local _fadeFrame : Frame? = nil
 
 -- ── Lazy DialogSystem reference ──
@@ -87,7 +87,7 @@ local function getOverlays(): Instance
 end
 
 -- WHY: build/return the persistent fade overlay
-local function ensureFade(maid: any): Frame
+local function ensureFade(trove: any): Frame
 	if _fadeFrame and _fadeFrame.Parent then return _fadeFrame end
 	local frame = Instance.new("Frame")
 	frame.Name = "CutsceneFade"
@@ -98,7 +98,7 @@ local function ensureFade(maid: any): Frame
 	frame.ZIndex = 200
 	frame.Parent = getOverlays()
 	_fadeFrame = frame
-	maid:GiveTask(frame)
+	trove:Add(frame)
 	return frame
 end
 
@@ -132,8 +132,8 @@ local function runWait(step: any, cancelFlag: { cancelled: boolean }): ()
 	end
 end
 
-local function runFade(step: any, cancelFlag: { cancelled: boolean }, maid: any): ()
-	local frame = ensureFade(maid)
+local function runFade(step: any, cancelFlag: { cancelled: boolean }, trove: any): ()
+	local frame = ensureFade(trove)
 	local target = math.clamp(step.to, 0, 1)
 	-- BackgroundTransparency: 0 = fully visible (black), 1 = invisible
 	-- step.to is opacity (0..1), so transparency = 1 - to
@@ -151,7 +151,7 @@ local function runFade(step: any, cancelFlag: { cancelled: boolean }, maid: any)
 	end
 end
 
-local function runSubtitle(step: any, cancelFlag: { cancelled: boolean }, maid: any): ()
+local function runSubtitle(step: any, cancelFlag: { cancelled: boolean }, trove: any): ()
 	local label = Instance.new("TextLabel")
 	label.Name = "Subtitle"
 	label.Size = UDim2.new(0.8, 0, 0, 60)
@@ -171,7 +171,7 @@ local function runSubtitle(step: any, cancelFlag: { cancelled: boolean }, maid: 
 	corner.CornerRadius = UDim.new(0, 6)
 	corner.Parent = label
 
-	maid:GiveTask(label)
+	trove:Add(label)
 
 	local elapsed = 0
 	while elapsed < step.duration do
@@ -218,9 +218,9 @@ end
 
 function Module.Stop(): ()
 	_cancelFlag.cancelled = true
-	if _activeMaid then
-		_activeMaid:Destroy()
-		_activeMaid = nil
+	if _activeTrove then
+		_activeTrove:Destroy()
+		_activeTrove = nil
 	end
 	_isPlaying = false
 end
@@ -236,8 +236,8 @@ function Module.Play(steps: { CutsceneStep }): any
 		local cancelFlag = { cancelled = false }
 		_cancelFlag = cancelFlag
 
-		local maid = Maid.new()
-		_activeMaid = maid
+		local trove = Trove.new()
+		_activeTrove = trove
 
 		-- Snapshot camera
 		local cam = workspace.CurrentCamera
@@ -255,15 +255,15 @@ function Module.Play(steps: { CutsceneStep }): any
 			end
 		end
 
-		maid:GiveTask(restore)
+		trove:Add(restore)
 
 		onCancel(function()
 			cancelFlag.cancelled = true
-			if _activeMaid == maid then
-				_activeMaid = nil
+			if _activeTrove == trove then
+				_activeTrove = nil
 				_isPlaying = false
 			end
-			maid:Destroy()
+			trove:Destroy()
 		end)
 
 		task.spawn(function()
@@ -275,9 +275,9 @@ function Module.Play(steps: { CutsceneStep }): any
 				elseif t == "wait" then
 					runWait(step, cancelFlag)
 				elseif t == "fade" then
-					runFade(step, cancelFlag, maid)
+					runFade(step, cancelFlag, trove)
 				elseif t == "subtitle" then
-					runSubtitle(step, cancelFlag, maid)
+					runSubtitle(step, cancelFlag, trove)
 				elseif t == "dialog" then
 					runDialog(step, cancelFlag)
 				elseif t == "action" then
@@ -288,11 +288,11 @@ function Module.Play(steps: { CutsceneStep }): any
 			end
 
 			local wasCancelled = cancelFlag.cancelled
-			if _activeMaid == maid then
-				_activeMaid = nil
+			if _activeTrove == trove then
+				_activeTrove = nil
 				_isPlaying = false
 			end
-			maid:Destroy()
+			trove:Destroy()
 
 			if wasCancelled then
 				reject("cancelled")

@@ -15,7 +15,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CollectionService = game:GetService("CollectionService")
 
 local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Maid      = SharedPkg.Maid
+local Trove     = SharedPkg.Trove
 
 -- Server config (FindFirstChild = no-yield; Config is a pure table at the package
 -- root). Climbing/Swimming default to "soft" so a false-positive doesn't instant-
@@ -37,7 +37,7 @@ local HumanoidStateGuard = {}
 HumanoidStateGuard.Name = "HumanoidState"
 
 local orchestratorRef : any = nil
-local playerMaids : { [Player]: any } = {}
+local playerTroves : { [Player]: any } = {}
 -- (humanoid) → { jumpsAirborne, lastJumpClock }
 type JumpState = { jumpsAirborne: number, lastJumpClock: number }
 local jumpState : { [Humanoid]: JumpState } = setmetatable({}, { __mode = "k" }) :: any
@@ -136,30 +136,30 @@ local function onStateChanged(player: Player, humanoid: Humanoid, _old: Enum.Hum
 end
 
 local function attachHumanoid(player: Player, humanoid: Humanoid)
-	local maid = playerMaids[player]
-	if not maid then return end
-	maid:GiveTask(humanoid.StateChanged:Connect(function(old, new)
+	local trove = playerTroves[player]
+	if not trove then return end
+	trove:Add(humanoid.StateChanged:Connect(function(old, new)
 		onStateChanged(player, humanoid, old, new)
 	end))
 end
 
 local function attachPlayer(player: Player)
-	if playerMaids[player] then return end
-	local maid = Maid.new()
-	playerMaids[player] = maid
+	if playerTroves[player] then return end
+	local trove = Trove.new()
+	playerTroves[player] = trove
 	local function hookCharacter(character: Model)
 		local hum = character:WaitForChild("Humanoid", 5) :: Humanoid?
 		if hum then attachHumanoid(player, hum) end
 	end
 	if player.Character then hookCharacter(player.Character) end
-	maid:GiveTask(player.CharacterAdded:Connect(hookCharacter))
+	trove:Add(player.CharacterAdded:Connect(hookCharacter))
 end
 
 local function detachPlayer(player: Player)
-	local maid = playerMaids[player]
-	if maid then
-		maid:DoCleaning()
-		playerMaids[player] = nil
+	local trove = playerTroves[player]
+	if trove then
+		trove:Clean()
+		playerTroves[player] = nil
 	end
 end
 

@@ -17,7 +17,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage     = game:GetService("ServerStorage")
 
 local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Maid      = SharedPkg.Maid
+local Trove     = SharedPkg.Trove
 
 -- ── Config (server-side, see ServerStorage/Gaxia_Packages_Server/Config) ──
 -- FindFirstChild (not WaitForChild): detectors are required THROUGH the server
@@ -36,7 +36,7 @@ local StatGuard = {}
 StatGuard.Name = "Stat"
 
 local orchestratorRef: any = nil
-local playerMaids: { [Player]: any } = {}
+local playerTroves: { [Player]: any } = {}
 
 -- Hook one ValueObject: any change away from the EXPECTED_ATTR cached value
 -- is a violation, except increases of <= 0 (set/spend lowers balance freely).
@@ -47,8 +47,8 @@ local function hookValue(player: Player, stat: Instance)
 	-- write does not trip the guard.
 	stat:SetAttribute(EXPECTED_ATTR, s.Value)
 
-	local maid = playerMaids[player]
-	maid:GiveTask(stat:GetPropertyChangedSignal("Value"):Connect(function()
+	local trove = playerTroves[player]
+	trove:Add(stat:GetPropertyChangedSignal("Value"):Connect(function()
 		local expected = stat:GetAttribute(EXPECTED_ATTR)
 		if typeof(expected) == "number" and s.Value == expected then
 			-- Matches what EconomyService (or whoever) just wrote — pass.
@@ -67,16 +67,16 @@ local function hookValue(player: Player, stat: Instance)
 end
 
 local function attachPlayer(player: Player)
-	if playerMaids[player] then return end
-	local maid = Maid.new()
-	playerMaids[player] = maid
+	if playerTroves[player] then return end
+	local trove = Trove.new()
+	playerTroves[player] = trove
 
 	-- Hook current leaderstats children, and any added later.
 	local function hookFolder(folder: Folder)
 		for _, child in ipairs(folder:GetChildren()) do
 			hookValue(player, child)
 		end
-		maid:GiveTask(folder.ChildAdded:Connect(function(child)
+		trove:Add(folder.ChildAdded:Connect(function(child)
 			hookValue(player, child)
 		end))
 	end
@@ -85,7 +85,7 @@ local function attachPlayer(player: Player)
 	if existing then hookFolder(existing :: Folder) end
 
 	-- leaderstats may not yet exist at PlayerAdded; watch for it.
-	maid:GiveTask(player.ChildAdded:Connect(function(child)
+	trove:Add(player.ChildAdded:Connect(function(child)
 		if child.Name == LEADERSTATS_NAME and child:IsA("Folder") then
 			hookFolder(child :: Folder)
 		end
@@ -93,10 +93,10 @@ local function attachPlayer(player: Player)
 end
 
 local function detachPlayer(player: Player)
-	local maid = playerMaids[player]
-	if maid then
-		maid:DoCleaning()
-		playerMaids[player] = nil
+	local trove = playerTroves[player]
+	if trove then
+		trove:Clean()
+		playerTroves[player] = nil
 	end
 end
 

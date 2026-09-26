@@ -34,7 +34,7 @@ local StarterGui        = game:GetService("StarterGui")
 local LocalPlayer : Player = Players.LocalPlayer
 local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
 local Promise = SharedPkg.Promise
-local Maid    = SharedPkg.Maid
+local Trove   = SharedPkg.Trove
 
 -- ── Constants ──
 local DEFAULT_SPEED : number = 30
@@ -44,7 +44,7 @@ local UI_ROOT_NAME : string = "Gaxia_UI"
 -- ── State ──
 local Module = {}
 
-local _activeMaid : any = nil
+local _activeTrove : any = nil
 local _activeReject : ((err: any) -> ())? = nil
 local _isOpen : boolean = false
 
@@ -184,9 +184,9 @@ function Module.IsOpen(): boolean
 end
 
 function Module.Close(): ()
-	if _activeMaid then
-		_activeMaid:Destroy()
-		_activeMaid = nil
+	if _activeTrove then
+		_activeTrove:Destroy()
+		_activeTrove = nil
 	end
 	_activeReject = nil
 	_isOpen = false
@@ -199,25 +199,25 @@ function Module.Show(config: DialogConfig): any
 			local prev = _activeReject
 			_activeReject = nil
 			prev("superseded")
-			if _activeMaid then
-				_activeMaid:Destroy()
-				_activeMaid = nil
+			if _activeTrove then
+				_activeTrove:Destroy()
+				_activeTrove = nil
 			end
 		end
 
 		_isOpen = true
 		_activeReject = reject
 
-		local maid = Maid.new()
-		_activeMaid = maid
+		local trove = Trove.new()
+		_activeTrove = trove
 
 		onCancel(function()
-			if _activeMaid == maid then
-				_activeMaid = nil
+			if _activeTrove == trove then
+				_activeTrove = nil
 				_activeReject = nil
 				_isOpen = false
 			end
-			maid:Destroy()
+			trove:Destroy()
 		end)
 
 		-- Build UI
@@ -232,7 +232,7 @@ function Module.Show(config: DialogConfig): any
 
 		local overlays = getOverlays()
 		frame.Parent = overlays
-		maid:GiveTask(frame)
+		trove:Add(frame)
 
 		local msgLabel = frame:FindFirstChild("Message")
 		local nameLabel = frame:FindFirstChild("Name")
@@ -265,7 +265,7 @@ function Module.Show(config: DialogConfig): any
 		clickArea.ZIndex = 0
 		clickArea.AutoButtonColor = false
 		clickArea.Parent = frame
-		maid:GiveTask(clickArea)
+		trove:Add(clickArea)
 
 		local choiceContainer : Frame? = nil
 
@@ -317,19 +317,19 @@ function Module.Show(config: DialogConfig): any
 				bc.Parent = btn
 
 				local conn = btn.MouseButton1Click:Connect(function()
-					if _activeMaid == maid then
-						_activeMaid = nil
+					if _activeTrove == trove then
+						_activeTrove = nil
 						_activeReject = nil
 						_isOpen = false
 					end
-					maid:Destroy()
+					trove:Destroy()
 					resolve(i)
 				end)
-				maid:GiveTask(conn)
+				trove:Add(conn)
 			end
 
 			choiceContainer = cont
-			maid:GiveTask(cont)
+			trove:Add(cont)
 			continueBtn.Visible = false
 		end
 
@@ -351,12 +351,12 @@ function Module.Show(config: DialogConfig): any
 					showChoices()
 					advancing = false
 				else
-					if _activeMaid == maid then
-						_activeMaid = nil
+					if _activeTrove == trove then
+						_activeTrove = nil
 						_activeReject = nil
 						_isOpen = false
 					end
-					maid:Destroy()
+					trove:Destroy()
 					resolve(1)
 				end
 				return
@@ -381,7 +381,7 @@ function Module.Show(config: DialogConfig): any
 		end
 
 		local connContinue = continueBtn.MouseButton1Click:Connect(advanceLine)
-		maid:GiveTask(connContinue)
+		trove:Add(connContinue)
 
 		local connClick = clickArea.MouseButton1Click:Connect(function()
 			if typing then
@@ -390,7 +390,7 @@ function Module.Show(config: DialogConfig): any
 				advanceLine()
 			end
 		end)
-		maid:GiveTask(connClick)
+		trove:Add(connClick)
 
 		-- kick off first line
 		advanceLine()
