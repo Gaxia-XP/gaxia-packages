@@ -176,6 +176,10 @@ local function replyRemote(): RemoteEvent
 	_replyRemote = remote :: RemoteEvent
 	return _replyRemote :: RemoteEvent
 end
+-- Create it when the chat system loads, not on the first reply: the client's
+-- ChatFeedback waits at most 30 s for Events/Chat/SystemMessage, so a remote that
+-- appeared later left every reply after that silently dropped.
+replyRemote()
 
 local function reply(caller: Player, text: string?): ()
 	if text == nil then return end
