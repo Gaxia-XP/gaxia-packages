@@ -187,10 +187,12 @@ end
 -- ── Auto-tagger ──────────────────────────────────────────────
 
 local function autoTagDescendants(): ()
-	-- script.Parent is the Gaxia_Packages Folder; script is the `init` ModuleScript
-	-- (sibling). Tag the folder + all package descendants so consumers can query
-	-- "everything that belongs to Gaxia_Packages" via CollectionService.
-	local packageRoot = script.Parent :: Instance
+	-- Under Rojo this `init` IS the Gaxia_Packages ModuleScript and the package's
+	-- modules are its descendants. (It used to tag script.Parent, which is the
+	-- whole ReplicatedStorage — every game asset got the tag.) Tag the
+	-- package + all its descendants so consumers can query "everything that
+	-- belongs to Gaxia_Packages" via CollectionService.
+	local packageRoot = script :: Instance
 	if not CollectionService:HasTag(packageRoot, TAG_NAME) then
 		CollectionService:AddTag(packageRoot, TAG_NAME)
 	end
