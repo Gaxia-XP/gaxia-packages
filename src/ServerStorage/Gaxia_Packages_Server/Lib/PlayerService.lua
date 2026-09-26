@@ -112,11 +112,13 @@ end
 
 -- ── Character helpers (proxy to Util.Player) ──
 
--- Effective max (runtime flag "Player.MaxWalkSpeed" <- default), read at call-time.
--- Config has no Player section, so the default is the static value.
+-- Effective max (runtime flag "Player.MaxWalkSpeed" <- Config.Player.MaxWalkSpeed),
+-- read at call-time.
 local DEFAULT_MAX_WALK_SPEED: number = 500
 local function maxWalkSpeed(): number
-	return tonumber(EConfig.Get("Player.MaxWalkSpeed", DEFAULT_MAX_WALK_SPEED)) or DEFAULT_MAX_WALK_SPEED
+	local section = Config.Player
+	local static: number = if section then section.MaxWalkSpeed or DEFAULT_MAX_WALK_SPEED else DEFAULT_MAX_WALK_SPEED
+	return tonumber(EConfig.Get("Player.MaxWalkSpeed", static)) or static
 end
 
 -- Returns (applied, actualSpeed). Clamps to [0, Player.MaxWalkSpeed] as

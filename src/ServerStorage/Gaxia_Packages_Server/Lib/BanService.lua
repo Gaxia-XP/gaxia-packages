@@ -279,7 +279,7 @@ local function isEscalationExempt(userId: number): boolean
 		return true
 	end
 	-- ExemptRole = false turns the role exemption off (creator only).
-	local exemptRole = Config.AntiCheat.BanPolicy.ExemptRole :: string | false
+	local exemptRole = Config.AntiCheat.BanPolicy.ExemptRole
 	if exemptRole == false then
 		return false
 	end

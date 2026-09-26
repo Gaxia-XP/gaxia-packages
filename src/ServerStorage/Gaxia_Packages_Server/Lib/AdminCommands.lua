@@ -69,17 +69,17 @@ local ROLES_STORE : DataStore? = nil
 local function readConfig(): ()
 	ADMIN_ENABLED = AdminConfig.Enabled ~= false
 	if typeof(AdminConfig.Tiers) == "table" then
-		for role, tier in pairs(AdminConfig.Tiers :: { [string]: number }) do
+		for role, tier in pairs(AdminConfig.Tiers) do
 			ROLE_TIER[role] = tier
 		end
 	end
 	if typeof(AdminConfig.Aliases) == "table" then
-		for alias, real in pairs(AdminConfig.Aliases :: { [string]: string }) do
+		for alias, real in pairs(AdminConfig.Aliases) do
 			ALIASES[tostring(alias):lower()] = tostring(real):lower()
 		end
 	end
 	if typeof(AdminConfig.Disabled) == "table" then
-		for _, cmdName in ipairs(AdminConfig.Disabled :: { string }) do
+		for _, cmdName in ipairs(AdminConfig.Disabled) do
 			DISABLED[tostring(cmdName):lower()] = true
 		end
 	end
@@ -625,7 +625,7 @@ local function registerBuiltins(): ()
 			-- in memory on every join and the persisted row is upgrade-only on load.
 			-- Refuse with the reason instead of reporting a change that reverts.
 			if typeof(AdminConfig.Bootstrap) == "table" then
-				local seeded = (AdminConfig.Bootstrap :: any)[target.UserId]
+				local seeded = AdminConfig.Bootstrap[target.UserId]
 				if typeof(seeded) == "string" and (ROLE_TIER[role] or 0) < (ROLE_TIER[seeded] or 0) then
 					return fail(`{target.Name} is Bootstrap-floored to {seeded} — the change would revert on next join. Edit Config.Admin.Bootstrap to demote.`)
 				end
@@ -691,7 +691,7 @@ local function autoGrantOwner(p: Player)
 	-- Config.Admin.Bootstrap floor: in-memory only (re-applied each boot, NOT
 	-- persisted) so it also seeds group-owned places that get no creator grant.
 	if typeof(AdminConfig.Bootstrap) == "table" then
-		local seeded = (AdminConfig.Bootstrap :: any)[p.UserId]
+		local seeded = AdminConfig.Bootstrap[p.UserId]
 		if typeof(seeded) == "string" and ROLE_TIER[seeded] ~= nil then
 			local current = ROLE_TIER[roleByUserId[p.UserId] or "default"] or 0
 			if (ROLE_TIER[seeded] or 0) > current then

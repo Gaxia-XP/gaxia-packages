@@ -41,7 +41,7 @@ if not GaxiaServer.IsEnabled("AntiCheat") then
 	print("[Gaxia_ServerBootstrap] complete — AntiCheat not enabled in Features")
 	return
 end
-local AntiCheat = GaxiaServer.AntiCheat :: any
+local AntiCheat = GaxiaServer.AntiCheat
 
 -- ── Default OnAction handler ──────────────────────────────────
 -- Soft action  → warn the player via output + game console.

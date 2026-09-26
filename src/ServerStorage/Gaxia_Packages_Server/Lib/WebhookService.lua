@@ -46,7 +46,7 @@ local function rate(key: string, configured: number?, fallback: number): number
 end
 local function channelUrl(channel: string): string?
 	-- Channels maps channel name -> secret URL (a free-form map in Config).
-	local url = (Config.Webhook.Channels :: { [string]: string })[channel]
+	local url = Config.Webhook.Channels[channel]
 	if typeof(url) == "string" and #url > 0 then
 		return url
 	end
