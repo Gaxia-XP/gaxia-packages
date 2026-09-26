@@ -12,26 +12,20 @@
 --   if Gaxia.Cooldown.ConsumePlayer(player, "Claim", 86400) then grantDaily() end
 --   Gaxia.Cooldown.GetRemaining("GlobalBoss") -- cross-player cooldown (no player key)
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local Players = game:GetService("Players")
-local ServerStorage = game:GetService("ServerStorage")
+
+-- ── Dependencies ──
+local Lifecycle = require(script.Parent.ServiceLifecycle)
+local Config    = require(script.Parent.Parent.Config)
+local EConfig   = require(script.Parent.EffectiveConfig)
 
 -- ── Constants ──
 local SWEEP_INTERVAL  : number = 60     -- ultimate fallback if Config absent
 local PLAYER_KEY_PREFIX : string = "P:" -- namespace for per-player keys
 
--- Lazy server access for Config (resolved at call-time in the sweep loop, after
--- boot — never at module load, so no re-entrant require).
-local GaxiaServer: any = nil
+-- Effective sweep interval (Config default <- runtime override), read every sweep.
 local function sweepInterval(): number
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer.EConfig.Get("Cooldown.SweepInterval", (GaxiaServer.Config.Cooldown or {}).SweepInterval or SWEEP_INTERVAL)
+	return EConfig.Get("Cooldown.SweepInterval", Config.Cooldown.SweepInterval or SWEEP_INTERVAL)
 end
 
 local CooldownService = {}
@@ -55,7 +49,8 @@ end
 
 -- ── Public API ──
 
--- Set / refresh a cooldown on `key` for `duration` seconds.
+-- Set / refresh a cooldown on `key` for `duration` seconds. (Gameplay API — the
+-- service's lifecycle hooks are in the Define spec at the bottom.)
 function CooldownService.Start(key: string, duration: number): ()
 	if type(key) ~= "string" or type(duration) ~= "number" or duration <= 0 then
 		return
@@ -127,10 +122,9 @@ local function clearPlayer(player: Player): ()
 		end
 	end
 end
-Players.PlayerRemoving:Connect(clearPlayer)
 
--- Periodic sweep so never-revisited expired keys don't accumulate.
-task.spawn(function()
+-- Periodic sweep so never-revisited expired keys don't accumulate. Runs forever.
+local function sweepLoop(): ()
 	while true do
 		task.wait(sweepInterval())
 		local t = os.clock()
@@ -140,6 +134,17 @@ task.spawn(function()
 			end
 		end
 	end
-end)
+end
+
+-- The lifecycle hooks live in this spec, not on the module: CooldownService.Start
+-- is the gameplay API above.
+Lifecycle.Define(CooldownService, {
+	Name = "Cooldown",
+	Needs = {},
+	Init = function()
+		Players.PlayerRemoving:Connect(clearPlayer)
+	end,
+	Start = sweepLoop,
+})
 
 return CooldownService

@@ -10,23 +10,26 @@
 -- ── Services ──
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService        = game:GetService("RunService")
 
--- ── Shared ──
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal    = SharedPkg.Signal
-local Trove     = SharedPkg.Trove
+-- ── Dependencies ──
+local Shared    = ReplicatedStorage.Gaxia_Packages.Shared
+local Signal    = require(Shared.Signal)
+local Trove     = require(Shared.Trove)
+local Constants = require(Shared.Constants)
+local Lifecycle = require(script.Parent.ServiceLifecycle)
 
--- Constants is a frozen table; fall back to defaults if missing.
-local Constants = SharedPkg.Constants or {}
-local SAMPLER_INTERVAL : number = (Constants.SAMPLER_INTERVAL :: any) or 0.5
+-- Constants no longer defines SAMPLER_INTERVAL (see Shared/Constants), so this
+-- is 0.5 unless it is added back there.
+local SAMPLER_INTERVAL : number = Constants.SAMPLER_INTERVAL or 0.5
 
 -- ── Types ──
 export type Zone = {
 	Name: string,
 	Region: BasePart,
-	OnEntered: any,
-	OnLeft: any,
+	-- (player) when the player's HumanoidRootPart enters the region
+	OnEntered: Signal.Signal<Player>,
+	-- (player) when the player leaves the region, loses their character, or leaves the game
+	OnLeft: Signal.Signal<Player>,
 	IsInside: (self: Zone, player: Player) -> boolean,
 	GetPlayers: (self: Zone) -> { Player },
 	Destroy: (self: Zone) -> (),
@@ -59,8 +62,8 @@ local function newZone(name: string, region: BasePart): Zone
 	local self = setmetatable({
 		Name      = name,
 		Region    = region,
-		OnEntered = Signal.new(),
-		OnLeft    = Signal.new(),
+		OnEntered = Signal.new() :: Signal.Signal<Player>,
+		OnLeft    = Signal.new() :: Signal.Signal<Player>,
 		_inside   = {} :: { [Player]: boolean },
 		_trove    = Trove.new(),
 	}, Zone)
@@ -156,5 +159,12 @@ function ZoneService.Destroy(name: string): ()
 	local z = zonesByName[name]
 	if z then z:Destroy() end
 end
+
+-- Pure API: nothing to set up (each Create starts its own sampler).
+-- Registered so Features / IsEnabled know it.
+Lifecycle.Define(ZoneService, {
+	Name = "Zone",
+	Needs = {},
+})
 
 return ZoneService

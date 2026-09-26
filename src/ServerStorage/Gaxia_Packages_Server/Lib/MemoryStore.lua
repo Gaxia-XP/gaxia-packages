@@ -15,9 +15,12 @@
 --   Gaxia.Memory.MapSet("ranks", tostring(uid), {name=n}, 3600, score)
 --   local top = Gaxia.Memory.MapRange("ranks", 10, false)  -- highest first
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local MemoryStoreService = game:GetService("MemoryStoreService")
+
+local Lifecycle = require(script.Parent.ServiceLifecycle)
+
+-- One MapRange result row.
+export type MapRangeEntry = { key: string, value: any, sortKey: number }
 
 local Memory = {}
 
@@ -116,7 +119,7 @@ function Memory.MapRemove(mapName: string, key: string): boolean
 end
 
 -- Return up to `count` entries sorted by sortKey. ascending=false → highest first.
-function Memory.MapRange(mapName: string, count: number, ascending: boolean?): { { key: string, value: any, sortKey: number } }
+function Memory.MapRange(mapName: string, count: number, ascending: boolean?): { MapRangeEntry }
 	ensureProbe()
 	local asc = ascending ~= false
 	if not fallback then
@@ -129,7 +132,7 @@ function Memory.MapRange(mapName: string, count: number, ascending: boolean?): {
 		end
 		fallback = true
 	end
-	local entries: { { key: string, value: any, sortKey: number } } = {}
+	local entries: { MapRangeEntry } = {}
 	for key, e in pairs(fbMap(mapName)) do
 		if e.expireAt >= now() then
 			table.insert(entries, { key = key, value = e.value, sortKey = e.sortKey })
@@ -239,5 +242,12 @@ function Memory.QueueRemove(queueName: string, readId: string): boolean
 	readBatches[readId] = nil
 	return true
 end
+
+-- Pure API: nothing to set up (the availability probe runs on the first call,
+-- which may yield). Registered so Features / IsEnabled know it.
+Lifecycle.Define(Memory, {
+	Name = "Memory",
+	Needs = {},
+})
 
 return Memory

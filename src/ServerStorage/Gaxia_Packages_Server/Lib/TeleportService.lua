@@ -15,48 +15,38 @@
 --   Gaxia.Teleport.To(player, 123456, { Data = { fromLobby = true } })
 --   local code = Gaxia.Teleport.ReserveServer(123456)
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local TeleportService = game:GetService("TeleportService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
-
--- ── Lazy server (Config + EConfig) — resolved at CALL-TIME, never module load ──
-local ServerStorage = game:GetService("ServerStorage")
-local _server: any = nil
-local function server(): any
-	if not _server then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		_server = require(serverInit :: any)
-	end
-	return _server
-end
+-- ── Dependencies ──
+local Signal    = require(ReplicatedStorage.Gaxia_Packages.Shared.Signal)
+local Lifecycle = require(script.Parent.ServiceLifecycle)
+local Config    = require(script.Parent.Parent.Config)
 
 export type TeleportOpts = { Data: any?, ReservedAccessCode: string? }
 
 local Teleport = {}
 
-Teleport.OnTeleportFailed = Signal.new() -- (players, placeId, err)
+-- (players, placeId, err) once To/ToPrivate has used up every retry without success
+Teleport.OnTeleportFailed = Signal.new() :: Signal.Signal<{ Player }, number, any>
 
--- Defaults sourced from Config.Teleport.Retry at CALL-TIME (server package require
--- yields under the loader metamethod, so it can't happen at module load). Built once
--- on first access; Configure() overrides apply on top of the Config-sourced defaults.
-local config: { [string]: any } = nil :: any
+-- Defaults sourced from Config.Teleport.Retry on first use (Configure/To/ToPrivate),
+-- built once; Configure() overrides apply on top of the Config-sourced defaults.
+local config: { [string]: any }? = nil
 
 local function ensureConfig(): { [string]: any }
-	if not config then
-		local r = (server().Config.Teleport or {}).Retry or {}
-		config = {
-			MaxAttempts = r.MaxAttempts or 4,
-			BaseDelay = r.BaseDelay or 1,   -- seconds
-			MaxDelay = r.MaxDelay or 15,
-		}
+	local existing = config
+	if existing then
+		return existing
 	end
-	return config
+	local r = Config.Teleport.Retry
+	local cfg: { [string]: any } = {
+		MaxAttempts = r.MaxAttempts or 4,
+		BaseDelay = r.BaseDelay or 1,   -- seconds
+		MaxDelay = r.MaxDelay or 15,
+	}
+	config = cfg
+	return cfg
 end
 
 function Teleport.Configure(partial: { [string]: any }): ()
@@ -71,7 +61,7 @@ function Teleport.ComputeBackoff(attempt: number, base: number, maxDelay: number
 	return math.min(base * 2 ^ (attempt - 1), maxDelay)
 end
 
-local function toList(players: any): { Player }
+local function toList(players: Player | { Player }): { Player }
 	if typeof(players) == "Instance" then
 		return { players }
 	end
@@ -93,7 +83,7 @@ end
 
 -- ── Teleport with retry ──
 
-function Teleport.To(players: any, placeId: number, opts: TeleportOpts?): (boolean, any)
+function Teleport.To(players: Player | { Player }, placeId: number, opts: TeleportOpts?): (boolean, any)
 	local list = toList(players)
 	local options = buildOptions(opts)
 	local config = ensureConfig()
@@ -126,7 +116,7 @@ function Teleport.ReserveServer(placeId: number): (string?, string?, string?)
 	return code, privateId, nil
 end
 
-function Teleport.ToPrivate(players: any, placeId: number, accessCode: string, opts: TeleportOpts?): (boolean, any)
+function Teleport.ToPrivate(players: Player | { Player }, placeId: number, accessCode: string, opts: TeleportOpts?): (boolean, any)
 	local merged: TeleportOpts = {
 		Data = opts and opts.Data,
 		ReservedAccessCode = accessCode,
@@ -155,5 +145,11 @@ function Teleport.GetPlaceInstance(placeId: number, userId: number): (any?, any?
 	end
 	return a, b, nil
 end
+
+-- Pure API: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(Teleport, {
+	Name = "Teleport",
+	Needs = {},
+})
 
 return Teleport

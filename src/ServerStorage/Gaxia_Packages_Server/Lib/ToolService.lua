@@ -12,9 +12,11 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService       = game:GetService("HttpService")
 
--- ── Shared ──
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal    = SharedPkg.Signal
+-- ── Dependencies ──
+-- Keep this list free of AntiCheat (and of anything that requires it): the
+-- AntiCheat detectors BackpackGuard and ToolDuplicationGuard require ToolService.
+local Signal    = require(ReplicatedStorage.Gaxia_Packages.Shared.Signal)
+local Lifecycle = require(script.Parent.ServiceLifecycle)
 
 -- ── Constants ──
 local UID_ATTR     : string = "UID"
@@ -23,8 +25,8 @@ local ITEM_ID_ATTR : string = "ItemId"
 -- ── Module ──
 local ToolService = {}
 
--- (tool) — fired when a duplicate UID is detected; the duplicate is destroyed before firing.
-ToolService.OnDuplicate = Signal.new()
+-- (tool) when a duplicate UID is detected — fired just before the duplicate is destroyed
+ToolService.OnDuplicate = Signal.new() :: Signal.Signal<Tool>
 
 -- UID → Tool registry. WeakValues so destroyed tools self-evict.
 local trackedTools: { [string]: Tool } = setmetatable({}, { __mode = "v" }) :: any
@@ -100,5 +102,12 @@ function ToolService.IsTracked(tool: Tool): boolean
 	if typeof(uid) ~= "string" then return false end
 	return trackedTools[uid] == tool
 end
+
+-- Pure API: nothing to set up (the registry and OnDuplicate exist as soon as the
+-- module is required — AntiCheat's ToolDuplicationGuard connects to it then).
+Lifecycle.Define(ToolService, {
+	Name = "Tool",
+	Needs = {},
+})
 
 return ToolService
