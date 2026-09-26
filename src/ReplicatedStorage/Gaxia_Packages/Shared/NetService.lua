@@ -23,7 +23,6 @@
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService        = game:GetService("RunService")
-local ServerStorage     = game:GetService("ServerStorage")
 
 local IS_SERVER : boolean = RunService:IsServer()
 
@@ -48,33 +47,55 @@ export type RemoteOpts = {
 -- ── Folder bootstrap ──
 
 -- Server creates Events/Net lazily; clients wait for replication.
-local netFolder : Folder
-do
-	local events : Instance?
-	if IS_SERVER then
-		events = ReplicatedStorage:FindFirstChild("Events")
-		if not events then
-			events = Instance.new("Folder")
-			events.Name = "Events"
-			events.Parent = ReplicatedStorage
-		end
-	else
-		events = ReplicatedStorage:WaitForChild("Events", 10)
-	end
-	assert(events, "[NetService] ReplicatedStorage.Events folder missing")
+-- (player, reason, severity) — installed by the server's AntiCheat (Init), which
+-- decides escalation. Kept as a hook so this shared module never reaches into
+-- ServerStorage. Violations before a handler is installed are dropped.
+export type ViolationHandler = (player: Player, reason: string, severity: "soft" | "hard") -> ()
 
-	local found = events:FindFirstChild("Net")
-	if not found then
-		if IS_SERVER then
-			found = Instance.new("Folder")
-			found.Name = "Net"
-			found.Parent = events
-		else
-			found = events:WaitForChild("Net", 10)
-		end
+-- ReplicatedStorage.Events/Net. The server creates it when NetService is first
+-- required (the server loader does that before any player joins). The client
+-- resolves it on first use instead of in this module body, which can run inside
+-- the Gaxia loader's __index metamethod where waiting is not allowed; by then the
+-- folder has replicated, so the lookup normally finds it without waiting.
+local netFolder : Folder? = nil
+
+local function ensureServerFolders(): Folder
+	local events = ReplicatedStorage:FindFirstChild("Events")
+	if not events then
+		events = Instance.new("Folder")
+		events.Name = "Events"
+		events.Parent = ReplicatedStorage
 	end
-	assert(found, "[NetService] Events.Net folder missing on client")
-	netFolder = found :: Folder
+	local found = (events :: Instance):FindFirstChild("Net")
+	if not found then
+		found = Instance.new("Folder")
+		found.Name = "Net"
+		found.Parent = events
+	end
+	return found :: Folder
+end
+
+local function getNetFolder(): Folder
+	local cached = netFolder
+	if cached then
+		return cached
+	end
+	local folder: Folder
+	if IS_SERVER then
+		folder = ensureServerFolders()
+	else
+		local events = ReplicatedStorage:FindFirstChild("Events") or ReplicatedStorage:WaitForChild("Events", 10)
+		assert(events, "[NetService] ReplicatedStorage.Events folder missing")
+		local found = events:FindFirstChild("Net") or events:WaitForChild("Net", 10)
+		assert(found, "[NetService] Events.Net folder missing on client")
+		folder = found :: Folder
+	end
+	netFolder = folder
+	return folder
+end
+
+if IS_SERVER then
+	getNetFolder()
 end
 
 -- ── Per-player token-bucket rate limit ──
@@ -100,22 +121,13 @@ local function getBucket(player: Player, name: string, rate: number, burst: numb
 	return b
 end
 
--- ── AntiCheat lazy reference ──
--- Direct path require so we don't form a recursion cycle with GaxiaServer's
--- __index lazy-load when called from inside AntiCheat init's load chain.
-local _antiCheatRef : any = nil
-local function getAntiCheat(): any
-	if not IS_SERVER then return nil end
-	if _antiCheatRef ~= nil then return _antiCheatRef end
-	local pkg = ServerStorage:FindFirstChild("Gaxia_Packages_Server")
-	if not pkg then return nil end
-	local acFolder = pkg:FindFirstChild("AntiCheat")
-	local acInit = acFolder and acFolder
-	if acInit and acInit:IsA("ModuleScript") then
-		local ok, mod = pcall(require, acInit)
-		if ok then _antiCheatRef = mod end
+local violationHandler : ViolationHandler? = nil
+
+local function reportViolation(player: Player, reason: string, severity: "soft" | "hard"): ()
+	local handler = violationHandler
+	if handler then
+		handler(player, reason, severity)
 	end
-	return _antiCheatRef
 end
 
 -- ── Internal helpers ──
@@ -129,8 +141,7 @@ local function consume(player: Player, name: string, opts: RemoteOpts?): boolean
 		return true
 	end
 	-- Out of budget — feed AntiCheat (its threshold ladder decides escalation).
-	local ac = getAntiCheat()
-	if ac then ac.Flag(player, `RemoteRate:{name}`, "soft") end
+	reportViolation(player, `RemoteRate:{name}`, "soft")
 	return false
 end
 
@@ -145,7 +156,8 @@ end
 -- Get-or-create remote of the requested class under Net folder. On the client
 -- this waits up to 10s for replication; on the server it creates immediately.
 local function getOrCreate(className: string, name: string): Instance
-	local existing = netFolder:FindFirstChild(name)
+	local folder = getNetFolder()
+	local existing = folder:FindFirstChild(name)
 	if existing then
 		assert(existing.ClassName == className,
 			`[NetService] '{name}' is a {existing.ClassName}, expected {className}`)
@@ -154,10 +166,10 @@ local function getOrCreate(className: string, name: string): Instance
 	if IS_SERVER then
 		local inst = Instance.new(className)
 		inst.Name = name
-		inst.Parent = netFolder
+		inst.Parent = folder
 		return inst
 	end
-	local waited = netFolder:WaitForChild(name, 10)
+	local waited = folder:WaitForChild(name, 10)
 	if not waited then
 		error(`[NetService] Remote '{name}' not registered by server`)
 	end
@@ -168,6 +180,13 @@ end
 
 local Net = {}
 
+-- Server: route rate-limit ("soft") and argument-validation ("hard") violations to
+-- `handler`. The AntiCheat orchestrator installs this in its Init.
+function Net.SetViolationHandler(handler: ViolationHandler?): ()
+	assert(IS_SERVER, "Net.SetViolationHandler is server-only")
+	violationHandler = handler
+end
+
 -- ── Server API ──
 
 function Net.OnServer(name: string, handler: (player: Player, ...any) -> (), opts: RemoteOpts?): RemoteEvent
@@ -176,8 +195,7 @@ function Net.OnServer(name: string, handler: (player: Player, ...any) -> (), opt
 	re.OnServerEvent:Connect(function(player: Player, ...: any)
 		if not consume(player, name, opts) then return end
 		if not validateArgs(opts and opts.validators, { ... }) then
-			local ac = getAntiCheat()
-			if ac then ac.Flag(player, `RemoteValidation:{name}`, "hard") end
+			reportViolation(player, `RemoteValidation:{name}`, "hard")
 			return
 		end
 		handler(player, ...)
@@ -191,8 +209,7 @@ function Net.OnInvoke(name: string, handler: (player: Player, ...any) -> ...any,
 	rf.OnServerInvoke = function(player: Player, ...: any)
 		if not consume(player, name, opts) then return nil end
 		if not validateArgs(opts and opts.validators, { ... }) then
-			local ac = getAntiCheat()
-			if ac then ac.Flag(player, `RemoteValidation:{name}`, "hard") end
+			reportViolation(player, `RemoteValidation:{name}`, "hard")
 			return nil
 		end
 		return handler(player, ...)

@@ -418,6 +418,11 @@ end
 -- Direct AntiCheat members (`AntiCheat.OnFlag`, `AntiCheat.Flag`, ...) still
 -- win because raw lookups skip __index entirely.
 ensureAntiCheatRemotes()  -- create channels BEFORE detectors Init (Phase 17.1)
+-- NetService reports rate-limit / argument-validation violations through this hook
+-- (it no longer requires this module from the shared side).
+SharedPkg.Net.SetViolationHandler(function(player: Player, reason: string, severity: "soft" | "hard")
+	recordFlag(player, reason, severity)
+end)
 loadDetectors()
 setmetatable(AntiCheat, {
 	__index = function(_, key: string): any?

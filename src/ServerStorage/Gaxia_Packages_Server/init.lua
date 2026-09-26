@@ -2,10 +2,17 @@
 -- ============================================================
 -- init (ModuleScript)
 -- Location : ServerStorage/Gaxia_Packages_Server
--- Purpose  : Master lazy-loading loader for server-side Gaxia
---            packages. Exposes Lib/ services and AntiCheat/
---            namespace, and re-exports ReplicatedStorage.
---            Gaxia_Packages as .Shared for cross-context access.
+-- Purpose  : Server entry point. Loads services lazily by key
+--            (GaxiaServer.Economy → Lib/EconomyService) and starts them through
+--            ServiceLifecycle: the services listed in Config/Features (or the
+--            game-owned ServerStorage.GaxiaFeatures) start at Boot; any other
+--            service starts the first time it is touched. Re-exports
+--            ReplicatedStorage.Gaxia_Packages as .Shared.
+--
+--            Boot runs once, on whichever comes first: the bootstrap Script
+--            calling GaxiaServer.Boot(), or any game code touching a service key.
+--            ReplicatedStorage.Events (+ Events/Net) exist as soon as this module
+--            is required, so game Scripts never depend on Script run order.
 -- ============================================================
 
 -- ── Services ─────────────────────────────────────────────────
@@ -13,6 +20,9 @@
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService        = game:GetService("RunService")
+local ServerStorage     = game:GetService("ServerStorage")
+
+local Types = require(script.Types)
 
 -- ── Type definitions (for IDE auto-complete) ─────────────────
 --
@@ -108,6 +118,13 @@ export type GaxiaServerPackage = {
 	-- ── Config (server-side single config surface) ──
 	Config : typeof(require(script.Config)),
 	EConfig : typeof(require(script.Lib.EffectiveConfig)),
+
+	-- ── Boot / status ──
+	-- Start the Features services (idempotent; also runs on first service access).
+	Boot : () -> (),
+	-- True once the service has started (a listed Features service after Boot, or
+	-- any service after first use). Never loads anything.
+	IsEnabled : (name: Types.ServiceName | string) -> boolean,
 }
 
 -- ── Guards ───────────────────────────────────────────────────
@@ -116,11 +133,18 @@ if RunService:IsClient() then
 	error("[Gaxia_Packages_Server] Cannot require server package from the client.")
 end
 
+-- Edit mode (plugins, command bar): expose the package but never boot services or
+-- create instances in the place.
+local IS_RUNNING : boolean = RunService:IsRunning()
+
 -- ── Constants ────────────────────────────────────────────────
 
 local TAG_NAME : string = "Gaxia_Packages"
+-- Attribute on ReplicatedStorage.Gaxia_Packages listing started services (comma
+-- separated) so the client bootstrap only pre-warms modules whose server side runs.
+local FEATURES_ATTRIBUTE : string = "GaxiaServerFeatures"
 
--- Maps short server-side keys to their full ModuleScript names
+-- Maps short server-side keys to their full ModuleScript names under Lib/
 local LIB_KEY_MAP : { [string]: string } = {
 	Data        = "DataManager",
 	Player      = "PlayerService",
@@ -179,9 +203,22 @@ local LIB_KEY_MAP : { [string]: string } = {
 	Pet         = "PetService",
 }
 
--- ── Internal Cache ───────────────────────────────────────────
+-- Keys resolved from the package root instead of Lib/.
+local ROOT_KEY_MAP : { [string]: string } = {
+	AntiCheat = "AntiCheat",
+}
+
+-- Framework utilities: loader keys, but not services (never listed as started).
+local UTILITY_KEYS : { [string]: boolean } = {
+	Lifecycle = true,
+	EConfig   = true,
+}
+
+-- ── Internal State ───────────────────────────────────────────
 
 local moduleCache : { [string]: any } = {}
+local failedKeys  : { [string]: boolean } = {}
+local bootStarted = false
 
 -- ── Private Helpers ──────────────────────────────────────────
 
@@ -195,10 +232,8 @@ local function safeRequire(mod: ModuleScript, label: string): any?
 end
 
 local function resolveChild(folder: Instance, name: string): ModuleScript?
-	-- WaitForChild fallback removed: this helper is reachable from __index
-	-- metamethods, and Luau forbids yielding across metamethod / C-call
-	-- boundaries ("attempt to yield across metamethod/C-call boundary").
-	-- Lib children are already present by the time the loader returns.
+	-- FindFirstChild, never WaitForChild: this runs inside the __index metamethod,
+	-- where Luau forbids yielding. Package children exist once the loader returns.
 	local child : Instance? = folder:FindFirstChild(name)
 	if child == nil or not child:IsA("ModuleScript") then
 		return nil
@@ -209,11 +244,11 @@ end
 -- ── Auto-tagger ──────────────────────────────────────────────
 
 local function autoTagDescendants(): ()
-	-- Under Rojo this `init` IS the Gaxia_Packages_Server ModuleScript and the package's
-	-- modules are its descendants. (It used to tag script.Parent, which is the
-	-- whole ServerStorage — every game asset got the tag.) Tag the
-	-- package + all its descendants so consumers can query "everything that
-	-- belongs to Gaxia_Packages_Server" via CollectionService.
+	-- Under Rojo this `init` IS the Gaxia_Packages_Server ModuleScript and the
+	-- package's modules are its descendants. (It used to tag script.Parent, which is
+	-- the whole ServerStorage — every game asset got the tag.) Tag the package + all
+	-- its descendants so consumers can query "everything that belongs to
+	-- Gaxia_Packages_Server" via CollectionService.
 	local packageRoot = script :: Instance
 	if not CollectionService:HasTag(packageRoot, TAG_NAME) then
 		CollectionService:AddTag(packageRoot, TAG_NAME)
@@ -225,79 +260,28 @@ local function autoTagDescendants(): ()
 	end
 end
 
--- ── Nested Namespace Proxy ───────────────────────────────────
-
-local function makeNamespaceProxy(folder: Instance, prefix: string): { [string]: any }
-	local proxy = {}
-	local cache : { [string]: any } = {}
-
-	setmetatable(proxy, {
-		__index = function(_, key: string): any?
-			if cache[key] ~= nil then
-				return cache[key]
-			end
-			local mod = resolveChild(folder, key)
-			if mod == nil then
-				warn(`[Gaxia_Packages_Server] '{prefix}.{key}' not found in {folder:GetFullName()}`)
-				return nil
-			end
-			local result = safeRequire(mod, `{prefix}.{key}`)
-			cache[key] = result
-			return result
-		end,
-	})
-
-	return proxy
-end
-
 -- ── Module Assembly ──────────────────────────────────────────
 
 local function buildGaxiaServer(): { [string]: any }
-	-- Lib/ and AntiCheat/ are siblings of this `init` ModuleScript under the
-	-- Gaxia_Packages_Server folder, not children of `init`.
-	local packageRoot     : ModuleScript = script :: ModuleScript
-	local libFolder       : Folder = packageRoot:WaitForChild("Lib")       :: Folder
-	local antiCheatFolder : Folder = packageRoot:WaitForChild("AntiCheat") :: Folder
+	local packageRoot : ModuleScript = script :: ModuleScript
+	local libFolder   : Folder = packageRoot:WaitForChild("Lib") :: Folder
 
 	autoTagDescendants()
 
-	-- Re-export ReplicatedStorage.Gaxia_Packages as .Shared
-	-- The Gaxia_Packages instance is a Folder, not a ModuleScript — its child
-	-- `init` is the actual loader (Rojo's "init.lua" convention is build-time
-	-- only, so at runtime we must drill in manually).
-	local sharedFolder : Instance? = ReplicatedStorage:WaitForChild("Gaxia_Packages", 10)
-	local sharedInitMod : Instance? = if sharedFolder then sharedFolder else nil
+	-- Re-export ReplicatedStorage.Gaxia_Packages as .Shared. It is the Gaxia_Packages
+	-- ModuleScript itself (Rojo init.lua), with Shared/ and Client/ as its children.
+	local sharedRoot : Instance? = ReplicatedStorage:WaitForChild("Gaxia_Packages", 10)
 	local sharedPackage : { [string]: any } = {}
-	if sharedInitMod and sharedInitMod:IsA("ModuleScript") then
-		local loaded = safeRequire(sharedInitMod :: ModuleScript, "Gaxia_Packages.init")
+	if sharedRoot and sharedRoot:IsA("ModuleScript") then
+		local loaded = safeRequire(sharedRoot, "Gaxia_Packages")
 		if loaded then
 			sharedPackage = loaded
 		end
 	else
-		warn("[Gaxia_Packages_Server] Could not find ReplicatedStorage.Gaxia_Packages.init ModuleScript")
+		warn("[Gaxia_Packages_Server] Could not find the ReplicatedStorage.Gaxia_Packages ModuleScript")
 	end
 
-	-- WHY AntiCheat is the orchestrator directly (not a namespace proxy):
-	-- Consumers want `GaxiaServer.AntiCheat.Flag(...)` and `.OnFlag` — these
-	-- are members of the AntiCheat orchestrator (the `init` ModuleScript inside
-	-- the AntiCheat folder), NOT sibling detector modules. Returning the
-	-- orchestrator here makes the API match user expectations *and* matches
-	-- the type definition `typeof(require(script.Parent.AntiCheat))`.
-	-- The orchestrator itself auto-loads every sibling detector at boot.
-	local antiCheatInitMod = antiCheatFolder
-	local antiCheatModule : any = {}
-	if antiCheatInitMod and antiCheatInitMod:IsA("ModuleScript") then
-		local loaded = safeRequire(antiCheatInitMod :: ModuleScript, "AntiCheat")
-		if loaded then
-			antiCheatModule = loaded
-		end
-	else
-		warn("[Gaxia_Packages_Server] AntiCheat not found — AntiCheat namespace will be empty")
-	end
-
-	-- ── Root Table ───────────────────────────────────────────
-
-	-- Config (server-side single config surface). Pure-table body → no yield, safe here.
+	-- Config (server-side single config surface). Pure-table body → no yield.
 	local configModule: any = {}
 	local configInst = packageRoot:FindFirstChild("Config")
 	if configInst and configInst:IsA("ModuleScript") then
@@ -307,41 +291,161 @@ local function buildGaxiaServer(): { [string]: any }
 		end
 	end
 
+	-- Lifecycle is pure (no side effects); needed by Boot and the __index path.
+	local lifecycleMod = resolveChild(libFolder, "ServiceLifecycle")
+	local Lifecycle : any = if lifecycleMod then safeRequire(lifecycleMod, "Lifecycle") else nil
+
+	-- NetService's server body creates ReplicatedStorage.Events and Events/Net. Do it
+	-- now, while the loader is being required, so game Scripts that index
+	-- ReplicatedStorage.Events right after requiring the loader work whatever order
+	-- Roblox runs Scripts in (the AntiCheat orchestrator used to do this implicitly).
+	if IS_RUNNING then
+		local _net = sharedPackage.Net
+	end
+
 	local GaxiaServer : { [string]: any } = {
-		Shared    = sharedPackage,
-		AntiCheat = antiCheatModule,
-		Config    = configModule,
+		Shared = sharedPackage,
+		Config = configModule,
 	}
 
-	-- ── Root __index for flat Lib/ services ──────────────────
+	-- Resolve a key to its module WITHOUT starting it. Caches successes and failures.
+	local function loadKey(key: string): any?
+		local cached = moduleCache[key]
+		if cached ~= nil then
+			return cached
+		end
+		if failedKeys[key] then
+			return nil
+		end
+		local mod: ModuleScript? = nil
+		local rootName = ROOT_KEY_MAP[key]
+		if rootName then
+			mod = resolveChild(packageRoot, rootName)
+		else
+			local libName = LIB_KEY_MAP[key]
+			mod = resolveChild(libFolder, libName or key)
+		end
+		if mod == nil then
+			return nil
+		end
+		local result = safeRequire(mod, key)
+		if result == nil then
+			failedKeys[key] = true
+			return nil
+		end
+		moduleCache[key] = result
+		return result
+	end
+
+	-- A service counts as started when it has no lifecycle spec (legacy module: its
+	-- body did the setup when it was loaded) or its spec reached "initialized".
+	local function isStarted(key: string): boolean
+		local mod = moduleCache[key]
+		if mod == nil then
+			return false
+		end
+		if Lifecycle == nil then
+			return true
+		end
+		local state = Lifecycle.GetState(mod)
+		return state == nil or state == "initialized"
+	end
+
+	local function publishFeatures(): ()
+		if not IS_RUNNING or sharedRoot == nil then
+			return
+		end
+		local names: { string } = {}
+		for key in pairs(moduleCache) do
+			if (LIB_KEY_MAP[key] or ROOT_KEY_MAP[key]) and not UTILITY_KEYS[key] and isStarted(key) then
+				table.insert(names, key)
+			end
+		end
+		table.sort(names)
+		sharedRoot:SetAttribute(FEATURES_ATTRIBUTE, table.concat(names, ","))
+	end
+
+	local function readFeatures(): { string }
+		local services: { string } = {}
+		local defaults = configModule.Features
+		if type(defaults) == "table" and type(defaults.Services) == "table" then
+			services = defaults.Services
+		end
+		-- Game-owned override survives Companion reinstalls (outside this package).
+		local overrideInst = ServerStorage:FindFirstChild("GaxiaFeatures")
+		if overrideInst and overrideInst:IsA("ModuleScript") then
+			local override = safeRequire(overrideInst, "ServerStorage.GaxiaFeatures")
+			if type(override) == "table" and type(override.Services) == "table" then
+				services = override.Services
+			elseif override ~= nil then
+				warn("[Gaxia_Packages_Server] ServerStorage.GaxiaFeatures must return { Services = { ... } } — ignored")
+			end
+		end
+		return services
+	end
+
+	function GaxiaServer.Boot(): ()
+		if bootStarted or not IS_RUNNING then
+			return
+		end
+		bootStarted = true
+		local modules: { any } = {}
+		for _, name in ipairs(readFeatures()) do
+			if LIB_KEY_MAP[name] == nil and ROOT_KEY_MAP[name] == nil then
+				warn(`[Gaxia_Packages_Server] Features: unknown service "{name}" — ignored`)
+				continue
+			end
+			-- A module whose body errors is warned and skipped; Boot carries on.
+			local mod = loadKey(name)
+			if mod ~= nil then
+				table.insert(modules, mod)
+			end
+		end
+		if Lifecycle then
+			Lifecycle.Boot(modules)
+			Lifecycle.OnAnyInitialized(function()
+				publishFeatures()
+			end)
+		end
+		publishFeatures()
+		-- Role-gated behaviour depends on AdminCommands installing its resolvers.
+		for _, dependent in ipairs({ "Chat", "Ban" }) do
+			if isStarted(dependent) and not isStarted("Admin") then
+				warn(`[Gaxia_Packages_Server] {dependent} is running without Admin: role checks fall back to defaults (role-gated chat commands are denied; only the place creator is exempt from auto-bans)`)
+			end
+		end
+	end
+
+	function GaxiaServer.IsEnabled(name: string): boolean
+		return isStarted(name)
+	end
+
+	-- ── Root __index: lazy load + start on first access ──────
 	setmetatable(GaxiaServer, {
 		__index = function(t: { [string]: any }, key: string): any?
-			if moduleCache[key] ~= nil then
-				return moduleCache[key]
+			if not bootStarted and IS_RUNNING and (LIB_KEY_MAP[key] or ROOT_KEY_MAP[key]) then
+				-- First service access boots the framework, so game code never sees a
+				-- half-started framework whatever order Roblox runs Scripts in.
+				GaxiaServer.Boot()
 			end
-
-			-- 1. Try semantic key map (Data → DataManager, etc.)
-			local modName = LIB_KEY_MAP[key]
-			if modName then
-				local mod = resolveChild(libFolder, modName)
-				if mod then
-					local result = safeRequire(mod, key)
-					moduleCache[key] = result
-					rawset(t, key, result)
-					return result
+			local result = loadKey(key)
+			if result == nil then
+				return nil
+			end
+			if Lifecycle and IS_RUNNING then
+				Lifecycle.EnsureAuto(result)
+				if Lifecycle.GetState(result) == "failed" then
+					if not failedKeys[key] then
+						failedKeys[key] = true
+						warn(`[Gaxia_Packages_Server] '{key}' failed to start — returning nil`)
+					end
+					moduleCache[key] = nil
+					return nil
 				end
+				publishFeatures()
 			end
-
-			-- 2. Try Lib/ by exact key name (fallback)
-			local directMod = resolveChild(libFolder, key)
-			if directMod then
-				local result = safeRequire(directMod, key)
-				moduleCache[key] = result
-				rawset(t, key, result)
-				return result
-			end
-
-			return nil
+			rawset(t, key, result)
+			return result
 		end,
 	})
 

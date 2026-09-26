@@ -22,37 +22,57 @@ end
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- ── Master loader ──
-local Gaxia = require(
-	ReplicatedStorage:WaitForChild("Gaxia_Packages")
-) :: any
+local packageRoot = ReplicatedStorage:WaitForChild("Gaxia_Packages")
+local Gaxia = require(packageRoot) :: any
 
--- ── Start client AntiCheat ──
--- Reading the AntiCheat key triggers ClientAntiCheat to require — its module
--- body kicks off the sampler loop on its own. We hold the reference so the
--- GC can't collect it.
-local ClientAC = Gaxia.AntiCheat
-if ClientAC == nil then
-	warn("[Gaxia_ClientBootstrap] ClientAntiCheat unavailable")
+-- ── Which client modules to load now (Features.lua or the game-owned override) ──
+local features = require(packageRoot:WaitForChild("Features"))
+local entries = features.Client
+local override = ReplicatedStorage:FindFirstChild("GaxiaClientFeatures")
+if override and override:IsA("ModuleScript") then
+	local ok, result = pcall(require, override)
+	if ok and type(result) == "table" and type(result.Client) == "table" then
+		entries = result.Client
+	else
+		warn("[Gaxia_ClientBootstrap] ReplicatedStorage.GaxiaClientFeatures must return { Client = { ... } } — ignored")
+	end
 end
 
--- ── Pre-warm common namespaces ──
--- Touching these once forces their underlying modules to load now (during
--- character spawn) rather than on first user interaction (mid-gameplay frame).
-local _ = Gaxia.UI       -- UIController + its dependents
-local _ = Gaxia.Input    -- InputManager (lazy if absent)
-local _ = Gaxia.Camera   -- CameraController (lazy if absent)
-local _ = Gaxia.Sound    -- SoundController (lazy if absent)
--- AdminPanel wires its toolbar button, F2 hotkey, and role-hint subscription
--- in its module body — touch it once so that happens at spawn (the panel only
--- shows its button to moderator+; F2 opens the shell for anyone but the server
--- gates all content + rejects unauthorized actions).
-local _ = Gaxia.UI.AdminPanel
--- ChatFeedback subscribes to Events/Chat/SystemMessage in its module body —
--- pre-warm so chat-command replies (/help, admin command outcomes) render
--- from the first command typed.
-local _ = Gaxia.ChatFeedback
--- PetController subscribes to PetSync/PetHatch and binds the P toggle key in its
--- module body — pre-warm so the pet panel is reachable from spawn.
-local _ = Gaxia.UI.PetController
+-- ── Services the server started (published by the server loader at Boot) ──
+-- Normally already replicated with the package. If it never arrives (older server
+-- package), load every entry like before.
+local FEATURES_ATTRIBUTE = "GaxiaServerFeatures"
+local published = packageRoot:GetAttribute(FEATURES_ATTRIBUTE)
+local deadline = os.clock() + 10
+while published == nil and os.clock() < deadline do
+	task.wait(0.1)
+	published = packageRoot:GetAttribute(FEATURES_ATTRIBUTE)
+end
+local serverStarted: { [string]: boolean }? = nil
+if type(published) == "string" then
+	local set: { [string]: boolean } = {}
+	for name in string.gmatch(published, "[^,]+") do
+		set[name] = true
+	end
+	serverStarted = set
+end
 
-print("[Gaxia_ClientBootstrap] complete — shared package + ClientAntiCheat online")
+-- ── Pre-warm ──
+-- Touching a key loads its module now (during character spawn) rather than on
+-- first use. Modules such as ClientAntiCheat, AdminPanel, ChatFeedback and
+-- PetController wire their loops, hotkeys and subscriptions in their module body.
+for _, entry in ipairs(entries) do
+	local needs = entry.RequiresServer
+	if needs and serverStarted and not serverStarted[needs] then
+		continue
+	end
+	local value: any = Gaxia
+	for part in string.gmatch(entry.Key, "[^.]+") do
+		value = if value ~= nil then value[part] else nil
+	end
+	if value == nil then
+		warn(`[Gaxia_ClientBootstrap] {entry.Key} unavailable`)
+	end
+end
+
+print("[Gaxia_ClientBootstrap] complete — client features loaded")
