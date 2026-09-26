@@ -294,7 +294,10 @@ maid:Destroy()
 
 **ใช้ตอนไหน:** ป้องกัน memory leak — ผูก task ทั้งหมดที่ต้อง cleanup ของ object เดียวกัน
 
-### 5.3 Janitor — เหมือน Maid แต่มี named index
+### 5.3 Janitor — เหมือน Maid แต่มี named index · ⚠️ DEPRECATED
+
+> **เลิกใช้แล้ว** — ใช้ **Trove** (§5.4) แทน Janitor ยังอยู่เพื่อให้โค้ดเกมเดิมไม่พัง (เรียก `Gaxia.Janitor` ครั้งแรกจะขึ้น warn)
+> และจะถูกลบในเวอร์ชันถัดไป · ต้องการ named index ใช้ `trove:Remove(obj)` / เก็บ reference เองแทน
 
 ```lua
 local Janitor = Gaxia.Janitor
@@ -3008,7 +3011,7 @@ A: ไม่ — ลบโมดูลที่ไม่ใช้ออกจา
 **Q: ทำไมมี Maid + Janitor + Trove (3 ตัว)? ควรใช้ตัวไหน?**
 A: ใช้ **Trove** — เป็นตัวมาตรฐานที่ framework ใช้เอง (และ `Component` ก็ใช้ Trove ข้างใน)
 - **Maid** — deprecated แล้ว เหลือไว้ให้โค้ดเก่าไม่พัง ดูตารางเทียบ API ใน §5.2
-- **Janitor** — ยังมีให้ใช้ถ้าต้องการ named index แต่ framework ไม่ได้ใช้
+- **Janitor** — deprecated แล้วเช่นกัน (ขึ้น warn เมื่อเรียกใช้) — ย้ายไป Trove
 
 **Q: ทำไม Gaxia.UI ใช้ใน server ไม่ได้?**
 A: UI controllers access `Players.LocalPlayer` ที่ server เป็น nil → crash UI proxies จึงสร้างเฉพาะ client side. Server ใช้ `GaxiaServer.Shared.Util` ก็พอสำหรับ utility

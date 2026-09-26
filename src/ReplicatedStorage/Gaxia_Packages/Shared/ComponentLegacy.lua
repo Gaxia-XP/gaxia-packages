@@ -1,7 +1,11 @@
 --!strict
 -- ─────────────────────────────────────────────────────────────
--- Component.lua
--- Location: ReplicatedStorage/Gaxia_Packages/Shared/Component
+-- ComponentLegacy.lua  (DEPRECATED)
+-- Location: ReplicatedStorage/Gaxia_Packages/Shared/ComponentLegacy
+-- The original Gaxia tag-binding helper. `Gaxia.Component` is now
+-- sleitnick/Component (Shared/Component); this legacy API is kept only so
+-- existing game code keeps working and warns on first require. Migrate to
+-- Gaxia.Component (see MANUAL). Will be removed in a later version.
 -- Purpose : Bind behaviour to every instance carrying a CollectionService tag,
 --           with automatic teardown when the tag/instance goes away. The
 --           framework's house style is "tag gameplay objects, iterate via
@@ -9,14 +13,16 @@
 --           manual loop. Added() may return a per-instance state passed back to
 --           Removed() for cleanup (a lightweight component instance).
 --
--- Access  : Gaxia.Component  (shared)
---   local coins = Gaxia.Component.Bind("Coin", {
+-- Access  : Gaxia.ComponentLegacy  (shared)
+--   local coins = Gaxia.ComponentLegacy.Bind("Coin", {
 --     Added   = function(part) return connectTouch(part) end,
 --     Removed = function(part, conn) conn:Disconnect() end,
 --   })
 --   coins.Destroy()  -- detach from all + stop listening
 -- ─────────────────────────────────────────────────────────────
 local CollectionService = game:GetService("CollectionService")
+
+warn("[Gaxia_Packages] ComponentLegacy is deprecated — use Gaxia.Component instead")
 
 export type Handlers = {
 	Added: (instance: Instance) -> any?,

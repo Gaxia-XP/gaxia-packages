@@ -39,7 +39,7 @@ export type GaxiaPackage = {
 	-- ── Shared (always available) ──
 	Signal    : typeof(require(script.Shared.Signal)),
 	Maid      : typeof(require(script.Shared.Maid)),     -- DEPRECATED: use Trove
-	Janitor   : typeof(require(script.Shared.Janitor)),
+	Janitor   : typeof(require(script.Shared.Janitor)),  -- DEPRECATED: use Trove
 	Trove     : typeof(require(script.Shared.Trove)),
 	Promise   : typeof(require(script.Shared.Promise)),
 	TweenUtil : typeof(require(script.Shared.TweenUtil)),
@@ -143,6 +143,13 @@ local SHARED_KEY_MAP : { [string]: string } = {
 	Bench      = "PerformanceBenchmark",
 	TestRunner = "TestRunner",
 	MockPlayer = "MockPlayer",
+}
+
+-- Deprecated vendored modules: they still resolve (game code may use them) but
+-- warn once on first access. First-party deprecated modules (Maid,
+-- ComponentLegacy) warn from their own body instead.
+local DEPRECATED_SHARED : { [string]: string } = {
+	Janitor = "Gaxia.Trove",
 }
 
 -- ── Internal Cache ───────────────────────────────────────────
@@ -316,6 +323,10 @@ local function buildGaxia(): { [string]: any }
 			local sharedName = SHARED_KEY_MAP[key] or key
 			local sharedMod = resolveChild(sharedFolder, sharedName)
 			if sharedMod then
+				local replacement = DEPRECATED_SHARED[sharedName]
+				if replacement then
+					warn(`[Gaxia_Packages] {sharedName} is deprecated — use {replacement} instead`)
+				end
 				local result = safeRequire(sharedMod, key)
 				moduleCache[key] = result
 				rawset(t, key, result)

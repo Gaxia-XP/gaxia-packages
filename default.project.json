@@ -1,6 +1,10 @@
 {
   "name": "GaxiaPackages",
-  "globIgnorePaths": ["**/*.spec.lua", "**/*.spec.luau"],
+  "globIgnorePaths": [
+    "**/*.spec.lua", "**/*.spec.luau",
+    "**/*.test.lua", "**/*.test.luau",
+    "**/jest.config.luau", "**/wally.toml"
+  ],
   "tree": {
     "$className": "DataModel",
 
