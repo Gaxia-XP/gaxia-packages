@@ -10,21 +10,15 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
--- WHY this explicit type:
--- The early-return guard below needs to match the module's real return shape
--- so Luau collapses the (server-return | client-return) union into a single
--- typed value. Without this, `Gaxia.UI.UIController.<method>` does not
--- autocomplete because the union resolves to `any`.
-export type UIController = {
-	GetActiveScreen: () -> ScreenGui?,
-	HUD: () -> Folder?,
-	Overlays: () -> Folder?,
-	CloneTemplate: (templateName: string, parent: Instance?) -> GuiObject?,
-}
+local UIController = {}
+-- The module's own type (every function below), so the server stub and the
+-- client module share one type and `Gaxia.UI.UIController.<method>` autocompletes.
+export type UIController = typeof(UIController)
 
--- Client-only module; return empty table on server require.
+-- Client-only module. The server gets an EMPTY table (calls error there); only
+-- its type is the client module's.
 if not RunService:IsClient() then
-	return ({} :: any) :: UIController
+	return ({} :: any) :: typeof(UIController)
 end
 
 -- ── Constants ──
@@ -36,14 +30,12 @@ local LocalPlayer: Player = Players.LocalPlayer
 local PlayerGui: PlayerGui = LocalPlayer:WaitForChild("PlayerGui") :: PlayerGui
 
 -- ── Templates (code-first, replaces legacy StarterGui Templates.rbxm) ──
--- WHY require sibling here: Templates lives next to this module under
--- Client/UI; using a sibling require keeps the dependency local and avoids
--- the master loader's lazy proxy round-trip. The `:: Instance` cast appeases
--- Luau (script.Parent is typed Instance?), the file structure guarantees it.
-local _parent: Instance = script.Parent :: Instance
-local Templates = require(_parent:WaitForChild("Templates")) :: any
+-- Sibling require (typed): keeps the dependency local and avoids the master
+-- loader's lazy proxy round-trip.
+local Templates = require(script.Parent.Templates)
 
-local UIController = {}
+-- Names CloneTemplate knows (re-exported from Templates for callers).
+export type TemplateName = Templates.TemplateName
 
 -- ── GetActiveScreen ──
 -- Returns the cloned ScreenGui in PlayerGui (Roblox auto-clones from StarterGui).
@@ -92,8 +84,9 @@ end
 -- (NotificationService / HealthBarController / MenuController /
 -- InventoryController) keep working — semantics are identical from
 -- their perspective.
-function UIController.CloneTemplate(templateName: string, parent: Instance?): GuiObject?
-	local builder = Templates[templateName]
+function UIController.CloneTemplate(templateName: TemplateName | string, parent: Instance?): GuiObject?
+	-- Looked up by runtime name (unknown names warn below), hence the `any` index.
+	local builder = (Templates :: any)[templateName]
 	if typeof(builder) ~= "function" then
 		warn(`[UIController] Template '{templateName}' not registered in Templates module`)
 		return nil
@@ -115,4 +108,4 @@ function UIController.CloneTemplate(templateName: string, parent: Instance?): Gu
 	return inst
 end
 
-return UIController :: UIController
+return UIController

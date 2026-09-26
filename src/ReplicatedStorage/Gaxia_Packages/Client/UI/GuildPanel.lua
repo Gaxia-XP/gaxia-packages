@@ -15,14 +15,16 @@
 --   Gaxia.UI.GuildPanel.Close()
 --   Gaxia.UI.GuildPanel.Toggle()
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Panel = {}
+-- The module's own type (Open / Close / Toggle below): `Gaxia.UI.GuildPanel.<method>`
+-- autocompletes and the server stub shares it.
+export type GuildPanel = typeof(Panel)
 
+-- Client-only; the server gets a no-op stub.
 if not RunService:IsClient() then
 	return (
 		{

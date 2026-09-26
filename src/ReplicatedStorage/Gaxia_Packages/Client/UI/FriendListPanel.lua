@@ -16,13 +16,14 @@
 --   Gaxia.UI.FriendListPanel.Close()
 --   Gaxia.UI.FriendListPanel.Toggle()
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Panel = {}
+-- The module's own type (Open / Close / Toggle below): `Gaxia.UI.FriendListPanel.<method>`
+-- autocompletes and the server stub shares it.
+export type FriendListPanel = typeof(Panel)
 
 -- ── Server stub ──
 -- Same pattern Toast.lua uses: this module sometimes ends up required on the

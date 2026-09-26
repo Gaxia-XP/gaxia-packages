@@ -96,6 +96,11 @@ export type GaxiaPackage = {
 		Haptics : typeof(require(script.Client.UI.Haptics)),
 		Motion : typeof(require(script.Client.UI.Motion)),
 		AdminPanel : typeof(require(script.Client.UI.AdminPanel)),
+		FriendListPanel : typeof(require(script.Client.UI.FriendListPanel)),
+		GuildPanel : typeof(require(script.Client.UI.GuildPanel)),
+		InviteToast : typeof(require(script.Client.UI.InviteToast)), -- `true`; requiring it wires the invite listeners (waits for their remotes)
+		PetController : typeof(require(script.Client.UI.PetController)),
+		Templates : typeof(require(script.Client.UI.Templates)),
 	},
 
 	-- ── Client modules accessed via short keys (CLIENT_KEY_MAP) ──

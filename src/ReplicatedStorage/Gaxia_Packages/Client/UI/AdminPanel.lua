@@ -13,14 +13,24 @@
 -- Access  : Gaxia.UI.AdminPanel  (client)
 --   Gaxia.UI.AdminPanel.Open() / .Close() / .Toggle()
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
+-- Role hint from the server's AdminCommands: the reply to Events/Admin/Action
+-- { type = "role" } and the { type = "role", ... } push on Events/Admin/Inbound.
+-- `role` is the AdminCommands role name (tiers are configurable, so a string).
+export type RoleHint = {
+	type: "role"?,
+	role: string?,
+	isModerator: boolean?,
+}
+
 local Panel = {}
+-- The module's own type (every function below): `Gaxia.UI.AdminPanel.<method>`
+-- autocompletes and the server stub shares it.
+export type AdminPanel = typeof(Panel)
 
 -- ── Server stub (the lazy UI proxy may require this on the server) ──
 if not RunService:IsClient() then
@@ -701,7 +711,7 @@ local function ensureToolbar(): ()
 	gui.Enabled = isModerator
 end
 
-function Panel.SetRole(roleHint: any): ()
+function Panel.SetRole(roleHint: RoleHint?): ()
 	if typeof(roleHint) == "table" then
 		isModerator = roleHint.isModerator == true
 	end

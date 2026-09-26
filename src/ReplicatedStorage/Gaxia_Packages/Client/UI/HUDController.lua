@@ -7,43 +7,21 @@
 -- ─────────────────────────────────────────────────────────────
 
 local RunService = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
--- WHY this explicit type:
--- The early-return guard below needs to match the module's real return shape
--- so Luau collapses the (server-return | client-return) union into a single
--- typed value. Without this, `Gaxia.UI.HUDController.<method>` does not
--- autocomplete because the union resolves to `any`.
-export type HUDController = {
-	AddText: (name: string, getValue: () -> string, position: UDim2) -> TextLabel?,
-	Remove: (name: string) -> (),
-	SetVisible: (visible: boolean) -> (),
-}
+local HUDController = {}
+-- The module's own type (every function below), so the server stub and the
+-- client module share one type and `Gaxia.UI.HUDController.<method>` autocompletes.
+export type HUDController = typeof(HUDController)
 
--- Client-only module.
+-- Client-only module. The server gets an EMPTY table (calls error there); only
+-- its type is the client module's.
 if not RunService:IsClient() then
-	return ({} :: any) :: HUDController
+	return ({} :: any) :: typeof(HUDController)
 end
 
-local UIController = require(script.Parent:WaitForChild("UIController"))
+local UIController = require(script.Parent.UIController)
 
 -- ── Constants ──
-local function getConstants(): { [string]: any }
-	local pkg = ReplicatedStorage:FindFirstChild("Gaxia_Packages")
-	if not pkg then return {} end
-	local shared = pkg:FindFirstChild("Shared")
-	if not shared then return {} end
-	local constMod = shared:FindFirstChild("Constants")
-	if not constMod or not constMod:IsA("ModuleScript") then return {} end
-	local ok, data = pcall(require, constMod)
-	if ok and typeof(data) == "table" then
-		return data
-	end
-	return {}
-end
-
-local _CONST = getConstants()
-
 local DEFAULT_SIZE: UDim2 = UDim2.new(0, 200, 0, 36)
 local DEFAULT_TEXT_COLOR: Color3 = Color3.fromRGB(240, 240, 240)
 local DEFAULT_STROKE_COLOR: Color3 = Color3.fromRGB(0, 0, 0)
@@ -57,8 +35,6 @@ type HudEntry = {
 	alive: boolean,
 }
 local entries: { [string]: HudEntry } = {}
-
-local HUDController = {}
 
 -- ── AddText ──
 function HUDController.AddText(
@@ -145,4 +121,4 @@ function HUDController.SetVisible(visible: boolean): ()
 	end
 end
 
-return HUDController :: HUDController
+return HUDController
