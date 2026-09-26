@@ -13,10 +13,10 @@
 --   Gaxia.Motion3D.To(door, openCFrame, 0.5, Enum.EasingStyle.Back)
 --   local stop = Gaxia.Motion3D.Float(coin, 1.5, 2) ; Gaxia.Motion3D.Spin(coin)
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+
+local Lifecycle = require(script.Parent.ServiceLifecycle)
 
 local Motion3D = {}
 
@@ -110,5 +110,11 @@ function Motion3D.Float(part: BasePart, amplitude: number?, period: number?): ()
 		end
 	end
 end
+
+-- Pure API: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(Motion3D, {
+	Name = "Motion3D",
+	Needs = {},
+})
 
 return Motion3D

@@ -15,18 +15,21 @@
 --   Gaxia.SFX.Register("Explosion", { SoundId = "rbxassetid://12222200", PitchVariation = 0.2, Category = "SFX" })
 --   Gaxia.SFX.PlayAt("Explosion", hrp.Position)
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local Workspace = game:GetService("Workspace")
 
+local Lifecycle = require(script.Parent.ServiceLifecycle)
+
 local FALLBACK_LIFETIME : number = 10 -- destroy holder after this if Ended never fires
+
+-- The built-in buses; any other string is a custom category.
+export type SoundCategory = "SFX" | "Music" | "Ambient"
 
 export type SoundDef = {
 	SoundId: string,
 	Volume: number?,
 	Pitch: number?,
 	PitchVariation: number?,
-	Category: string?,
+	Category: (SoundCategory | string)?,
 	RollOffMaxDistance: number?,
 }
 
@@ -47,17 +50,17 @@ function SFXService.Register(name: string, def: SoundDef): ()
 	bank[name] = def
 end
 
-function SFXService.SetCategoryVolume(category: string, volume: number): ()
+function SFXService.SetCategoryVolume(category: SoundCategory | string, volume: number): ()
 	categoryVolume[category] = math.max(0, volume)
 end
 
-function SFXService.GetCategoryVolume(category: string): number
+function SFXService.GetCategoryVolume(category: SoundCategory | string): number
 	local v = categoryVolume[category]
 	return v ~= nil and v or 1
 end
 
 -- Temporarily scale a category by `factor` for `duration`, then restore.
-function SFXService.Duck(category: string, factor: number, duration: number): ()
+function SFXService.Duck(category: SoundCategory | string, factor: number, duration: number): ()
 	local original = SFXService.GetCategoryVolume(category)
 	SFXService.SetCategoryVolume(category, original * factor)
 	task.delay(duration, function()
@@ -137,5 +140,11 @@ function SFXService.Play2D(name: string): Sound?
 	autoClean(sound, sound)
 	return sound
 end
+
+-- Pure API: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(SFXService, {
+	Name = "SFX",
+	Needs = {},
+})
 
 return SFXService

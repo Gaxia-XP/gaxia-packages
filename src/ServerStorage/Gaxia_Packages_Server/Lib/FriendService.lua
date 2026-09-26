@@ -30,41 +30,65 @@
 --           OnRemoved(player, otherUserId)
 --           OnBlocked(player, otherUserId)
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage = game:GetService("ServerStorage")
 
-local SharedPkg =
-	require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
+-- ── Dependencies ──
+local Signal          = require(ReplicatedStorage.Gaxia_Packages.Shared.Signal)
+local Lifecycle       = require(script.Parent.ServiceLifecycle)
+local Config          = require(script.Parent.Parent.Config)
+local EConfig         = require(script.Parent.EffectiveConfig)
+local DataManager     = require(script.Parent.DataManager)
+local CooldownService = require(script.Parent.CooldownService)
+local InviteQueue     = require(script.Parent.InviteQueue)
 
-local GaxiaServer: any = nil
-local function server(): any
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-			
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer
-end
+-- ── Types ──
+-- Player parameters stay `any`: tests pass MockPlayers and the offline paths pass
+-- a `{ UserId = n }` shim — only .UserId and .Name are ever read.
 
--- ── Effective config ──
-local function fcfg(): any
-	return ((server().Config or {}).Social or {}).Friend or {}
-end
-local function fget(key: string, fallback: any): any
-	return server().EConfig.Get(`Social.Friend.{key}`, fcfg()[key] or fallback)
+-- profile.Social.Friends[userId]
+export type FriendRecord = { name: string, since: number, favorite: boolean, note: string }
+-- profile.Social.Blocks[userId]
+export type BlockRecord = { name: string?, at: number }
+-- profile.Social.PendingOut[userId] (requests this player sent)
+export type PendingOutRecord = { name: string, at: number }
+-- profile.Social (GuildService also keeps the player's GuildId here)
+export type SocialProfile = {
+	Friends: { [number]: FriendRecord },
+	Blocks: { [number]: BlockRecord },
+	PendingOut: { [number]: PendingOutRecord },
+	GuildId: string?,
+}
+-- One row of GetList
+export type FriendListEntry = {
+	userId: number,
+	name: string,
+	online: boolean,
+	favorite: boolean,
+	since: number,
+	note: string,
+}
+-- One row of GetBlocks
+export type BlockListEntry = { userId: number, name: string?, at: number }
+-- The InviteQueue "friend" item (a request delivered cross-server)
+export type FriendInvite = { fromUserId: number, fromName: string, at: number }
+
+type Presence = { name: string?, online: boolean, at: number }
+
+-- ── Effective config (runtime Flag override <- Config.Social.Friend <- fallback) ──
+local function fget(key: string, configured: number?, fallback: number): number
+	return EConfig.Get(`Social.Friend.{key}`, configured or fallback)
 end
 
 -- ── Module + signals ──
 local Friend = {}
-Friend.OnRequest = Signal.new() -- (toPlayer, fromUserId, fromName)
-Friend.OnAccepted = Signal.new() -- (player, otherUserId)
-Friend.OnRemoved = Signal.new() -- (player, otherUserId)
-Friend.OnBlocked = Signal.new() -- (player, otherUserId)
+-- (toPlayer, fromUserId, fromName)
+Friend.OnRequest = Signal.new() :: Signal.Signal<Player, number, string>
+-- (player, otherUserId) — fired for both sides on accept
+Friend.OnAccepted = Signal.new() :: Signal.Signal<Player, number>
+-- (player, otherUserId) — fired for both sides (the other side when in this server)
+Friend.OnRemoved = Signal.new() :: Signal.Signal<Player, number>
+-- (player, otherUserId)
+Friend.OnBlocked = Signal.new() :: Signal.Signal<Player, number>
 
 -- Cross-server inbound cache (drained at PlayerAdded). Declared up-front so
 -- helpers below can reference it without a "global write" lint warning.
@@ -77,25 +101,23 @@ local inboundCache: { [number]: { [number]: boolean } } = {}
 local outboundIndex: { [number]: { [number]: boolean } } = {}
 
 -- ── Profile shape helpers ──
-local function getSocial(player: any): any
-	local s = server()
-	local Data = s.Data
-	local social = Data.Get(player, "Social")
+local function getSocial(player: any): SocialProfile
+	local social = DataManager.Get(player, "Social")
 	if typeof(social) ~= "table" then
 		social = { Friends = {}, Blocks = {}, PendingOut = {} }
-		Data.Set(player, "Social", social)
+		DataManager.Set(player, "Social", social)
 	end
 	social.Friends = social.Friends or {}
 	social.Blocks = social.Blocks or {}
 	social.PendingOut = social.PendingOut or {}
 	return social
 end
-local function writeSocial(player: any, social: any): ()
-	server().Data.Set(player, "Social", social)
+local function writeSocial(player: any, social: SocialProfile): ()
+	DataManager.Set(player, "Social", social)
 end
 
 -- ── Presence cache (cross-server) ──
-local presenceCache: { [number]: { name: string?, online: boolean, at: number } } = {}
+local presenceCache: { [number]: Presence } = {}
 local function lookupName(userId: number): string?
 	local ok, name = pcall(function()
 		return game:GetService("Players"):GetNameFromUserIdAsync(userId)
@@ -105,10 +127,10 @@ local function lookupName(userId: number): string?
 	end
 	return nil
 end
-local function presenceFor(userId: number): { name: string?, online: boolean, at: number }
+local function presenceFor(userId: number): Presence
 	local now = os.time()
 	local cache = presenceCache[userId]
-	local ttl = fget("OnlineCacheSec", 60)
+	local ttl = fget("OnlineCacheSec", Config.Social.Friend.OnlineCacheSec, 60)
 	if cache and (now - cache.at) < ttl then
 		return cache
 	end
@@ -116,9 +138,9 @@ local function presenceFor(userId: number): { name: string?, online: boolean, at
 	local Players = game:GetService("Players")
 	local same = Players:GetPlayerByUserId(userId)
 	if same then
-		cache = { name = same.Name, online = true, at = now }
-		presenceCache[userId] = cache
-		return cache
+		local fresh: Presence = { name = same.Name, online = true, at = now }
+		presenceCache[userId] = fresh
+		return fresh
 	end
 	-- Cross-server (rate-limited, wrapped in pcall).
 	local ok, info = pcall(function()
@@ -130,9 +152,9 @@ local function presenceFor(userId: number): { name: string?, online: boolean, at
 		local kind = info.UserPresenceType
 		online = (kind == 1 or kind == 2 or kind == 3)
 	end
-	cache = { name = lookupName(userId), online = online, at = now }
-	presenceCache[userId] = cache
-	return cache
+	local fresh: Presence = { name = lookupName(userId), online = online, at = now }
+	presenceCache[userId] = fresh
+	return fresh
 end
 
 -- ── Public: IsBlocked / IsBlockedByUserId ──
@@ -169,7 +191,7 @@ function Friend.SendRequest(from: any, toUserId: number): (boolean, string?)
 	if social.PendingOut[toUserId] then
 		return false, "request already pending"
 	end
-	local maxFriends = fget("MaxFriends", 200)
+	local maxFriends = fget("MaxFriends", Config.Social.Friend.MaxFriends, 200)
 	local count = 0
 	for _ in pairs(social.Friends) do
 		count += 1
@@ -184,15 +206,11 @@ function Friend.SendRequest(from: any, toUserId: number): (boolean, string?)
 	-- and from burning a GetNameFromUserIdAsync web call per attempt. The
 	-- legitimate "I unblocked you, let me re-request" path is handled by
 	-- Friend.Unblock calling Cooldown.Clear on this same key.
-	local s = server()
-	local Cooldown = s.Cooldown
 	local cdKey = string.format("FriendReq:%d->%d", from.UserId, toUserId)
-	local cd = fget("RequestCooldownSec", 10)
-	if Cooldown then
-		local cdReady = Cooldown.Consume(cdKey, cd)
-		if not cdReady then
-			return false, "wait a moment before resending"
-		end
+	local cd = fget("RequestCooldownSec", Config.Social.Friend.RequestCooldownSec, 10)
+	local cdReady = CooldownService.Consume(cdKey, cd)
+	if not cdReady then
+		return false, "wait a moment before resending"
 	end
 
 	-- Block check on TARGET's side (only if target is in this server OR has a
@@ -204,7 +222,7 @@ function Friend.SendRequest(from: any, toUserId: number): (boolean, string?)
 	if targetPlayer then
 		targetBlocksMe = Friend.IsBlocked(targetPlayer, from.UserId)
 	else
-		local targetSocialRaw = s.Data.Get({ UserId = toUserId } :: any, "Social")
+		local targetSocialRaw = DataManager.Get({ UserId = toUserId } :: any, "Social")
 		if typeof(targetSocialRaw) == "table" and typeof(targetSocialRaw.Blocks) == "table" then
 			targetBlocksMe = targetSocialRaw.Blocks[from.UserId] ~= nil
 		end
@@ -230,15 +248,13 @@ function Friend.SendRequest(from: any, toUserId: number): (boolean, string?)
 	-- ALSO gets a direct OnRequest fire so the UI sees it instantly. The
 	-- PlayerAdded drain dedupes via inboundCache/outboundIndex, and clients are
 	-- expected to dedupe replayed OnRequest by invite identity (sender userId).
-	local InviteQueue = s.InviteQueue
-	if InviteQueue then
-		local ttl = (fget("InviteQueueTTLDays", 7)) * 86400
-		InviteQueue.Push("friend", toUserId, {
-			fromUserId = from.UserId,
-			fromName = from.Name,
-			at = os.time(),
-		}, ttl)
-	end
+	local ttl = (fget("InviteQueueTTLDays", Config.Social.Friend.InviteQueueTTLDays, 7)) * 86400
+	local invite: FriendInvite = {
+		fromUserId = from.UserId,
+		fromName = from.Name,
+		at = os.time(),
+	}
+	InviteQueue.Push("friend", toUserId, invite, ttl)
 	if targetPlayer then
 		Friend.OnRequest:Fire(targetPlayer, from.UserId, from.Name)
 	end
@@ -275,7 +291,7 @@ function Friend.AcceptRequest(player: any, fromUserId: number): (boolean, string
 		return false, "no such request"
 	end
 	local social = getSocial(player)
-	local maxFriends = fget("MaxFriends", 200)
+	local maxFriends = fget("MaxFriends", Config.Social.Friend.MaxFriends, 200)
 	local count = 0
 	for _ in pairs(social.Friends) do
 		count += 1
@@ -305,9 +321,8 @@ function Friend.AcceptRequest(player: any, fromUserId: number): (boolean, string
 		writeSocial(sender, senderSocial)
 		Friend.OnAccepted:Fire(sender, player.UserId)
 	else
-		local Data = server().Data
 		local shim: any = { UserId = fromUserId }
-		local senderSocialRaw = Data.Get(shim, "Social")
+		local senderSocialRaw = DataManager.Get(shim, "Social")
 		if typeof(senderSocialRaw) == "table" then
 			senderSocialRaw.Friends = senderSocialRaw.Friends or {}
 			senderSocialRaw.PendingOut = senderSocialRaw.PendingOut or {}
@@ -318,7 +333,7 @@ function Friend.AcceptRequest(player: any, fromUserId: number): (boolean, string
 				note = "",
 			}
 			senderSocialRaw.PendingOut[player.UserId] = nil
-			Data.Set(shim, "Social", senderSocialRaw)
+			DataManager.Set(shim, "Social", senderSocialRaw)
 		end
 	end
 	-- Clear both same-server outbound mirror and cross-server inbound cache.
@@ -376,7 +391,7 @@ function Friend.Block(player: any, otherUserId: number): (boolean, string?)
 		return false, "cannot block self"
 	end
 	local social = getSocial(player)
-	local maxBlocks = fget("MaxBlocks", 100)
+	local maxBlocks = fget("MaxBlocks", Config.Social.Friend.MaxBlocks, 100)
 	local count = 0
 	for _ in pairs(social.Blocks) do
 		count += 1
@@ -407,9 +422,8 @@ function Friend.Block(player: any, otherUserId: number): (boolean, string?)
 	-- UserId-only shim because real Players AND MockPlayers both expose
 	-- `.UserId` and that's all Data.Get / Data.Set ever reads. Cross-server
 	-- peers (no loaded profile) fall through harmlessly.
-	local Data = server().Data
 	local otherShim: any = { UserId = otherUserId }
-	local otherSocialRaw = Data.Get(otherShim, "Social")
+	local otherSocialRaw = DataManager.Get(otherShim, "Social")
 	if typeof(otherSocialRaw) == "table" then
 		if typeof(otherSocialRaw.Friends) == "table" then
 			otherSocialRaw.Friends[player.UserId] = nil
@@ -417,7 +431,7 @@ function Friend.Block(player: any, otherUserId: number): (boolean, string?)
 		if typeof(otherSocialRaw.PendingOut) == "table" then
 			otherSocialRaw.PendingOut[player.UserId] = nil
 		end
-		Data.Set(otherShim, "Social", otherSocialRaw)
+		DataManager.Set(otherShim, "Social", otherSocialRaw)
 	end
 	Friend.OnBlocked:Fire(player, otherUserId)
 	return true, nil
@@ -436,11 +450,8 @@ function Friend.Unblock(player: any, otherUserId: number): (boolean, string?)
 	-- "could not send request" while we were blocking them) also charged a
 	-- cooldown slot under their key, and unblock signals "I'm open to either of
 	-- us reaching out again".
-	local s = server()
-	if s.Cooldown and s.Cooldown.Clear then
-		s.Cooldown.Clear(string.format("FriendReq:%d->%d", player.UserId, otherUserId))
-		s.Cooldown.Clear(string.format("FriendReq:%d->%d", otherUserId, player.UserId))
-	end
+	CooldownService.Clear(string.format("FriendReq:%d->%d", player.UserId, otherUserId))
+	CooldownService.Clear(string.format("FriendReq:%d->%d", otherUserId, player.UserId))
 	return true, nil
 end
 
@@ -453,9 +464,9 @@ function Friend.SetFavorite(player: any, otherUserId: number, fav: boolean): ()
 	end
 end
 
-function Friend.GetList(player: any): { any }
+function Friend.GetList(player: any): { FriendListEntry }
 	local social = getSocial(player)
-	local list = {}
+	local list: { FriendListEntry } = {}
 	for uid, rec in pairs(social.Friends) do
 		local pres = presenceFor(uid)
 		table.insert(list, {
@@ -479,9 +490,9 @@ function Friend.GetList(player: any): { any }
 	return list
 end
 
-function Friend.GetBlocks(player: any): { any }
+function Friend.GetBlocks(player: any): { BlockListEntry }
 	local social = getSocial(player)
-	local list = {}
+	local list: { BlockListEntry } = {}
 	for uid, rec in pairs(social.Blocks) do
 		table.insert(list, { userId = uid, name = rec.name, at = rec.at })
 	end
@@ -497,11 +508,6 @@ end
 
 -- ── Cross-server inbound drain at PlayerAdded ──
 local function drainOnJoin(player: Player): ()
-	local s = server()
-	local InviteQueue = s and s.InviteQueue
-	if not InviteQueue then
-		return
-	end
 	local items = InviteQueue.DrainFor("friend", player.UserId)
 	inboundCache[player.UserId] = inboundCache[player.UserId] or {}
 	for _, item in ipairs(items) do
@@ -512,7 +518,8 @@ local function drainOnJoin(player: Player): ()
 	end
 end
 
-do
+-- Runs in Init. The drain yields on MemoryStore, so each runs on its own thread.
+local function hookPlayers(): ()
 	local Players = game:GetService("Players")
 	Players.PlayerAdded:Connect(function(p)
 		task.spawn(drainOnJoin, p)
@@ -527,8 +534,8 @@ do
 	end
 end
 
--- ── RemoteFunction surface ──
-do
+-- ── RemoteFunction surface (created in Init) ──
+local function createRemotes(): ()
 	local Events = ReplicatedStorage:FindFirstChild("Events") or Instance.new("Folder")
 	Events.Name = "Events"
 	Events.Parent = ReplicatedStorage
@@ -589,5 +596,17 @@ do
 		Inbound:FireClient(player, { type = "removed", other = otherUserId })
 	end)
 end
+
+Lifecycle.Define(Friend, {
+	Name = "Friend",
+	-- Init's existing-player drain calls InviteQueue.DrainFor.
+	Needs = { InviteQueue },
+	Init = function()
+		-- Same order as the old module body: player hooks + existing-player
+		-- drain, then the Events/Friend remotes and the client forwarders.
+		hookPlayers()
+		createRemotes()
+	end,
+})
 
 return Friend
