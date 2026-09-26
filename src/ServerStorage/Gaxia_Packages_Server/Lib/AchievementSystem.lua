@@ -42,7 +42,9 @@ AchievementSystem.OnUnlocked = Signal.new() :: Signal.Signal<Player, string, Ach
 -- ── Helpers ──
 
 local function getProfile(player: Player): any?
-	local ok, prof = pcall(DataManager.Get, player)
+	local ok, prof = pcall(function()
+		return DataManager.Get(player)
+	end)
 	if not ok then return nil end
 	return prof
 end

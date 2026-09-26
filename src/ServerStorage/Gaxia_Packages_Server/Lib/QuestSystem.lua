@@ -59,7 +59,9 @@ QuestSystem.OnQuestComplete = Signal.new() :: Signal.Signal<Player, string, Ques
 -- Fetch the per-player profile if it exists; nil if not yet loaded.
 local function getProfile(player: Player): any?
 	-- DataManager.Get returns nil while profile is still loading; that's fine.
-	local ok, prof = pcall(DataManager.Get, player)
+	local ok, prof = pcall(function()
+		return DataManager.Get(player)
+	end)
 	if not ok then return nil end
 	return prof
 end

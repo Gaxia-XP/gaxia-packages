@@ -25,7 +25,7 @@ type Profile = DataManager.PlayerData
 -- Config default <- runtime Flag override via Gaxia.EConfig. Read per-call so an
 -- admin can `/flag set Level.CurveExponent N` to retune leveling pace live.
 local function levelCfg(key: string, default: number): number
-	local levelConfig: { [string]: any } = Config.Level
+	local levelConfig = Config.Level :: { [string]: any }
 	return EConfig.Get("Level." .. key, levelConfig[key] or default)
 end
 
@@ -48,7 +48,9 @@ LevelSystem.OnLevelUp  = Signal.new() :: Signal.Signal<Player, number, number>
 -- ── Helpers ──
 
 local function getProfile(player: Player): Profile?
-	local ok, prof = pcall(DataManager.Get, player)
+	local ok, prof = pcall(function()
+		return DataManager.Get(player)
+	end)
 	if not ok then return nil end
 	return prof
 end

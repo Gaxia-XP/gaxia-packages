@@ -105,7 +105,7 @@ function Shop.Purchase(player: Player, id: string): (boolean, PurchaseFailure?)
 		end
 		return false, "grant_failed"
 	end
-	return true
+	return true, nil
 end
 
 -- Pure API: nothing to set up. Registered so Features / IsEnabled know it.

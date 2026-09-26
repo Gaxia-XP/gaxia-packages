@@ -76,7 +76,7 @@ local function raidGet(key: string, fallback: any?): any
 	if config[key] ~= nil then
 		return config[key]
 	end
-	local raidConfig: { [string]: any } = Config.Raid
+	local raidConfig = Config.Raid :: { [string]: any }
 	return EConfig.Get(`Raid.{key}`, raidConfig[key] or DEFAULTS[key] or fallback)
 end
 

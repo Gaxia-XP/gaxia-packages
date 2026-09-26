@@ -63,9 +63,9 @@ end
 
 local function toList(players: Player | { Player }): { Player }
 	if typeof(players) == "Instance" then
-		return { players }
+		return { players :: Player }
 	end
-	return players
+	return players :: { Player }
 end
 
 local function buildOptions(opts: TeleportOpts?): TeleportOptions

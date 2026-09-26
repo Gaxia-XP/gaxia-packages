@@ -8,6 +8,7 @@
 
 -- ── Dependencies ──
 local Promise = require(script.Parent.Parent.Shared.Promise)
+local PromiseTypes = require(script.Parent.Parent.Shared.PromiseTypes)
 local Trove   = require(script.Parent.Parent.Shared.Trove)
 
 -- The value Trove.new() returns. (Annotating with the exported Trove.Trove is
@@ -15,50 +16,10 @@ local Trove   = require(script.Parent.Parent.Shared.Trove)
 -- instantiated result of Trove.new().)
 type TroveObject = typeof(Trove.new())
 
--- ── Promise types (local) ──
--- Shared/Promise (vendored evaera Promise) exports no types. These aliases mirror
--- Shared/PromiseTypes (Promise<T...> / AnyPromise) so callers get :andThen /
--- :await / :expect completion; replace them with that module's types once it is
--- in the tree. Chaining methods return the untracked AnyPromise because a generic
--- alias cannot recurse with different type arguments.
-type PromiseStatus = "Started" | "Resolved" | "Rejected" | "Cancelled"
-type AnyPromise = {
-	andThen: (self: AnyPromise, successHandler: ((...any) -> ...any)?, failureHandler: ((...any) -> ...any)?) -> AnyPromise,
-	catch: (self: AnyPromise, failureHandler: (...any) -> ...any) -> AnyPromise,
-	tap: (self: AnyPromise, tapHandler: (...any) -> ...any) -> AnyPromise,
-	andThenCall: (self: AnyPromise, callback: (...any) -> ...any, ...any) -> AnyPromise,
-	andThenReturn: (self: AnyPromise, ...any) -> AnyPromise,
-	finally: (self: AnyPromise, finallyHandler: (status: PromiseStatus) -> ...any) -> AnyPromise,
-	finallyCall: (self: AnyPromise, callback: (...any) -> ...any, ...any) -> AnyPromise,
-	finallyReturn: (self: AnyPromise, ...any) -> AnyPromise,
-	timeout: (self: AnyPromise, seconds: number, rejectionValue: any?) -> AnyPromise,
-	now: (self: AnyPromise, rejectionValue: any?) -> AnyPromise,
-	cancel: (self: AnyPromise) -> (),
-	getStatus: (self: AnyPromise) -> PromiseStatus,
-	await: (self: AnyPromise) -> (boolean, ...any),
-	awaitStatus: (self: AnyPromise) -> (PromiseStatus, ...any),
-	expect: (self: AnyPromise) -> ...any,
-	awaitValue: (self: AnyPromise) -> ...any,
-}
-type Promise<T...> = {
-	andThen: (self: Promise<T...>, successHandler: ((T...) -> ...any)?, failureHandler: ((...any) -> ...any)?) -> AnyPromise,
-	catch: (self: Promise<T...>, failureHandler: (...any) -> ...any) -> AnyPromise,
-	tap: (self: Promise<T...>, tapHandler: (T...) -> ...any) -> Promise<T...>,
-	andThenCall: (self: Promise<T...>, callback: (...any) -> ...any, ...any) -> AnyPromise,
-	andThenReturn: (self: Promise<T...>, ...any) -> AnyPromise,
-	finally: (self: Promise<T...>, finallyHandler: (status: PromiseStatus) -> ...any) -> AnyPromise,
-	finallyCall: (self: Promise<T...>, callback: (...any) -> ...any, ...any) -> AnyPromise,
-	finallyReturn: (self: Promise<T...>, ...any) -> AnyPromise,
-	timeout: (self: Promise<T...>, seconds: number, rejectionValue: any?) -> Promise<T...>,
-	now: (self: Promise<T...>, rejectionValue: any?) -> Promise<T...>,
-	cancel: (self: Promise<T...>) -> (),
-	getStatus: (self: Promise<T...>) -> PromiseStatus,
-	-- On rejection the values after `false` are the rejection values, not T...
-	await: (self: Promise<T...>) -> (boolean, T...),
-	awaitStatus: (self: Promise<T...>) -> (PromiseStatus, T...),
-	expect: (self: Promise<T...>) -> T...,
-	awaitValue: (self: Promise<T...>) -> T...,
-}
+-- ── Promise types ──
+-- Shared/Promise (vendored evaera Promise) exports no types; Shared/PromiseTypes
+-- describes it, so callers get :andThen / :await / :expect completion.
+type Promise<T...> = PromiseTypes.Promise<T...>
 
 export type DialogLine = { speaker: string?, text: string, portrait: string? }
 export type DialogChoice = { text: string, value: any? }
@@ -245,7 +206,7 @@ function Module.Close(): ()
 end
 
 function Module.Show(config: DialogConfig): Promise<number>
-	return Promise.new(function(resolve: (val: any) -> (), reject: (err: any) -> (), onCancel: (fn: () -> ()) -> ())
+	return (Promise.new(function(resolve: (val: any) -> (), reject: (err: any) -> (), onCancel: (fn: () -> ()) -> ())
 		-- WHY: only one dialog at a time; reject previous
 		if _isOpen and _activeReject then
 			local prev = _activeReject
@@ -446,7 +407,7 @@ function Module.Show(config: DialogConfig): Promise<number>
 
 		-- kick off first line
 		advanceLine()
-	end)
+	end) :: any) :: Promise<number>
 end
 
 return Module :: DialogSystem

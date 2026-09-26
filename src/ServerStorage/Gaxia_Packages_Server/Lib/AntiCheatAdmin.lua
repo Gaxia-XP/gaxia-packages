@@ -72,7 +72,7 @@ local function register(): ()
 	end
 	local Admin = AdminCommands
 
-	Admin.Register("acflags", { role = "moderator", help = "List a player's AntiCheat flags" }, function(caller: Player, args: { string }): string?
+	Admin.Register("acflags", { role = "moderator", help = "List a player's AntiCheat flags" }, function(caller: Player, args: { string }): (string?, boolean?)
 		local target = findPlayer(args[1]) or caller
 		local entries = AntiCheatJournal.GetForPlayer(target)
 		if #entries == 0 then
@@ -85,7 +85,7 @@ local function register(): ()
 		return `{target.Name} [{#entries}]: {table.concat(parts, ", ")}`
 	end)
 
-	Admin.Register("acclear", { role = "admin", help = "Clear a player's AntiCheat flags" }, function(caller: Player, args: { string }): string?
+	Admin.Register("acclear", { role = "admin", help = "Clear a player's AntiCheat flags" }, function(caller: Player, args: { string }): (string?, boolean?)
 		local target = findPlayer(args[1]) or caller
 		AntiCheat.ClearFlags(target)
 		return `cleared {target.Name}'s AntiCheat flags`
