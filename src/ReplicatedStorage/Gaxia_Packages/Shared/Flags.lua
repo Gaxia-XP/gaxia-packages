@@ -38,6 +38,31 @@ end
 
 local Flags = {}
 
+-- Flag names are dotted ("AntiCheat.Enforce"), but a Roblox attribute name may only
+-- hold letters, digits and "_" (at most 100 characters), so SetAttribute would
+-- throw. Every name is stored under an escaped attribute name: "_" becomes "__"
+-- and any other character becomes "_" plus its two hex digits, so
+-- "AntiCheat.Enforce" is stored as "AntiCheat_2EEnforce". The mapping is
+-- one-to-one, and Set/Get/OnChanged all go through it, so callers only ever see
+-- the dotted names.
+local MAX_ATTRIBUTE_NAME : number = 100
+
+local function attributeName(name: string): string
+	local encoded = string.gsub(name, "[^%w]", function(c: string): string
+		if c == "_" then
+			return "__"
+		end
+		return string.format("_%02X", string.byte(c))
+	end)
+	assert(#encoded > 0, "[Flags] flag name must be a non-empty string")
+	assert(#encoded <= MAX_ATTRIBUTE_NAME, `[Flags] flag name too long: "{name}"`)
+	-- Attribute names starting with "RBX" are reserved by Roblox.
+	if string.sub(encoded, 1, 3) == "RBX" then
+		encoded = "_" .. string.format("%02X", string.byte(encoded)) .. string.sub(encoded, 2)
+	end
+	return encoded
+end
+
 local stateObj: StateObject? = nil
 local function getState(): StateObject?
 	if stateObj then
@@ -58,7 +83,7 @@ function Flags.Set(name: string, value: any): ()
 	assert(IS_SERVER, "Flags.Set is server-only")
 	-- Server: getState() always returns the object State.Create made.
 	local s = getState() :: StateObject
-	s:Set(name, value)
+	s:Set(attributeName(name), value)
 end
 
 function Flags.Get(name: string, default: any?): any
@@ -66,7 +91,7 @@ function Flags.Get(name: string, default: any?): any
 	if not s then
 		return default
 	end
-	local v = s:Get(name)
+	local v = s:Get(attributeName(name))
 	if v == nil then
 		return default
 	end
@@ -82,7 +107,7 @@ function Flags.OnChanged(name: string, fn: (new: any, old: any) -> ()): RBXScrip
 	if not s then
 		return nil
 	end
-	return s:OnChanged(name, fn)
+	return s:OnChanged(attributeName(name), fn)
 end
 
 return Flags
