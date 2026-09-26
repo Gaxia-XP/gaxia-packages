@@ -8,6 +8,68 @@ this framework uses a single rolling version until a public release cut.
 
 ## Unreleased
 
+### Changed — services start only when the game uses them (Features + typed lifecycle)
+The server no longer loads everything at boot. Each service registers its setup with
+`ServiceLifecycle.Define(module, { Name, Needs, Init, Start })`, and its module body does
+nothing when required. A service starts when the first of these happens: it is listed in
+`Config/Features` (started at Boot, dependencies first), game code first touches
+`GaxiaServer.<Name>`, or one of its functions is first called. Services nobody uses are
+never loaded.
+- `Config/Features.lua`: the boot list, typed as `Types.ServiceName` so names autocomplete
+  and typos are flagged. Default = exactly what the bootstrap force-loaded before. To
+  customise it, games create `ServerStorage.GaxiaFeatures` (and optionally
+  `ReplicatedStorage.GaxiaClientFeatures`). Companion's Install/Update replaces the whole
+  package, Config included, and these files live outside it.
+- `Gaxia_ServerBootstrap` just calls `GaxiaServer.Boot()`. The hand-kept 19-service list
+  and its ordering comments are gone; order comes from `Needs`. This also fixes the
+  violated "Ban before Admin" rule.
+- Boot also runs on the first service access, and `ReplicatedStorage.Events/Net` exist as
+  soon as the loader is required. Game Scripts no longer depend on Roblox's Script run order.
+- A module whose body errors, or whose Init fails, affects only that service (warned once;
+  `GaxiaServer.<Name>` returns nil).
+- `GaxiaServer.IsEnabled(name)`. The server publishes its started services to clients,
+  and the client bootstrap skips client modules whose server side is not running.
+- Cycle-free typed dependencies: modules require each other directly (no `server()` /
+  `SharedPkg :: any`). The two-way couplings became hooks: `Net.SetViolationHandler`,
+  `Ban.SetRoleResolver`, `Chat.SetRoleResolver`.
+- `GaxiaServer.Lifecycle`'s documented `Register/Start/OnStarted` API keeps its old
+  synchronous semantics for game code.
+- `tools/check-architecture.mjs` enforces the module rules (needs `luau-ast`).
+
+### Improved — types / autocomplete
+Signals declare their payloads, so `:Connect(function(player, ...)` callbacks are typed
+(e.g. `Economy.OnTransaction` → `kind: "add" | "spend" | "set" | "transfer"`). Public
+functions are annotated, and the stub-returning UI modules are typed.
+
+### Fixed — AntiCheat detectors never loaded (now in observe mode)
+Since e3b2e06 (2026-07-17) the orchestrator scanned the wrong parent, so none of the 15
+detectors registered. They load again, but in OBSERVE mode by default
+(`Config.AntiCheat.Enforce = false`): flags are recorded and warned, and would-be hard
+actions are published as `OnAction(..., "observe")`, so nobody is kicked or banned. Three
+false-positive causes found in simulation are fixed too:
+- StarterPack/StarterGear tools are now legitimate for BackpackGuard.
+- PlayerService's leaderstat writes announce the expected value to StatGuard.
+- BanService escalates at most once per player per session. Before, simultaneous flags
+  walked kick → temp ban → perm ban inside one frame.
+
+Play-test with a non-creator account before setting `Enforce = true` (MANUAL §9.0).
+
+### Fixed
+- DataManager kicked every player on a normal leave ("Profile released.").
+- Chat command replies were dropped when no command had run in the server's first 30 s:
+  the reply remote was created lazily and the client stopped waiting for it.
+- The loaders' auto-tagger tagged all of ReplicatedStorage/ServerStorage instead of just
+  the package.
+- MANUAL told games to `require(... .init)`, which errors under Rojo. Require the package
+  ModuleScript itself.
+
+### Removed / deprecated
+- `Shared/Comm` removed. It required a non-existent `Option` module and nothing used it.
+- `Janitor` and `ComponentLegacy` are deprecated (they warn on first use) in favour of
+  `Trove` / `Component`.
+- Test and config files (`*.test.luau`, `jest.config.luau`, `wally.toml`) no longer end up
+  in the built place.
+
 ### Changed — framework cleanup uses Trove; Maid is deprecated
 One cleanup library instead of three. Every framework module that used `Maid`
 now uses `Trove` (the one `Component` already depends on): the five AntiCheat
