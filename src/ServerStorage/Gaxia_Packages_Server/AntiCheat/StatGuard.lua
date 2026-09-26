@@ -25,7 +25,7 @@ local Trove     = SharedPkg.Trove
 -- boundary. Config's body is a pure table (no yields), so require is safe.
 local Config = require(script.Parent.Parent:FindFirstChild("Config") :: ModuleScript) :: any
 
-local EXPECTED_ATTR : string = "__GaxiaExpected"
+local EXPECTED_ATTR : string = SharedPkg.Constants.STAT_EXPECTED_ATTRIBUTE
 local LEADERSTATS_NAME : string = "leaderstats"
 local NUMERIC_TYPES: { [string]: boolean } = {
 	IntValue    = true,

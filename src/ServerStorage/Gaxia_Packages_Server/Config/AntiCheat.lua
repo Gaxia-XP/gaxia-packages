@@ -7,6 +7,7 @@
 --
 -- Per-detector Enabled: runtime override via flag "AntiCheat.Detector.<Name>.Enabled"
 -- Master switch:        runtime override via flag "AntiCheat.Enabled"
+-- Enforcement:          runtime override via flag "AntiCheat.Enforce"
 
 export type DetectorConfig = {
 	Severity: string,
@@ -15,6 +16,14 @@ export type DetectorConfig = {
 
 return {
 	Enabled           = true,
+	-- OBSERVE MODE while false: detectors run and flags are recorded (OnFlag, the
+	-- Journal, warnings), but a would-be HARD action is published as
+	-- OnAction(player, reason, "observe") instead of "hard" — nobody is kicked or
+	-- banned and BackpackGuard does not destroy tools. The detectors did not load at
+	-- all between 2026-07-17 and this fix, so play-test with a NON-creator account
+	-- (the creator is always exempt) and check the "would take hard action" warnings
+	-- before setting this to true.
+	Enforce           = false,
 	SamplerInterval   = 0.5,
 	SoftFlagThreshold = 3,
 	HardFlagThreshold = 5,

@@ -31,6 +31,16 @@ end
 
 -- ── Constants ──
 local LEADERSTATS_NAME : string = "leaderstats"
+-- Set to the value about to be written so AntiCheat's StatGuard sees our own
+-- writes as legitimate (it flags any leaderstats change that skips this).
+local STAT_EXPECTED_ATTRIBUTE : string = SharedPkg.Constants.STAT_EXPECTED_ATTRIBUTE
+
+local function writeStat(stat: Instance, value: any): ()
+	if typeof(value) == "number" then
+		stat:SetAttribute(STAT_EXPECTED_ATTRIBUTE, value)
+	end
+	(stat :: any).Value = value
+end
 
 -- ── Module ──
 local PlayerService = {}
@@ -68,7 +78,7 @@ function PlayerService.SetupLeaderstats(player: Player, dict: { [string]: any })
 	for name, value in pairs(dict) do
 		local existing = folder:FindFirstChild(name)
 		if existing then
-			(existing :: any).Value = value
+			writeStat(existing, value)
 		else
 			local cls = classForValue(value)
 			local v = Instance.new(cls)
@@ -91,7 +101,7 @@ function PlayerService.SetLeaderstat(player: Player, name: string, value: any): 
 	if not folder then return end
 	local stat = folder:FindFirstChild(name)
 	if stat then
-		(stat :: any).Value = value
+		writeStat(stat, value)
 	end
 end
 

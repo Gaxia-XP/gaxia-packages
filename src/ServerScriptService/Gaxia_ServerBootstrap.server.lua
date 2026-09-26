@@ -121,10 +121,12 @@ AntiCheat.OnAction:Connect(function(player: Player, reason: string, kind: string
 				player:Kick(`Kicked by Gaxia_AntiCheat (reason: {reason})`)
 			end
 		end)
-	else
+	elseif kind == "soft" then
 		-- soft: print only. Plug in your own warning UI / log here.
 		warn(`[Gaxia_AntiCheat] soft action against {player.Name}: {reason}`)
 	end
+	-- kind == "observe": would have been "hard", but Config.AntiCheat.Enforce is
+	-- false — the orchestrator already warned once; nothing to enforce here.
 end)
 
 Players.PlayerRemoving:Connect(function(player: Player)

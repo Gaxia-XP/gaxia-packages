@@ -33,6 +33,10 @@ local Constants : { [string]: any } = table.freeze({
 
 	-- ── Player ───────────────────────────────────────────────
 	CHARACTER_LOAD_TIMEOUT = 10, -- seconds to wait before timing out character load
+	-- Attribute a server writer sets on a leaderstats ValueObject to the value it is
+	-- about to write, so AntiCheat's StatGuard treats the change as legitimate
+	-- (PlayerService.SetupLeaderstats/SetLeaderstat do this; so does Stat.Expect).
+	STAT_EXPECTED_ATTRIBUTE = "__GaxiaExpected",
 
 	-- ── General ──────────────────────────────────────────────
 	MAX_PLAYERS = 50, -- hard cap enforced server-side

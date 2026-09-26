@@ -289,8 +289,16 @@ function BanService.IsEscalationExempt(userId: number): boolean
 end
 
 local strikes: { [number]: number } = {}
+-- Players already kicked/banned by escalate() whose disconnect is still pending.
+-- Kick is asynchronous, so several hard actions arriving in the same frame used to
+-- add several strikes (KickAt=1 → TempBanAt=2 → PermBanAt=3 inside one frame):
+-- three simultaneous flags meant a permanent ban. One punishment per session.
+-- Strikes reset on leave, so with the default KickAt = 1 the temp/perm thresholds
+-- are only reached when KickAt is raised above 1.
+local punished: { [number]: boolean } = {}
 local function escalate(player: Player, reason: string): ()
 	local uid = player.UserId
+	if punished[uid] then return end
 	if isEscalationExempt(uid) then
 		warn(`[BanService] escalation exempt for {player.Name} ({uid}) — would have acted on: {reason}`)
 		return
@@ -303,16 +311,20 @@ local function escalate(player: Player, reason: string): ()
 	local permBanAt : number = (policy.PermBanAt :: any) or 3
 	local tempSecs  : number = (policy.TempBanSeconds :: any) or 3600
 	if n >= permBanAt then
+		punished[uid] = true
 		BanService.Ban(uid, `Auto: {reason} x{n}`)
 	elseif n >= tempBanAt then
+		punished[uid] = true
 		BanService.Ban(uid, `Auto: {reason} x{n}`, tempSecs)
 	elseif n >= kickAt then
+		punished[uid] = true
 		player:Kick(`[AntiCheat] {reason}`)
 	end
 end
 
 Players.PlayerRemoving:Connect(function(p)
 	strikes[p.UserId] = nil
+	punished[p.UserId] = nil
 	-- Evict the ban cache so a rejoin re-reads the store: bans/unbans issued on
 	-- ANOTHER server while this one held a warm entry must take effect here too.
 	-- Only when a real store exists — without one (Studio, no API access) the

@@ -15,6 +15,7 @@
 
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local StarterPack       = game:GetService("StarterPack")
 
 local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
 local Trove     = SharedPkg.Trove
@@ -50,6 +51,19 @@ end
 -- A Tool is authorised iff it carries a UID attribute AND ToolService still
 -- has it in its registry. The registry uses weak values, so destroyed tools
 -- auto-evict — we don't have to worry about stale entries.
+-- Roblox itself copies StarterPack (and the player's StarterGear) into the
+-- Backpack on every spawn; those tools never pass through ToolService, so without
+-- this every player carrying a starter tool was flagged HARD — with three starter
+-- tools the same-frame strikes reached a permanent ban. Server-side inventory
+-- mutation is what this guard is for; a matching starter tool name is legitimate.
+local function isStarterTool(player: Player, tool: Tool): boolean
+	local packTool = StarterPack:FindFirstChild(tool.Name)
+	if packTool and packTool:IsA("Tool") then return true end
+	local gear = player:FindFirstChild("StarterGear")
+	local gearTool = gear and gear:FindFirstChild(tool.Name)
+	return gearTool ~= nil and gearTool:IsA("Tool")
+end
+
 local function isAuthorised(tool: Tool): boolean
 	local uid = tool:GetAttribute(UID_ATTR)
 	if typeof(uid) ~= "string" or uid == "" then return false end
@@ -64,11 +78,14 @@ local function inspectAddition(player: Player, child: Instance)
 	-- tool would race the listener and look unauthorised.
 	task.defer(function()
 		if child.Parent == nil then return end       -- already cleaned up
-		if isAuthorised(child) then return end
+		if isAuthorised(child) or isStarterTool(player, child) then return end
 		-- Unauthorised — destroy and flag. We treat this as HARD because the
 		-- only way an unstamped Tool reaches a player's inventory is direct
-		-- mutation, never legitimate gameplay.
-		child:Destroy()
+		-- mutation, never legitimate gameplay. In observe mode (Enforce = false)
+		-- the tool is kept: only the flag is recorded.
+		if orchestratorRef and orchestratorRef.IsEnforcing() then
+			child:Destroy()
+		end
 		if orchestratorRef then
 			orchestratorRef.Flag(player, "Backpack", Config.AntiCheat.Backpack.Severity)
 		end

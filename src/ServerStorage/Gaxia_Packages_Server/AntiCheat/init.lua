@@ -8,7 +8,10 @@
 	          flag a player accumulate severity; passing thresholds triggers
 	          OnFlag (soft) → warning, or OnFlag (hard) → action (kick).
 
-	Each detector is a sibling ModuleScript that returns:
+	OnAction(player, reason, kind) — kind is "soft", "hard", or "observe" (a
+	would-be "hard" action while Config.AntiCheat.Enforce is false; see there).
+
+	Each detector is a child ModuleScript of this module that returns:
 		{
 		  Name    : string,
 		  Init    : (orchestrator) -> ()?            -- optional, called once on boot
@@ -57,6 +60,10 @@ end
 local function isDetectorEnabled(name: string): boolean
 	return EConfig.Enabled(`AntiCheat.Detector.{name}.Enabled`, detectorStaticDefault(name))
 end
+-- Observe mode (Enforce = false): see Config/AntiCheat.lua.
+local function isEnforcing(): boolean
+	return EConfig.Enabled("AntiCheat.Enforce", AntiCheatConfig.Enforce == true)
+end
 
 -- ── Types ──
 export type Flag = {
@@ -76,6 +83,7 @@ local AntiCheat = {}
 -- (player, reason, severity, count) — fires every flag; consumers may dedupe.
 AntiCheat.OnFlag = Signal.new()
 -- (player, reason, kind) — fires when threshold hit; kind ∈ "soft" | "hard"
+-- (player, reason, kind: "soft" | "hard" | "observe")
 AntiCheat.OnAction = Signal.new()
 
 -- ── Internal state ──
@@ -87,6 +95,8 @@ local detectors: { Detector } = {}
 -- orchestrator's __index metamethod (e.g. `AntiCheat.Combat.RegisterDamage(...)`).
 local detectorsByName: { [string]: any } = {}
 local flagCounts: { [number]: { [string]: number } } = {} -- userId → reason → count
+-- "uid:reason" → true once the observe-mode warning was printed (cleared on leave).
+local observeWarned : { [string]: boolean } = {}
 local whitelists: { [number]: { [string]: number } } = {} -- userId → reason → expiresAtClock
 local samplerRunning = false
 
@@ -148,7 +158,18 @@ local function recordFlag(player: Player, reason: string, severity: string)
 
 	-- Hard severity escalates immediately if past the hard threshold OR was already explicitly "hard".
 	if severity == "hard" or count >= HARD_THRESHOLD then
-		AntiCheat.OnAction:Fire(player, reason, "hard")
+		if isEnforcing() then
+			AntiCheat.OnAction:Fire(player, reason, "hard")
+		else
+			-- Observe mode: publish what WOULD have been a hard action. Consumers that
+			-- enforce (BanService, the bootstrap kick handler) only act on "hard".
+			local key = `{uid}:{reason}`
+			if not observeWarned[key] then
+				observeWarned[key] = true
+				warn(`[AntiCheat] observe mode — would take HARD action against {player.Name} ({uid}): {reason}. Not enforced (Config.AntiCheat.Enforce = false).`)
+			end
+			AntiCheat.OnAction:Fire(player, reason, "observe")
+		end
 	elseif count >= SOFT_THRESHOLD then
 		AntiCheat.OnAction:Fire(player, reason, "soft")
 	end
@@ -165,6 +186,13 @@ end
 
 function AntiCheat.IsEnabled(): boolean
 	return isAntiCheatEnabled()
+end
+
+-- False in observe mode (Config.AntiCheat.Enforce / flag "AntiCheat.Enforce"):
+-- hard actions are published as "observe" and detectors must not change game
+-- state (e.g. BackpackGuard keeps the tool).
+function AntiCheat.IsEnforcing(): boolean
+	return isEnforcing()
 end
 
 -- Master kill-switch. SetEnabled(false) stops all flagging instantly; restart (or
@@ -284,10 +312,12 @@ end
 
 -- ── Loader: auto-require sibling ModuleScripts ──
 
--- Skips ourselves and any nested folders; detectors are flat siblings.
+-- Detectors are this module's children: under Rojo, AntiCheat/init.lua IS the
+-- AntiCheat ModuleScript. (This used to scan script.Parent — the package root —
+-- a leftover of the old Folder+init layout, so no detector loaded at all.)
 local function loadDetectors()
-	for _, child in ipairs(script.Parent:GetChildren()) do
-		if child:IsA("ModuleScript") and child ~= script then
+	for _, child in ipairs(script:GetChildren()) do
+		if child:IsA("ModuleScript") then
 			local ok, result = pcall(require, child)
 			if not ok then
 				warn(`[AntiCheat] Failed to require detector '{child.Name}': {tostring(result)}`)
@@ -331,6 +361,12 @@ Players.PlayerRemoving:Connect(function(player)
 	-- Drop per-player state so leavers don't linger in memory.
 	flagCounts[player.UserId] = nil
 	whitelists[player.UserId] = nil
+	local prefix = `{player.UserId}:`
+	for key in pairs(observeWarned) do
+		if key:sub(1, #prefix) == prefix then
+			observeWarned[key] = nil
+		end
+	end
 end)
 
 -- ── Remote channel bootstrap ──

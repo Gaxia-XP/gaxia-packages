@@ -312,9 +312,10 @@ local function autoSubscribe(): ()
 	local acCh = autoChannel("AntiCheat")
 	if acCh and s.AntiCheat and s.AntiCheat.OnAction then
 		s.AntiCheat.OnAction:Connect(function(player: any, reason: string, kind: string)
-			if kind ~= "hard" then return end
+			-- "observe" = would have been "hard" but Config.AntiCheat.Enforce is false.
+			if kind ~= "hard" and kind ~= "observe" then return end
 			Webhook.Discord(acCh, {
-				title = "⚠️ AntiCheat Action",
+				title = if kind == "observe" then "👁️ AntiCheat (observe mode — not enforced)" else "⚠️ AntiCheat Action",
 				color = ORANGE,
 				fields = {
 					{ name = "Player", value = (typeof(player) == "Instance" and player.Name or tostring(player)), inline = true },
