@@ -11,46 +11,42 @@
 -- Access  : Gaxia.Analytics  (server)
 --   Gaxia.Analytics.SetSink(function(player, event, props) myBackend(player, event, props) end)
 --   Gaxia.Analytics.Track(player, "tutorial_step", { step = 3 })
+--
+-- Lifecycle: Start subscribes to Economy.OnTransaction, Level.OnLevelUp and
+--            Quest.OnQuestComplete (subscribing never starts those services).
+--            Not in the default Features: list "Analytics" to funnel from boot.
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
+-- ── Dependencies ──
+local Signal         = require(ReplicatedStorage.Gaxia_Packages.Shared.Signal)
+local Lifecycle      = require(script.Parent.ServiceLifecycle)
+local EconomyService = require(script.Parent.EconomyService)
+local LevelSystem    = require(script.Parent.LevelSystem)
+local QuestSystem    = require(script.Parent.QuestSystem)
+
+export type Props = { [string]: any }
+export type Sink = (player: Player, event: string, props: Props) -> ()
 
 local Analytics = {}
 
--- (player, event, props)
-Analytics.OnEvent = Signal.new()
+-- (player, event, props) for every tracked event (props is {} when none were given)
+Analytics.OnEvent = Signal.new() :: Signal.Signal<Player, string, Props>
 
-local sink: (player: Player, event: string, props: { [string]: any }) -> () = function(player, event, props)
+local sink: Sink = function(player, event, props)
 	-- Default sink: human-readable print. Replace via SetSink for a real backend.
 	print(`[Analytics] {player.Name} · {event}`)
 end
 
--- Lazy server loader for auto-subscribe.
-local GaxiaServer: any = nil
-local function server(): any
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer
-end
-
 -- ── Public API ──
 
-function Analytics.SetSink(fn: (player: Player, event: string, props: { [string]: any }) -> ()): ()
+function Analytics.SetSink(fn: Sink): ()
 	if typeof(fn) == "function" then
 		sink = fn
 	end
 end
 
-function Analytics.Track(player: Player, event: string, props: { [string]: any }?): ()
+function Analytics.Track(player: Player, event: string, props: Props?): ()
 	if typeof(player) ~= "Instance" or typeof(event) ~= "string" then
 		return
 	end
@@ -62,37 +58,25 @@ function Analytics.Track(player: Player, event: string, props: { [string]: any }
 	end
 end
 
--- ── Auto-subscribe the framework's existing signals (deferred, off the load path) ──
-local subscribed = false
+-- ── Auto-subscribe the framework's existing signals ──
 local function autoSubscribe(): ()
-	if subscribed then
-		return
-	end
-	subscribed = true
-	local G = server()
+	EconomyService.OnTransaction:Connect(function(player: Player, currency: string, delta: number, newBalance: number, kind: string)
+		Analytics.Track(player, "currency_change", { currency = currency, delta = delta, balance = newBalance, kind = kind })
+	end)
 
-	local Economy = G.Economy
-	if Economy and Economy.OnTransaction then
-		Economy.OnTransaction:Connect(function(player: Player, currency: string, delta: number, newBalance: number, kind: string)
-			Analytics.Track(player, "currency_change", { currency = currency, delta = delta, balance = newBalance, kind = kind })
-		end)
-	end
+	LevelSystem.OnLevelUp:Connect(function(player: Player, newLevel: any)
+		Analytics.Track(player, "level_up", { level = newLevel })
+	end)
 
-	local Level = G.Level
-	if Level and Level.OnLevelUp then
-		Level.OnLevelUp:Connect(function(player: Player, newLevel: any)
-			Analytics.Track(player, "level_up", { level = newLevel })
-		end)
-	end
-
-	local Quest = G.Quest
-	if Quest and Quest.OnQuestComplete then
-		Quest.OnQuestComplete:Connect(function(player: Player, questId: any)
-			Analytics.Track(player, "quest_complete", { quest = questId })
-		end)
-	end
+	QuestSystem.OnQuestComplete:Connect(function(player: Player, questId: any)
+		Analytics.Track(player, "quest_complete", { quest = questId })
+	end)
 end
 
-task.spawn(autoSubscribe)
+Lifecycle.Define(Analytics, {
+	Name = "Analytics",
+	Needs = {},
+	Start = autoSubscribe,
+})
 
 return Analytics

@@ -9,29 +9,36 @@
 --           hard AntiCheat actions: warn/kick → temp-ban → perm-ban (thresholds
 --           in Config.AntiCheat.BanPolicy). Exempt from ALL auto-action: the
 --           place creator + roles >= BanPolicy.ExemptRole (escalation only
---           warns; stale creator bans self-heal at the join gate).
+--           warns; stale creator bans self-heal at the join gate). The role
+--           lookup is installed by AdminCommands (SetRoleResolver); without it
+--           only the place creator is exempt.
 --
 -- Access  : Gaxia.Ban  (server)
 --   Gaxia.Ban.Ban(userId, "Exploiting", 3600)   -- 1h temp ban (nil = permanent)
 --   local banned, reason = Gaxia.Ban.IsBanned(userId)
+--
+-- Lifecycle: Init connects the PlayerAdded ban gate (before players are
+--            admitted) + the leave cleanup; Start subscribes to AntiCheat.OnAction.
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local Players           = game:GetService("Players")
 local DataStoreService  = game:GetService("DataStoreService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
-
-local Config = require(script.Parent.Parent:FindFirstChild("Config") :: ModuleScript) :: any
+-- ── Dependencies ──
+local Shared    = ReplicatedStorage.Gaxia_Packages.Shared
+local Signal    = require(Shared.Signal)
+local Lifecycle = require(script.Parent.ServiceLifecycle)
+local Config    = require(script.Parent.Parent.Config)
+local Types     = require(script.Parent.Parent.Types)
+-- The orchestrator (not a Need: Start only subscribes to its OnAction signal,
+-- which never starts AntiCheat).
+local AntiCheat = require(script.Parent.Parent.AntiCheat)
 
 -- Store name comes from Config so operators can namespace bans per-game
 -- (Config.Admin.Stores.Bans, "override to namespace bans/roles per game").
--- Read once at load: the store name is fixed for the server lifetime and is a
+-- Read once, in Init: the store name is fixed for the server lifetime and is a
 -- server-private secret, never a runtime Flag. Falls back to the historic default.
-local BAN_STORE : string = ((Config.Admin or {}).Stores or {}).Bans or "GaxiaBans"
+local BAN_STORE : string = "GaxiaBans"
 
 export type Ban = {
 	reason: string,
@@ -39,14 +46,24 @@ export type Ban = {
 	time: number,
 }
 
+-- One row of ListBans (the Admin Panel's /unban list).
+export type BanListEntry = {
+	userId: number,
+	reason: string,
+	expiresAt: number?,  -- os.time(); nil = permanent
+	time: number,
+}
+
 local BanService = {}
 
-BanService.OnBan = Signal.new()    -- (userId, ban)
-BanService.OnUnban = Signal.new()  -- (userId)
+-- (userId, ban) after a ban is applied (persisted or session-only)
+BanService.OnBan = Signal.new() :: Signal.Signal<number, Ban>
+-- (userId) after a ban record is cleared (manual unban, expiry, creator self-heal)
+BanService.OnUnban = Signal.new() :: Signal.Signal<number>
 
 -- Session cache: Ban record, or false = explicitly not banned (so we don't re-hit
 -- the DataStore every check). Lets Studio (no real DataStore) work in-memory.
-local cache: { [number]: any } = {}
+local cache: { [number]: Ban | false } = {}
 
 local _store: any = nil
 local function store(): any
@@ -77,8 +94,8 @@ local function loadBan(userId: number): Ban?
 		return s:GetAsync(tostring(userId))
 	end)
 	if ok and typeof(data) == "table" then
-		cache[userId] = data
-		return data
+		cache[userId] = data :: Ban
+		return data :: Ban
 	end
 	if ok then
 		-- Successful read with no record: genuinely not banned.
@@ -161,10 +178,10 @@ end
 -- persisted keys via ListKeysAsync — pcall-guarded, so without DataStore API
 -- access this degrades to the session cache. Feeds the Admin Panel's /unban
 -- list. Each entry: { userId, reason, expiresAt?, time }.
-function BanService.ListBans(maxCount: number?): { { [string]: any } }
+function BanService.ListBans(maxCount: number?): { BanListEntry }
 	local cap = maxCount or 50
 	local seen: { [number]: boolean } = {}
-	local out: { { [string]: any } } = {}
+	local out: { BanListEntry } = {}
 	local function add(userId: number, ban: Ban)
 		if seen[userId] or isExpired(ban) then
 			return
@@ -230,27 +247,19 @@ local function gate(player: Player): ()
 	end
 	player:Kick(`[Banned] {reason}`)
 end
-Players.PlayerAdded:Connect(gate)
-for _, p in ipairs(Players:GetPlayers()) do
-	task.spawn(gate, p)
-end
 
 -- ── Auto-escalation policy (repeat hard AntiCheat actions) ──
 
--- Lazy AdminCommands ref (sibling Lib module) for the role lookup in the
--- escalation exemption. Resolved at call time via pcall: a load-time require
--- would drag AdminCommands' DataStore setup onto this module's load path, and
--- BanService must still work when AdminCommands is absent (exemption then
--- covers only the place creator).
-local _adminRef: any = nil
-local function getAdmin(): any
-	if _adminRef ~= nil then return _adminRef end
-	local mod = script.Parent:FindFirstChild("AdminCommands")
-	if mod and mod:IsA("ModuleScript") then
-		local ok, m = pcall(require, mod)
-		if ok then _adminRef = m end
-	end
-	return _adminRef
+-- Role lookup for the escalation exemption, installed by AdminCommands' Init
+-- (BanService never requires AdminCommands: AdminCommands depends on this module).
+-- BanService still works without it — the exemption then covers only the place
+-- creator.
+local roleResolver: Types.UserRoleResolver? = nil
+
+-- Install the (userId, role) -> boolean lookup the escalation exemption uses.
+-- AdminCommands does this in its Init; game code does not need to call it.
+function BanService.SetRoleResolver(fn: Types.UserRoleResolver): ()
+	roleResolver = fn
 end
 
 -- The machine must never ban high roles. Detectors legitimately fire on admin
@@ -269,13 +278,14 @@ local function isEscalationExempt(userId: number): boolean
 	if game.CreatorType == Enum.CreatorType.User and userId == game.CreatorId then
 		return true
 	end
-	local policy = (Config.AntiCheat or {}).BanPolicy or {}
-	if policy.ExemptRole == false then
+	-- ExemptRole = false turns the role exemption off (creator only).
+	local exemptRole = Config.AntiCheat.BanPolicy.ExemptRole :: string | false
+	if exemptRole == false then
 		return false
 	end
-	local admin = getAdmin()
-	if admin and admin.IsUserIdAtLeast then
-		return admin.IsUserIdAtLeast(userId, tostring(policy.ExemptRole or "admin"))
+	local resolve = roleResolver
+	if resolve then
+		return resolve(userId, tostring(exemptRole or "admin"))
 	end
 	return false
 end
@@ -305,11 +315,11 @@ local function escalate(player: Player, reason: string): ()
 	end
 	strikes[uid] = (strikes[uid] or 0) + 1
 	local n = strikes[uid]
-	local policy = Config.AntiCheat.BanPolicy or {}
-	local kickAt    : number = (policy.KickAt :: any) or 1
-	local tempBanAt : number = (policy.TempBanAt :: any) or 2
-	local permBanAt : number = (policy.PermBanAt :: any) or 3
-	local tempSecs  : number = (policy.TempBanSeconds :: any) or 3600
+	local policy = Config.AntiCheat.BanPolicy
+	local kickAt    : number = policy.KickAt or 1
+	local tempBanAt : number = policy.TempBanAt or 2
+	local permBanAt : number = policy.PermBanAt or 3
+	local tempSecs  : number = policy.TempBanSeconds or 3600
 	if n >= permBanAt then
 		punished[uid] = true
 		BanService.Ban(uid, `Auto: {reason} x{n}`)
@@ -322,7 +332,7 @@ local function escalate(player: Player, reason: string): ()
 	end
 end
 
-Players.PlayerRemoving:Connect(function(p)
+local function onPlayerRemoving(p: Player): ()
 	strikes[p.UserId] = nil
 	punished[p.UserId] = nil
 	-- Evict the ban cache so a rejoin re-reads the store: bans/unbans issued on
@@ -332,22 +342,30 @@ Players.PlayerRemoving:Connect(function(p)
 	if store() then
 		cache[p.UserId] = nil
 	end
-end)
+end
 
--- Subscribe to AntiCheat hard actions (deferred — off the load metamethod path).
-task.spawn(function()
-	-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-	-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-	local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-	local GaxiaServer = require(serverInit :: any)
-	local AC = GaxiaServer.AntiCheat
-	if AC and AC.OnAction then
-		AC.OnAction:Connect(function(player: Player, reason: string, kind: string)
+Lifecycle.Define(BanService, {
+	Name = "Ban",
+	Needs = {},
+	Init = function()
+		BAN_STORE = Config.Admin.Stores.Bans or "GaxiaBans"
+		-- Join gate: connected before players are admitted; players already in
+		-- game (late start) are checked too. The ban read yields, so each runs
+		-- on its own thread.
+		Players.PlayerAdded:Connect(gate)
+		for _, p in ipairs(Players:GetPlayers()) do
+			task.spawn(gate, p)
+		end
+		Players.PlayerRemoving:Connect(onPlayerRemoving)
+	end,
+	Start = function()
+		-- Escalate repeat hard AntiCheat actions ("observe" = not enforced: ignored).
+		AntiCheat.OnAction:Connect(function(player: Player, reason: string, kind: string)
 			if kind == "hard" then
 				escalate(player, reason)
 			end
 		end)
-	end
-end)
+	end,
+})
 
 return BanService

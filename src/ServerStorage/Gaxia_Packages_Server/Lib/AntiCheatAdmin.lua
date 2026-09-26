@@ -13,26 +13,21 @@
 --             /ac <on|off|status|reset> [Detector]  — live AntiCheat kill-switch
 --             /flag <set|get> <key> [value]         — generic runtime flag override
 --
--- Touch Gaxia.AntiCheatAdmin at boot to register the commands (auto-registers on
--- load too; explicit Register() is idempotent).
+-- List "AntiCheatAdmin" in Features (or touch Gaxia.AntiCheatAdmin) to register
+-- the commands: its Init registers them; explicit Register() is idempotent.
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
+local Players = game:GetService("Players")
 
-local Players       = game:GetService("Players")
-local ServerStorage = game:GetService("ServerStorage")
+-- ── Dependencies ──
+local Lifecycle        = require(script.Parent.ServiceLifecycle)
+local EConfig          = require(script.Parent.EffectiveConfig)
+local AdminCommands    = require(script.Parent.AdminCommands)
+local AntiCheatJournal = require(script.Parent.AntiCheatJournal)
+local BanService       = require(script.Parent.BanService)
+local AnalyticsService = require(script.Parent.AnalyticsService)
+local AntiCheat        = require(script.Parent.Parent.AntiCheat)
 
 local AntiCheatAdmin = {}
-
-local GaxiaServer: any = nil
-local function server(): any
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer
-end
 
 -- Hardened resolver (mirrors AdminCommands.findPlayerByPartialName, which is
 -- module-local): blank and ambiguous queries resolve to nil — never "first
@@ -65,21 +60,21 @@ local function findPlayer(query: string?): (Player?, string?)
 end
 
 local registered = false
-function AntiCheatAdmin.Register(): ()
+local function register(): ()
 	if registered then
 		return
 	end
 	registered = true
-	local G = server()
-	local Admin = G.Admin
-	if not Admin or not Admin.Register then
+	-- AdminCommands is a Need, so its Init has run: it either started or failed.
+	if Lifecycle.GetState(AdminCommands) ~= "initialized" then
 		warn("[AntiCheatAdmin] AdminCommands unavailable — dashboard commands not registered")
 		return
 	end
+	local Admin = AdminCommands
 
 	Admin.Register("acflags", { role = "moderator", help = "List a player's AntiCheat flags" }, function(caller: Player, args: { string }): string?
 		local target = findPlayer(args[1]) or caller
-		local entries = G.Journal.GetForPlayer(target)
+		local entries = AntiCheatJournal.GetForPlayer(target)
 		if #entries == 0 then
 			return `{target.Name}: no flags`
 		end
@@ -92,7 +87,7 @@ function AntiCheatAdmin.Register(): ()
 
 	Admin.Register("acclear", { role = "admin", help = "Clear a player's AntiCheat flags" }, function(caller: Player, args: { string }): string?
 		local target = findPlayer(args[1]) or caller
-		G.AntiCheat.ClearFlags(target)
+		AntiCheat.ClearFlags(target)
 		return `cleared {target.Name}'s AntiCheat flags`
 	end)
 
@@ -125,7 +120,7 @@ function AntiCheatAdmin.Register(): ()
 			end
 			seconds = math.floor(n)
 		end
-		local persisted = G.Ban.Ban(target.UserId, reason, seconds)
+		local persisted = BanService.Ban(target.UserId, reason, seconds)
 		local line = `banned {target.Name}: {reason}{if seconds then ` ({seconds}s)` else " (permanent)"}`
 		if persisted == false then
 			-- Kick happened but the DataStore write failed (or no store): this
@@ -140,7 +135,7 @@ function AntiCheatAdmin.Register(): ()
 		if not uid then
 			return "usage: /acunban <userId>", true
 		end
-		local persisted = G.Ban.Unban(uid)
+		local persisted = BanService.Unban(uid)
 		if persisted == false then
 			return `unbanned {uid} — WARNING: persisted record removal failed; the ban may re-apply elsewhere`
 		end
@@ -154,7 +149,10 @@ function AntiCheatAdmin.Register(): ()
 	local function audit(caller: Player, action: string): ()
 		print(`[AntiCheatAdmin] AUDIT {caller.Name}({caller.UserId}): {action}`)
 		pcall(function()
-			G.Analytics.Track("admin_config", { by = caller.UserId, action = action })
+			-- KNOWN BUG, kept as-is by the lifecycle refactor (fixing it changes
+			-- behaviour): the event name sits in Track's player slot, so Track drops
+			-- the event. The call still starts Analytics, as touching it always did.
+			(AnalyticsService.Track :: any)("admin_config", { by = caller.UserId, action = action })
 		end)
 	end
 
@@ -168,7 +166,7 @@ function AntiCheatAdmin.Register(): ()
 	end
 
 	Admin.Register("ac", { role = "admin", help = "AntiCheat: /ac <on|off|status|reset> [Detector]" }, function(caller: Player, args: { string }): (string?, boolean?)
-		local AC = G.AntiCheat
+		local AC = AntiCheat
 		local sub = (args[1] or "status"):lower()
 		local det = args[2]
 		if sub == "status" then
@@ -203,14 +201,14 @@ function AntiCheatAdmin.Register(): ()
 		local sub = (args[1] or ""):lower()
 		local key = args[2]
 		if sub == "get" and key then
-			return `{key} = {tostring(G.EConfig.Get(key, nil))} (overridden: {tostring(G.EConfig.IsOverridden(key))})`
+			return `{key} = {tostring(EConfig.Get(key, nil))} (overridden: {tostring(EConfig.IsOverridden(key))})`
 		elseif sub == "set" and key then
 			local val = parseValue(args[3])
-			G.EConfig.Set(key, val)
+			EConfig.Set(key, val)
 			audit(caller, `flag {key} = {tostring(val)}`)
 			return `flag {key} = {tostring(val)}`
 		elseif sub == "clear" and key then
-			G.EConfig.Clear(key)
+			EConfig.Clear(key)
 			audit(caller, `flag {key} cleared`)
 			return `flag {key} cleared (reverted to default)`
 		end
@@ -218,6 +216,16 @@ function AntiCheatAdmin.Register(): ()
 	end)
 end
 
-task.spawn(AntiCheatAdmin.Register)
+-- Register the dashboard commands (idempotent; Init already does this).
+function AntiCheatAdmin.Register(): ()
+	register()
+end
+
+Lifecycle.Define(AntiCheatAdmin, {
+	Name = "AntiCheatAdmin",
+	-- AdminCommands: Init registers the commands into it (and, through it, chat).
+	Needs = { AdminCommands },
+	Init = register,
+})
 
 return AntiCheatAdmin

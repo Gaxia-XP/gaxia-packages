@@ -15,45 +15,38 @@
 --   Gaxia.Webhook.Discord("BanReports", { title = "Hi", description = "world", color = Color3.fromRGB(231,76,60) })
 --   Gaxia.Webhook.Send("ShopStock", { content = "Stock updated" })   -- raw JSON
 --   Gaxia.Webhook.SendUrl("https://discord.com/api/webhooks/...", { content = "ad-hoc" })
+--
+-- Lifecycle: Start wires the auto-reports (Ban, AntiCheat, Guild signals) for
+--            each Config.Webhook.AutoReport source whose channel has a URL.
+--            Subscribing never starts those services (Features decides).
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local HttpService       = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
-
--- ── Lazy server (Config + EConfig + Ban + AntiCheat) ──
-local GaxiaServer: any = nil
-local function server(): any
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer
-end
+-- ── Dependencies ──
+local Signal       = require(ReplicatedStorage.Gaxia_Packages.Shared.Signal)
+local Lifecycle    = require(script.Parent.ServiceLifecycle)
+local Config       = require(script.Parent.Parent.Config)
+local EConfig      = require(script.Parent.EffectiveConfig)
+local BanService   = require(script.Parent.BanService)
+local GuildService = require(script.Parent.GuildService)
+local AntiCheat    = require(script.Parent.Parent.AntiCheat)
 
 -- ── Effective config (call-time: Config default <- runtime Flag override) ──
-local function wcfg(): any
-	return (server().Config or {}).Webhook or {}
-end
 local function flag(key: string, fallback: any): any
 	-- key is the dotted path under "Webhook." e.g. flag("Enabled", true)
-	return server().EConfig.Get("Webhook." .. key, fallback)
+	return EConfig.Get("Webhook." .. key, fallback)
 end
 local function enabled(): boolean
-	return flag("Enabled", wcfg().Enabled ~= false) == true
+	return flag("Enabled", Config.Webhook.Enabled ~= false) == true
 end
-local function rate(key: string, fallback: number): number
-	local rl = wcfg().RateLimit or {}
-	return flag("RateLimit." .. key, rl[key] or fallback)
+-- `configured` is Config.Webhook.RateLimit[key] (nil falls back to `fallback`).
+local function rate(key: string, configured: number?, fallback: number): number
+	return flag("RateLimit." .. key, configured or fallback)
 end
 local function channelUrl(channel: string): string?
-	local url = (wcfg().Channels or {})[channel]
+	-- Channels maps channel name -> secret URL (a free-form map in Config).
+	local url = (Config.Webhook.Channels :: { [string]: string })[channel]
 	if typeof(url) == "string" and #url > 0 then
 		return url
 	end
@@ -63,8 +56,10 @@ end
 -- ── Module ──
 local Webhook = {}
 
-Webhook.OnSend = Signal.new()   -- (channel: string, ok: boolean)
-Webhook.OnError = Signal.new()  -- (channel: string, reason: string)
+-- (channel, ok) after a 2xx delivery; channel is "(url)" for SendUrl
+Webhook.OnSend = Signal.new() :: Signal.Signal<string, boolean>
+-- (channel, reason) when a payload is dropped (JSON encode failure, retries exhausted)
+Webhook.OnError = Signal.new() :: Signal.Signal<string, string>
 
 -- ── Transport ──
 -- transport(url, body) -> (ok, status?, retryAfter?, err?)
@@ -135,7 +130,7 @@ local function drain(url: string): ()
 			local q = queues[url]
 			if not q or #q == 0 then break end
 			local item = table.remove(q, 1) :: Item
-			local maxR = rate("MaxRetries", 3)
+			local maxR = rate("MaxRetries", Config.Webhook.RateLimit.MaxRetries, 3)
 			local attempt = 0
 			while true do
 				attempt += 1
@@ -154,7 +149,7 @@ local function drain(url: string): ()
 					break
 				end
 			end
-			task.wait(rate("MinInterval", 2))
+			task.wait(rate("MinInterval", Config.Webhook.RateLimit.MinInterval, 2))
 		end
 		draining[url] = false
 	end)
@@ -175,7 +170,7 @@ local function enqueue(url: string, channel: string, payload: any): boolean
 	local q = queues[url]
 	if not q then q = {}; queues[url] = q end
 	table.insert(q, { url = url, channel = channel, body = body })
-	local cap = rate("MaxQueue", 100)
+	local cap = rate("MaxQueue", Config.Webhook.RateLimit.MaxQueue, 100)
 	while #q > cap do
 		table.remove(q, 1) -- drop oldest
 	end
@@ -221,7 +216,15 @@ export type EmbedOpts = {
 	fields: { { name: any, value: any, inline: boolean? } }?,
 }
 
-function Webhook.Embed(opts: EmbedOpts): any
+-- A Discord embed object, ready to JSON-encode (what Embed returns).
+export type Embed = {
+	title: string?, description: string?, url: string?,
+	color: number?,
+	fields: { { name: string, value: string, inline: boolean } }?,
+	timestamp: string,
+}
+
+function Webhook.Embed(opts: EmbedOpts): Embed
 	local o: any = opts or {}
 	local embed: any = {}
 	if o.title then embed.title = tostring(o.title) end
@@ -255,63 +258,54 @@ function Webhook.Discord(channel: string, opts: DiscordOpts): boolean
 	local o: any = opts or {}
 	local payload: any = {}
 	if o.content then payload.content = tostring(o.content) end
-	payload.username = o.username or flag("Username", wcfg().Username or "Gaxia")
+	payload.username = o.username or flag("Username", Config.Webhook.Username or "Gaxia")
 	if o.title or o.description or o.color or o.fields or o.url then
 		payload.embeds = { Webhook.Embed(o) }
 	end
 	return Webhook.Send(channel, payload)
 end
 
--- ── Auto-reports (zero-wiring) — deferred off the load path ──
+-- ── Auto-reports (zero-wiring) — wired in Start ──
 local RED, GREEN, ORANGE = 0xE74C3C, 0x2ECC71, 0xE67E22
 
-local function autoChannel(key: string): string?
-	local ch = (wcfg().AutoReport or {})[key]
+-- `ch` is a Config.Webhook.AutoReport entry: the channel, if it has a URL.
+local function autoChannel(ch: string?): string?
 	if typeof(ch) == "string" and channelUrl(ch) then
 		return ch
 	end
 	return nil
 end
 
-local subscribed = false
 local function autoSubscribe(): ()
-	if subscribed then return end
-	subscribed = true
-	local s = server()
-
-	local banCh = autoChannel("Bans")
-	if banCh and s.Ban then
-		if s.Ban.OnBan then
-			s.Ban.OnBan:Connect(function(userId: number, ban: any)
-				ban = ban or {}
-				local duration = if ban.expiresAt
-					then string.format("temp (until %d)", ban.expiresAt)
-					else "permanent"
-				Webhook.Discord(banCh, {
-					title = "🔨 Player Banned",
-					color = RED,
-					fields = {
-						{ name = "UserId", value = userId, inline = true },
-						{ name = "Duration", value = duration, inline = true },
-						{ name = "Reason", value = ban.reason or "—" },
-					},
-				})
-			end)
-		end
-		if s.Ban.OnUnban then
-			s.Ban.OnUnban:Connect(function(userId: number)
-				Webhook.Discord(banCh, {
-					title = "✅ Player Unbanned",
-					color = GREEN,
-					fields = { { name = "UserId", value = userId, inline = true } },
-				})
-			end)
-		end
+	local banCh = autoChannel(Config.Webhook.AutoReport.Bans)
+	if banCh then
+		BanService.OnBan:Connect(function(userId: number, ban: any)
+			ban = ban or {}
+			local duration = if ban.expiresAt
+				then string.format("temp (until %d)", ban.expiresAt)
+				else "permanent"
+			Webhook.Discord(banCh, {
+				title = "🔨 Player Banned",
+				color = RED,
+				fields = {
+					{ name = "UserId", value = tostring(userId), inline = true },
+					{ name = "Duration", value = duration, inline = true },
+					{ name = "Reason", value = ban.reason or "—", inline = false },
+				},
+			})
+		end)
+		BanService.OnUnban:Connect(function(userId: number)
+			Webhook.Discord(banCh, {
+				title = "✅ Player Unbanned",
+				color = GREEN,
+				fields = { { name = "UserId", value = userId, inline = true } },
+			})
+		end)
 	end
 
-	local acCh = autoChannel("AntiCheat")
-	if acCh and s.AntiCheat and s.AntiCheat.OnAction then
-		s.AntiCheat.OnAction:Connect(function(player: any, reason: string, kind: string)
+	local acCh = autoChannel(Config.Webhook.AutoReport.AntiCheat)
+	if acCh then
+		AntiCheat.OnAction:Connect(function(player: any, reason: string, kind: string)
 			-- "observe" = would have been "hard" but Config.AntiCheat.Enforce is false.
 			if kind ~= "hard" and kind ~= "observe" then return end
 			Webhook.Discord(acCh, {
@@ -319,56 +313,49 @@ local function autoSubscribe(): ()
 				color = ORANGE,
 				fields = {
 					{ name = "Player", value = (typeof(player) == "Instance" and player.Name or tostring(player)), inline = true },
-					{ name = "Kind", value = kind, inline = true },
-					{ name = "Reason", value = reason or "—" },
+					{ name = "Kind", value = kind :: string, inline = true },
+					{ name = "Reason", value = reason or "—", inline = false },
 				},
 			})
 		end)
 	end
 
 	-- ── Guild auto-report (Phase 26 · Social) ──
-	-- Placed LAST: `s.Guild` resolution goes through the GaxiaServer __index proxy,
-	-- which may trigger a require on first access. Bans + AntiCheat hookups are
-	-- already done above, so even if this line yields the earlier subscribers are live.
-	local Guild = s.Guild
-	if Guild then
-		local guildChannel = autoChannel("Guild")
-		if guildChannel and channelUrl(guildChannel) then
-			if Guild.OnCreate then
-				Guild.OnCreate:Connect(function(guildId: string, ownerUserId: number)
-					Webhook.Discord(guildChannel, {
-						title = "Guild created",
-						description = `**{guildId}** by user {ownerUserId}`,
-						color = Color3.fromRGB(46, 204, 113),
-					})
-				end)
+	-- Only when a Guild channel is configured. (This used to touch GaxiaServer.Guild
+	-- unconditionally, which started GuildService as a side effect; Guild is in the
+	-- default Features, and otherwise Features decides whether it runs.)
+	local guildChannel = autoChannel(Config.Webhook.AutoReport.Guild)
+	if guildChannel then
+		GuildService.OnCreate:Connect(function(guildId: string, ownerUserId: number)
+			Webhook.Discord(guildChannel, {
+				title = "Guild created",
+				description = `**{guildId}** by user {ownerUserId}`,
+				color = Color3.fromRGB(46, 204, 113),
+			})
+		end)
+		GuildService.OnDisband:Connect(function(guildId: string, byUserId: number)
+			Webhook.Discord(guildChannel, {
+				title = "Guild disbanded",
+				description = `**{guildId}** by user {byUserId}`,
+				color = Color3.fromRGB(231, 76, 60),
+			})
+		end)
+		GuildService.OnRoleChange:Connect(function(guildId: string, userId: number, newRole: string)
+			if newRole == "Owner" then
+				Webhook.Discord(guildChannel, {
+					title = "Guild ownership transferred",
+					description = `**{guildId}** → user {userId}`,
+					color = Color3.fromRGB(241, 196, 15),
+				})
 			end
-			if Guild.OnDisband then
-				Guild.OnDisband:Connect(function(guildId: string, byUserId: number)
-					Webhook.Discord(guildChannel, {
-						title = "Guild disbanded",
-						description = `**{guildId}** by user {byUserId}`,
-						color = Color3.fromRGB(231, 76, 60),
-					})
-				end)
-			end
-			if Guild.OnRoleChange then
-				Guild.OnRoleChange:Connect(function(guildId: string, userId: number, newRole: string)
-					if newRole == "Owner" then
-						Webhook.Discord(guildChannel, {
-							title = "Guild ownership transferred",
-							description = `**{guildId}** → user {userId}`,
-							color = Color3.fromRGB(241, 196, 15),
-						})
-					end
-				end)
-			end
-		end
+		end)
 	end
 end
 
--- Run once, after the package + Ban/AntiCheat are resolvable. task.spawn keeps it
--- off the loader's no-yield __index path (matching AnalyticsService).
-task.spawn(autoSubscribe)
+Lifecycle.Define(Webhook, {
+	Name = "Webhook",
+	Needs = {},
+	Start = autoSubscribe,
+})
 
 return Webhook

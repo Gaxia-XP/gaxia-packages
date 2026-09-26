@@ -6,68 +6,40 @@
 --           persistent bans + roles via DataStore. Provides built-in
 --           moderation commands (kick/ban/teleport/give/etc.) and an
 --           extensible Register() for game-specific commands.
+--
+-- Lifecycle: Init reads Config.Admin, opens the Roles store, registers the
+--            built-in commands (+ their chat bridge), wires the role hooks, the
+--            creator auto-grant and the Admin Panel remotes (Events/Admin), then
+--            installs the role resolvers BanService and ChatCommandSystem use.
 -- ─────────────────────────────────────────────────────────────
 
 local Players              = game:GetService("Players")
 local DataStoreService     = game:GetService("DataStoreService")
 local ReplicatedStorage    = game:GetService("ReplicatedStorage")
-local ServerStorage        = game:GetService("ServerStorage")
 
--- ── Lazy server (Config + EConfig) ──
--- Call-time only: requiring the server package at module load yields under the
--- loader's no-yield __index metamethod ("attempt to yield across metamethod").
-local _server: any = nil
-local function server(): any
-	if not _server then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		_server = require(serverInit :: any)
-	end
-	return _server
-end
+-- ── Dependencies ──
+local Shared                = ReplicatedStorage.Gaxia_Packages.Shared
+local Signal                = require(Shared.Signal)
+local Lifecycle             = require(script.Parent.ServiceLifecycle)
+local Config                = require(script.Parent.Parent.Config)
+local EConfig               = require(script.Parent.EffectiveConfig)
+local BanService            = require(script.Parent.BanService)
+local ChatCommandSystem     = require(script.Parent.ChatCommandSystem)
+local ItemService           = require(script.Parent.ItemService)
+local ItemDefinitionService = require(script.Parent.ItemDefinitionService)
+local PlayerService         = require(script.Parent.PlayerService)
+local AntiCheat             = require(script.Parent.Parent.AntiCheat)
 
--- ── Shared lib (Signal) ──
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal    = SharedPkg.Signal
-
--- ── Lazy direct-path service refs (avoid require recursion) ──
-local _itemServiceRef : any = nil
-local function getItemService(): any
-	if _itemServiceRef ~= nil then return _itemServiceRef end
-	local lib = (script.Parent :: any)
-	local mod = lib:FindFirstChild("ItemService")
-	if mod and mod:IsA("ModuleScript") then
-		local ok, m = pcall(require, mod)
-		if ok then _itemServiceRef = m end
-	end
-	return _itemServiceRef
-end
-
-local _playerServiceRef : any = nil
-local function getPlayerService(): any
-	if _playerServiceRef ~= nil then return _playerServiceRef end
-	local lib = (script.Parent :: any)
-	local mod = lib:FindFirstChild("PlayerService")
-	if mod and mod:IsA("ModuleScript") then
-		local ok, m = pcall(require, mod)
-		if ok then _playerServiceRef = m end
-	end
-	return _playerServiceRef
-end
-
--- ── Server config (declarative admin surface) ──
--- FindFirstChild (no WaitForChild): loaded under the server loader's no-yield
--- __index; Config sits at the package root and its body is a pure table.
-local Config = require((script.Parent :: any).Parent:FindFirstChild("Config") :: ModuleScript) :: any
-local AdminConfig = (Config.Admin or {}) :: any
+-- ── Server config (declarative admin surface) — read in Init ──
+local AdminConfig = Config.Admin
 
 -- Operator kill switch (Config.Admin.Enabled = false). Honored the same way
 -- AntiCheat/Webhook honor theirs: Register no-ops, Run refuses, and the side
--- effects below (remote surface, chat bridge, role hooks, creator auto-grant)
+-- effects in Init (remote surface, chat bridge, role hooks, creator auto-grant)
 -- are skipped. The key existed in Config but was never read — a silently
 -- non-functional kill switch on a security-sensitive subsystem.
-local ADMIN_ENABLED: boolean = AdminConfig.Enabled ~= false
+-- (false until Init has read Config: nothing registers or runs before that.)
+local ADMIN_ENABLED: boolean = false
 
 -- ── Role tier (numeric for easy comparison) ──
 -- WHY numeric tiers: a single `>=` check works for arbitrary new roles
@@ -79,41 +51,46 @@ local ROLE_TIER : { [string]: number } = {
 	admin     = 2,
 	owner     = 3,
 }
-if typeof(AdminConfig.Tiers) == "table" then
-	for role, tier in pairs(AdminConfig.Tiers) do
-		ROLE_TIER[role] = tier
-	end
-end
 
 -- Alias (alias → real command) + disabled-command sets, built once from Config.
 local ALIASES : { [string]: string } = {}
-if typeof(AdminConfig.Aliases) == "table" then
-	for alias, real in pairs(AdminConfig.Aliases) do
-		ALIASES[tostring(alias):lower()] = tostring(real):lower()
-	end
-end
 local DISABLED : { [string]: boolean } = {}
-if typeof(AdminConfig.Disabled) == "table" then
-	for _, cmdName in ipairs(AdminConfig.Disabled) do
-		DISABLED[tostring(cmdName):lower()] = true
-	end
-end
 
-local _stores = (AdminConfig.Stores or {}) :: any
 -- Bans are owned by BanService (Gaxia.Ban) — single source of truth for the
 -- whole framework. AdminCommands' /ban /unban commands and the PlayerAdded
 -- ban gate delegate to it so the on-disk record shape, in-memory cache,
 -- expiresAt-aware IsBanned, and OnBan/OnUnban signals (Webhook auto-report)
 -- all stay consistent. AdminCommands still owns Roles persistence directly
--- because it's the role registry.
-local ROLES_STORE = DataStoreService:GetDataStore(_stores.Roles or "GaxiaRoles")
+-- because it's the role registry. Opened in Init.
+local ROLES_STORE : DataStore? = nil
+
+-- Config.Admin → enable flag, extra tiers, aliases, disabled commands (Init).
+-- (Tiers / Aliases / Disabled are open maps / lists; the casts name that shape.)
+local function readConfig(): ()
+	ADMIN_ENABLED = AdminConfig.Enabled ~= false
+	if typeof(AdminConfig.Tiers) == "table" then
+		for role, tier in pairs(AdminConfig.Tiers :: { [string]: number }) do
+			ROLE_TIER[role] = tier
+		end
+	end
+	if typeof(AdminConfig.Aliases) == "table" then
+		for alias, real in pairs(AdminConfig.Aliases :: { [string]: string }) do
+			ALIASES[tostring(alias):lower()] = tostring(real):lower()
+		end
+	end
+	if typeof(AdminConfig.Disabled) == "table" then
+		for _, cmdName in ipairs(AdminConfig.Disabled :: { string }) do
+			DISABLED[tostring(cmdName):lower()] = true
+		end
+	end
+end
 
 -- ── In-memory state ──
 local roleByUserId   : { [number]: string }  = {}
 
-type CommandOpts = {
-	role    : string,
-	args    : { string }?,
+export type CommandOpts = {
+	role    : string,       -- minimum role (a Config.Admin.Tiers name)
+	args    : { string }?,  -- arg hints shown in the Admin Panel ("player", "number", ...)
 	help    : string?,
 }
 
@@ -121,18 +98,22 @@ type CommandOpts = {
 -- (guard block, bad input, target not found) as opposed to a success line:
 -- Run's pcall can't tell them apart from the string alone, and "didn't error"
 -- used to render guard-blocked bans as green success toasts and ✓ audit rows.
+export type CommandHandler = (caller: Player, args: { string }) -> (string?, boolean?)
+
 type CommandEntry = {
 	name    : string,
 	role    : string,
 	args    : { string },
 	help    : string,
-	handler : (caller: Player, args: { string }) -> (string?, boolean?),
+	handler : CommandHandler,
 }
 
 local commands : { [string]: CommandEntry } = {}
 
 local AdminCommands = {}
-AdminCommands.OnCommand = Signal.new() -- (caller, name, args, success, message?)
+-- (caller, name, args, success, message) after every Run: name as passed in;
+-- message is the handler's reply / rejection text (nil when there is none)
+AdminCommands.OnCommand = Signal.new() :: Signal.Signal<Player, string, { string }, boolean, string?>
 
 -- ── Role API ──
 function AdminCommands.GetRole(player: Player): string
@@ -148,7 +129,7 @@ function AdminCommands.SetRole(userId: number, role: string): ()
 	-- WHY pcall: DataStore can throw on rate-limit / network; never crash caller.
 	task.spawn(function()
 		local ok, err = pcall(function()
-			ROLES_STORE:SetAsync(tostring(userId), role)
+			(ROLES_STORE :: DataStore):SetAsync(tostring(userId), role)
 		end)
 		if not ok then
 			warn(`[AdminCommands] failed to persist role for {userId}: {tostring(err)}`)
@@ -179,41 +160,11 @@ function AdminCommands.IsUserIdAtLeast(userId: number, role: string): boolean
 	return cur >= need
 end
 
--- ── Lazy ChatCommandSystem ref for the chat bridge ──
--- Direct-path require (avoid GaxiaServer recursion). May be nil if Chat module
--- isn't installed; bridge then becomes a no-op and AdminCommands is callable
--- only via AdminCommands.Run() directly.
-local _chatRef : any = nil
-local function getChatSystem(): any
-	if _chatRef ~= nil then return _chatRef end
-	local lib = (script.Parent :: any)
-	local mod = lib:FindFirstChild("ChatCommandSystem")
-	if mod and mod:IsA("ModuleScript") then
-		local ok, m = pcall(require, mod)
-		if ok then _chatRef = m end
-	end
-	return _chatRef
-end
-
--- ── Lazy AntiCheat ref for the admin-action whitelist ──
+-- ── Admin-action AntiCheat whitelist ──
 -- WHY: admin commands (/speed, /teleport, /give, /respawn ...) legitimately
 -- mutate state that anti-cheat detectors are designed to flag. Without a
 -- whitelist hook those detectors will (correctly!) flag the very same player
--- the admin just modified and the orchestrator may kick them. We resolve the
--- AntiCheat orchestrator lazily because it sits in a sibling folder, not in
--- Lib/ — and we cannot use GaxiaServer here without risking require recursion.
-local _antiCheatRef : any = nil
-local function getAntiCheat(): any
-	if _antiCheatRef ~= nil then return _antiCheatRef end
-	local pkgRoot = (script.Parent :: any).Parent     -- Gaxia_Packages_Server
-	local acFolder = pkgRoot and pkgRoot:FindFirstChild("AntiCheat")
-	local initMod  = acFolder and acFolder
-	if initMod and initMod:IsA("ModuleScript") then
-		local ok, m = pcall(require, initMod)
-		if ok then _antiCheatRef = m end
-	end
-	return _antiCheatRef
-end
+-- the admin just modified and the orchestrator may kick them.
 
 -- Reason families whitelisted around admin actions. Matching is family-aware
 -- (AntiCheat loader isWhitelisted): an entry covers the bare reason AND every
@@ -236,11 +187,9 @@ local ADMIN_WHITELIST_REASONS : { string } = {
 -- counts that crossed the threshold *before* the admin action.
 local function whitelistAdminAction(player: Player?, duration: number)
 	if player == nil then return end
-	local ac = getAntiCheat()
-	if not ac then return end
 	for _, reason in ipairs(ADMIN_WHITELIST_REASONS) do
-		if ac.Whitelist then ac.Whitelist(player, reason, duration) end
-		if ac.ClearFlags then ac.ClearFlags(player, reason) end
+		AntiCheat.Whitelist(player, reason, duration)
+		AntiCheat.ClearFlags(player, reason)
 	end
 end
 
@@ -250,10 +199,9 @@ end
 -- Read at call-time from central Config (default unchanged at 30s).
 local DEFAULT_ADMIN_ACTION_WHITELIST_SECONDS : number = 30
 local function adminActionWhitelistSeconds(): number
-	local s = server()
-	local v = tonumber(s.EConfig.Get(
+	local v = tonumber(EConfig.Get(
 		"Admin.ActionWhitelistSeconds",
-		(s.Config.Admin or {}).ActionWhitelistSeconds or DEFAULT_ADMIN_ACTION_WHITELIST_SECONDS
+		Config.Admin.ActionWhitelistSeconds or DEFAULT_ADMIN_ACTION_WHITELIST_SECONDS
 	))
 	-- Coerce: a runtime "/flag set" override is stored unvalidated, and an
 	-- omitted value parses to boolean true. Un-coerced, that value reached
@@ -275,7 +223,7 @@ end
 function AdminCommands.Register(
 	name: string,
 	opts: CommandOpts,
-	handler: (caller: Player, args: { string }) -> (string?, boolean?)
+	handler: CommandHandler
 ): ()
 	if not ADMIN_ENABLED then return end
 	local lname = name:lower()
@@ -291,15 +239,15 @@ function AdminCommands.Register(
 	-- ChatCommandSystem.reply delivers the real outcome — success line, guard
 	-- rejection, "disabled" — to the caller. (It used to return nil: every
 	-- chat-issued admin command was completely silent, success and guard-block
-	-- indistinguishable.)
-	local chat = getChatSystem()
-	if chat and chat.Register then
+	-- indistinguishable.) Skipped when the chat system failed to start: the
+	-- bridge is then a no-op and AdminCommands is callable only via Run().
+	if Lifecycle.GetState(ChatCommandSystem) == "initialized" then
 		local function bridge(chatName: string)
-			chat.Register(chatName, {
+			ChatCommandSystem.Register(chatName, {
 				roles = { opts.role },
 				args  = {},                 -- pass through raw strings; AdminCommands parses itself
 				help  = opts.help or "",
-			}, function(caller, argList)
+			}, function(caller: Player, argList: { string }): string?
 				local ok, message = AdminCommands.Run(caller, lname, argList)
 				return message or (if ok then nil else `/{lname} failed.`)
 			end)
@@ -480,90 +428,87 @@ function AdminCommands.ProtectTarget(caller: Player, target: Player): string?
 	return protectTarget(caller, target)
 end
 
--- ── Built-in commands ──
+-- ── Built-in commands (registered in Init, after Config is read) ──
+local function registerBuiltins(): ()
+	-- /kick <player> [reason]
+	AdminCommands.Register("kick", { role = "moderator", args = { "player", "string" }, help = "Kick a player" },
+		function(caller: Player, args: { string }): string?
+			local target, why = findPlayerByPartialName(args[1] or "")
+			if not target then return fail(why) end
+			local blocked = protectTarget(caller, target)
+			if blocked then return fail(blocked) end
+			-- Greedy tail-join: chat splits unquoted words into separate args, so
+			-- "/kick Bob being toxic" used to kick with reason "being". Reason is
+			-- the last declared parameter, so joining the remainder is safe.
+			local reason = if #args >= 2 then table.concat(args, " ", 2) else "Kicked by moderator"
+			target:Kick(reason)
+			return `Kicked {target.Name}`
+		end)
 
--- /kick <player> [reason]
-AdminCommands.Register("kick", { role = "moderator", args = { "player", "string" }, help = "Kick a player" },
-	function(caller: Player, args: { string }): string?
-		local target, why = findPlayerByPartialName(args[1] or "")
-		if not target then return fail(why) end
-		local blocked = protectTarget(caller, target)
-		if blocked then return fail(blocked) end
-		-- Greedy tail-join: chat splits unquoted words into separate args, so
-		-- "/kick Bob being toxic" used to kick with reason "being". Reason is
-		-- the last declared parameter, so joining the remainder is safe.
-		local reason = if #args >= 2 then table.concat(args, " ", 2) else "Kicked by moderator"
-		target:Kick(reason)
-		return `Kicked {target.Name}`
-	end)
-
--- /ban <player> [reason]
--- Delegates to BanService.Ban — one ban code path for the whole framework.
--- BanService.Ban persists the table-shape record, fires OnBan (Webhook auto-
--- report), updates BanService's session cache, and kicks the player itself.
-AdminCommands.Register("ban", { role = "admin", args = { "player", "string" }, help = "Ban a player (persistent)" },
-	function(caller: Player, args: { string }): string?
-		local target, why = findPlayerByPartialName(args[1] or "")
-		if not target then return fail(why) end
-		local blocked = protectTarget(caller, target)
-		if blocked then return fail(blocked) end
-		-- Greedy tail-join (see /kick): the ban record + webhook report used to
-		-- persist only the first word of an unquoted multi-word reason.
-		local reason = if #args >= 2 then table.concat(args, " ", 2) else "Banned"
-		local persisted = server().Ban.Ban(target.UserId, reason)
-		if persisted == false then
-			-- The kick happened, but the DataStore write failed (or no store):
-			-- this ban dies with the server. Don't let the admin believe otherwise.
-			return `Banned {target.Name} — WARNING: not persisted (session-only)`
-		end
-		return `Banned {target.Name}`
-	end)
-
--- /unban <userId>
--- Delegates to BanService.Unban — clears BanService's cache + DataStore +
--- fires OnUnban for Webhook auto-report. There is no AdminCommands-owned
--- ban state left to clear.
-AdminCommands.Register("unban", { role = "admin", args = { "number" }, help = "Unban a userId" },
-	function(_caller: Player, args: { string }): string?
-		local uid = tonumber(args[1])
-		if not uid then return fail("Invalid userId") end
-		local persisted = server().Ban.Unban(uid)
-		if persisted == false then
-			return `Unbanned {uid} — WARNING: persisted record removal failed; the ban may re-apply elsewhere`
-		end
-		return `Unbanned {uid}`
-	end)
-
--- /give <player> <itemId> [count]
-AdminCommands.Register("give", { role = "admin", args = { "player", "string", "number" }, help = "Give items" },
-	function(_caller: Player, args: { string }): string?
-		local target, why = findPlayerByPartialName(args[1] or "")
-		if not target then return fail(why) end
-		local itemId = args[2]
-		if itemId == nil or itemId:match("^%s*$") then
-			return fail("No itemId specified.")
-		end
-		-- Validate the count instead of silently coercing: tonumber("nan") is NaN
-		-- (truthy, so `or 1` never saves it), fractions floor silently downstream,
-		-- and non-numeric input used to become 1 without telling the caller.
-		local count = 1
-		if args[3] ~= nil then
-			local n = tonumber(args[3])
-			if n == nil or n ~= n or n == math.huge or n ~= math.floor(n) or n < 1 then
-				return fail(`Invalid count: {args[3]} (need a positive integer)`)
+	-- /ban <player> [reason]
+	-- Delegates to BanService.Ban — one ban code path for the whole framework.
+	-- BanService.Ban persists the table-shape record, fires OnBan (Webhook auto-
+	-- report), updates BanService's session cache, and kicks the player itself.
+	AdminCommands.Register("ban", { role = "admin", args = { "player", "string" }, help = "Ban a player (persistent)" },
+		function(caller: Player, args: { string }): string?
+			local target, why = findPlayerByPartialName(args[1] or "")
+			if not target then return fail(why) end
+			local blocked = protectTarget(caller, target)
+			if blocked then return fail(blocked) end
+			-- Greedy tail-join (see /kick): the ban record + webhook report used to
+			-- persist only the first word of an unquoted multi-word reason.
+			local reason = if #args >= 2 then table.concat(args, " ", 2) else "Banned"
+			local persisted = BanService.Ban(target.UserId, reason)
+			if persisted == false then
+				-- The kick happened, but the DataStore write failed (or no store):
+				-- this ban dies with the server. Don't let the admin believe otherwise.
+				return `Banned {target.Name} — WARNING: not persisted (session-only)`
 			end
-			count = n
-		end
-		-- Catalog check is opt-in: games that never register item definitions
-		-- keep free-form ids; once a catalog exists, typos are rejected instead
-		-- of minting phantom persistent inventory keys.
-		local itemDef = server().ItemDef
-		if itemDef and itemDef.Count() > 0 and not itemDef.Has(itemId) then
-			return fail(`Unknown item: {itemId}`)
-		end
-		local itemSvc = getItemService()
-		if itemSvc and itemSvc.Give then
-			local ok, delta = itemSvc.Give(target, itemId, count)
+			return `Banned {target.Name}`
+		end)
+
+	-- /unban <userId>
+	-- Delegates to BanService.Unban — clears BanService's cache + DataStore +
+	-- fires OnUnban for Webhook auto-report. There is no AdminCommands-owned
+	-- ban state left to clear.
+	AdminCommands.Register("unban", { role = "admin", args = { "number" }, help = "Unban a userId" },
+		function(_caller: Player, args: { string }): string?
+			local uid = tonumber(args[1])
+			if not uid then return fail("Invalid userId") end
+			local persisted = BanService.Unban(uid)
+			if persisted == false then
+				return `Unbanned {uid} — WARNING: persisted record removal failed; the ban may re-apply elsewhere`
+			end
+			return `Unbanned {uid}`
+		end)
+
+	-- /give <player> <itemId> [count]
+	AdminCommands.Register("give", { role = "admin", args = { "player", "string", "number" }, help = "Give items" },
+		function(_caller: Player, args: { string }): string?
+			local target, why = findPlayerByPartialName(args[1] or "")
+			if not target then return fail(why) end
+			local itemId = args[2]
+			if itemId == nil or itemId:match("^%s*$") then
+				return fail("No itemId specified.")
+			end
+			-- Validate the count instead of silently coercing: tonumber("nan") is NaN
+			-- (truthy, so `or 1` never saves it), fractions floor silently downstream,
+			-- and non-numeric input used to become 1 without telling the caller.
+			local count = 1
+			if args[3] ~= nil then
+				local n = tonumber(args[3])
+				if n == nil or n ~= n or n == math.huge or n ~= math.floor(n) or n < 1 then
+					return fail(`Invalid count: {args[3]} (need a positive integer)`)
+				end
+				count = n
+			end
+			-- Catalog check is opt-in: games that never register item definitions
+			-- keep free-form ids; once a catalog exists, typos are rejected instead
+			-- of minting phantom persistent inventory keys.
+			if ItemDefinitionService.Count() > 0 and not ItemDefinitionService.Has(itemId) then
+				return fail(`Unknown item: {itemId}`)
+			end
+			local ok, delta = ItemService.Give(target, itemId, count)
 			if not ok then
 				return fail(`Could not give {itemId} to {target.Name} (inventory not loaded yet?)`)
 			end
@@ -572,145 +517,123 @@ AdminCommands.Register("give", { role = "admin", args = { "player", "string", "n
 				return `Gave {delivered}x {itemId} to {target.Name} (requested {count}, stack clamped)`
 			end
 			return `Gave {delivered}x {itemId} to {target.Name}`
-		end
-		return fail("ItemService not available")
-	end)
+		end)
 
--- /teleport <player> <targetPlayer>
-AdminCommands.Register("teleport", { role = "moderator", args = { "player", "player" }, help = "Teleport A to B" },
-	function(_caller: Player, args: { string }): string?
-		local who, whyWho = findPlayerByPartialName(args[1] or "")
-		if not who then return fail(whyWho) end
-		local to, whyTo = findPlayerByPartialName(args[2] or "")
-		if not to then return fail(whyTo) end
-		-- Destination is the TARGET's CFrame, offset back 3 studs so the two
-		-- characters don't spawn inside each other. PlayerService.Teleport takes
-		-- (player, CFrame) — passing the `to` Player directly is the bug that
-		-- raised "CoordinateFrame expected, got Instance".
-		local toChar = to.Character
-		local toHRP = toChar and toChar:FindFirstChild("HumanoidRootPart")
-		if not toHRP then
-			return fail(`{to.Name} has no character to teleport to`)
-		end
-		local dest = (toHRP :: BasePart).CFrame + Vector3.new(0, 0, 3)
-
-		local ps = getPlayerService()
-		if ps and ps.Teleport then
-			-- Preferred: PlayerService.Teleport also whitelists the AntiCheat
-			-- Teleport detector so the moved player isn't flagged for the jump.
-			ps.Teleport(who, dest)
-		else
-			-- Fallback direct teleport (PlayerService not installed). Note: this
-			-- path does NOT whitelist anti-cheat — PlayerService is eager-loaded
-			-- at boot, so it effectively never runs.
-			local fromChar = who.Character
-			local hrp1 = fromChar and fromChar:FindFirstChild("HumanoidRootPart")
-			if not hrp1 then
-				return fail(`{who.Name} has no character to teleport`)
+	-- /teleport <player> <targetPlayer>
+	AdminCommands.Register("teleport", { role = "moderator", args = { "player", "player" }, help = "Teleport A to B" },
+		function(_caller: Player, args: { string }): string?
+			local who, whyWho = findPlayerByPartialName(args[1] or "")
+			if not who then return fail(whyWho) end
+			local to, whyTo = findPlayerByPartialName(args[2] or "")
+			if not to then return fail(whyTo) end
+			-- Destination is the TARGET's CFrame, offset back 3 studs so the two
+			-- characters don't spawn inside each other. PlayerService.Teleport takes
+			-- (player, CFrame) — passing the `to` Player directly is the bug that
+			-- raised "CoordinateFrame expected, got Instance".
+			local toChar = to.Character
+			local toHRP = toChar and toChar:FindFirstChild("HumanoidRootPart")
+			if not toHRP then
+				return fail(`{to.Name} has no character to teleport to`)
 			end
-			(hrp1 :: BasePart).CFrame = dest
-		end
-		return `Teleported {who.Name} to {to.Name}`
-	end)
+			local dest = (toHRP :: BasePart).CFrame + Vector3.new(0, 0, 3)
 
--- /speed <player> <number>
-AdminCommands.Register("speed", { role = "admin", args = { "player", "number" }, help = "Set WalkSpeed" },
-	function(_caller: Player, args: { string }): string?
-		local target, why = findPlayerByPartialName(args[1] or "")
-		if not target then return fail(why) end
-		-- Validate instead of silently defaulting to 16: negative WalkSpeed gets
-		-- the target anti-cheat flagged and kicked once the admin whitelist
-		-- window expires (detector baseline floors at 8 while |speed| is real).
-		local n = tonumber(args[2])
-		if n == nil or n ~= n or n == math.huge or n < 0 then
-			return fail(`Invalid speed: {args[2] or ""} (need a finite number >= 0)`)
-		end
-		-- No-character guard: SetWalkSpeed resolves the humanoid with a bounded
-		-- wait; refuse up front so the command replies instantly and truthfully.
-		if not target.Character then
-			return fail(`{target.Name} has no character`)
-		end
-		local ps = getPlayerService()
-		if ps and ps.SetWalkSpeed then
-			local ok, applied = ps.SetWalkSpeed(target, n)
+			-- PlayerService.Teleport also whitelists the AntiCheat Teleport detector
+			-- so the moved player isn't flagged for the jump.
+			PlayerService.Teleport(who, dest)
+			return `Teleported {who.Name} to {to.Name}`
+		end)
+
+	-- /speed <player> <number>
+	AdminCommands.Register("speed", { role = "admin", args = { "player", "number" }, help = "Set WalkSpeed" },
+		function(_caller: Player, args: { string }): string?
+			local target, why = findPlayerByPartialName(args[1] or "")
+			if not target then return fail(why) end
+			-- Validate instead of silently defaulting to 16: negative WalkSpeed gets
+			-- the target anti-cheat flagged and kicked once the admin whitelist
+			-- window expires (detector baseline floors at 8 while |speed| is real).
+			local n = tonumber(args[2])
+			if n == nil or n ~= n or n == math.huge or n < 0 then
+				return fail(`Invalid speed: {args[2] or ""} (need a finite number >= 0)`)
+			end
+			-- No-character guard: SetWalkSpeed resolves the humanoid with a bounded
+			-- wait; refuse up front so the command replies instantly and truthfully.
+			if not target.Character then
+				return fail(`{target.Name} has no character`)
+			end
+			local ok, applied = PlayerService.SetWalkSpeed(target, n)
 			if not ok then
 				return fail(`Could not set WalkSpeed — {target.Name} has no humanoid`)
 			end
 			if applied ~= nil and applied ~= n then
 				return `Set {target.Name}.WalkSpeed = {applied} (requested {n}, clamped)`
 			end
-		else
+			return `Set {target.Name}.WalkSpeed = {n}`
+		end)
+
+	-- /heal <player>
+	AdminCommands.Register("heal", { role = "moderator", args = { "player" }, help = "Heal to full" },
+		function(_caller: Player, args: { string }): string?
+			local target, why = findPlayerByPartialName(args[1] or "")
+			if not target then return fail(why) end
 			local char = target.Character
 			local hum  = char and char:FindFirstChildOfClass("Humanoid") :: Humanoid?
-			if not hum then return fail(`{target.Name} has no humanoid`) end
-			hum.WalkSpeed = n
-		end
-		return `Set {target.Name}.WalkSpeed = {n}`
-	end)
-
--- /heal <player>
-AdminCommands.Register("heal", { role = "moderator", args = { "player" }, help = "Heal to full" },
-	function(_caller: Player, args: { string }): string?
-		local target, why = findPlayerByPartialName(args[1] or "")
-		if not target then return fail(why) end
-		local char = target.Character
-		local hum  = char and char:FindFirstChildOfClass("Humanoid") :: Humanoid?
-		if not hum then
-			return fail(`{target.Name} has no character to heal`)
-		end
-		if hum.Health <= 0 then
-			-- Setting Health on a Dead-state Humanoid does not revive it — the
-			-- old unconditional "Healed X" was a lie for exactly the most common
-			-- use of /heal (someone just died).
-			return fail(`{target.Name} is dead — use /respawn`)
-		end
-		hum.Health = hum.MaxHealth
-		return `Healed {target.Name}`
-	end)
-
--- /respawn <player>
-AdminCommands.Register("respawn", { role = "moderator", args = { "player" }, help = "Force respawn" },
-	function(_caller: Player, args: { string }): string?
-		local target, why = findPlayerByPartialName(args[1] or "")
-		if not target then return fail(why) end
-		target:LoadCharacter()
-		return `Respawned {target.Name}`
-	end)
-
--- /role <player> <roleName>
-AdminCommands.Register("role", { role = "owner", args = { "player", "string" }, help = "Set player role" },
-	function(caller: Player, args: { string }): string?
-		local target, why = findPlayerByPartialName(args[1] or "")
-		if not target then return fail(why) end
-		-- Same guard as /ban /kick: no self (a bare "/role me" used to silently
-		-- self-demote because args[2] defaulted to "default"), no creator, no
-		-- equal-or-higher rank — an owner cannot demote a peer owner.
-		local blocked = protectTarget(caller, target)
-		if blocked then return fail(blocked) end
-		local role = args[2]
-		if role == nil or role:match("^%s*$") then
-			return fail("Usage: /role <player> <roleName>")
-		end
-		if ROLE_TIER[role] == nil then return fail(`Unknown role: {role}`) end
-		-- No minting peers: a freshly granted equal rank could immediately
-		-- demote the grantor (irreversible escalation while no other owner is
-		-- around). Additional owners are seeded via Config.Admin.Bootstrap.
-		local callerTier = ROLE_TIER[AdminCommands.GetRole(caller)] or 0
-		if (ROLE_TIER[role] or 0) >= callerTier then
-			return fail("You can't grant a role at or above your own. Seed peers via Config.Admin.Bootstrap.")
-		end
-		-- A demotion below a Bootstrap floor doesn't stick — the floor re-applies
-		-- in memory on every join and the persisted row is upgrade-only on load.
-		-- Refuse with the reason instead of reporting a change that reverts.
-		if typeof(AdminConfig.Bootstrap) == "table" then
-			local seeded = (AdminConfig.Bootstrap :: any)[target.UserId]
-			if typeof(seeded) == "string" and (ROLE_TIER[role] or 0) < (ROLE_TIER[seeded] or 0) then
-				return fail(`{target.Name} is Bootstrap-floored to {seeded} — the change would revert on next join. Edit Config.Admin.Bootstrap to demote.`)
+			if not hum then
+				return fail(`{target.Name} has no character to heal`)
 			end
-		end
-		AdminCommands.SetRole(target.UserId, role)
-		return `Set {target.Name} role = {role}`
-	end)
+			if hum.Health <= 0 then
+				-- Setting Health on a Dead-state Humanoid does not revive it — the
+				-- old unconditional "Healed X" was a lie for exactly the most common
+				-- use of /heal (someone just died).
+				return fail(`{target.Name} is dead — use /respawn`)
+			end
+			hum.Health = hum.MaxHealth
+			return `Healed {target.Name}`
+		end)
+
+	-- /respawn <player>
+	AdminCommands.Register("respawn", { role = "moderator", args = { "player" }, help = "Force respawn" },
+		function(_caller: Player, args: { string }): string?
+			local target, why = findPlayerByPartialName(args[1] or "")
+			if not target then return fail(why) end
+			target:LoadCharacter()
+			return `Respawned {target.Name}`
+		end)
+
+	-- /role <player> <roleName>
+	AdminCommands.Register("role", { role = "owner", args = { "player", "string" }, help = "Set player role" },
+		function(caller: Player, args: { string }): string?
+			local target, why = findPlayerByPartialName(args[1] or "")
+			if not target then return fail(why) end
+			-- Same guard as /ban /kick: no self (a bare "/role me" used to silently
+			-- self-demote because args[2] defaulted to "default"), no creator, no
+			-- equal-or-higher rank — an owner cannot demote a peer owner.
+			local blocked = protectTarget(caller, target)
+			if blocked then return fail(blocked) end
+			local role = args[2]
+			if role == nil or role:match("^%s*$") then
+				return fail("Usage: /role <player> <roleName>")
+			end
+			if ROLE_TIER[role] == nil then return fail(`Unknown role: {role}`) end
+			-- No minting peers: a freshly granted equal rank could immediately
+			-- demote the grantor (irreversible escalation while no other owner is
+			-- around). Additional owners are seeded via Config.Admin.Bootstrap.
+			local callerTier = ROLE_TIER[AdminCommands.GetRole(caller)] or 0
+			if (ROLE_TIER[role] or 0) >= callerTier then
+				return fail("You can't grant a role at or above your own. Seed peers via Config.Admin.Bootstrap.")
+			end
+			-- A demotion below a Bootstrap floor doesn't stick — the floor re-applies
+			-- in memory on every join and the persisted row is upgrade-only on load.
+			-- Refuse with the reason instead of reporting a change that reverts.
+			if typeof(AdminConfig.Bootstrap) == "table" then
+				local seeded = (AdminConfig.Bootstrap :: any)[target.UserId]
+				if typeof(seeded) == "string" and (ROLE_TIER[role] or 0) < (ROLE_TIER[seeded] or 0) then
+					return fail(`{target.Name} is Bootstrap-floored to {seeded} — the change would revert on next join. Edit Config.Admin.Bootstrap to demote.`)
+				end
+			end
+			AdminCommands.SetRole(target.UserId, role)
+			return `Set {target.Name} role = {role}`
+		end)
+end
 
 -- ── Persistence: load roles, enforce on join ──
 -- WHY load lazily per-player on PlayerAdded instead of bulk-listing: DataStore
@@ -718,12 +641,12 @@ AdminCommands.Register("role", { role = "owner", args = { "player", "string" }, 
 -- Ban enforcement is owned by BanService.gate (see BanService.lua) so the
 -- entire stack shares one ban code path with consistent record shape,
 -- expiresAt-aware IsBanned, session cache, and OnBan/OnUnban signals.
--- BanService is eager-loaded by Gaxia_ServerBootstrap BEFORE Admin, so its
--- gate is connected before AdminCommands ever runs.
+-- BanService is a Need of this module, so its gate is connected (BanService's
+-- Init) before AdminCommands' Init runs.
 local function loadPersistedRole(p: Player)
 	task.spawn(function()
 		local ok, role = pcall(function()
-			return ROLES_STORE:GetAsync(tostring(p.UserId))
+			return (ROLES_STORE :: DataStore):GetAsync(tostring(p.UserId))
 		end)
 		if ok and typeof(role) == "string" and ROLE_TIER[role] ~= nil then
 			-- Upgrade-only: a persisted role may PROMOTE a player but must never
@@ -736,10 +659,10 @@ local function loadPersistedRole(p: Player)
 		end
 	end)
 end
-if ADMIN_ENABLED then
+local function hookRolePersistence(): ()
 	Players.PlayerAdded:Connect(loadPersistedRole)
-	-- Catch-up for players already in-game when this module initializes (Studio
-	-- play-solo, late require, dev-mount) — mirrors the autoGrantOwner loop
+	-- Catch-up for players already in-game when this service starts (Studio
+	-- play-solo, late start, dev-mount) — mirrors the autoGrantOwner loop
 	-- below; without it their persisted role never loads at all.
 	for _, p in ipairs(Players:GetPlayers()) do
 		loadPersistedRole(p)
@@ -777,7 +700,7 @@ local function autoGrantOwner(p: Player)
 		end
 	end
 end
-if ADMIN_ENABLED then
+local function hookAutoGrant(): ()
 	for _, p in ipairs(Players:GetPlayers()) do autoGrantOwner(p) end
 	Players.PlayerAdded:Connect(autoGrantOwner)
 end
@@ -841,7 +764,7 @@ end
 -- authoritative role check. A spoofed client cannot escalate.
 -- Skipped entirely when the Admin kill switch is off: no Events/Admin remotes
 -- are created, so a disabled build exposes no admin surface to clients at all.
-if ADMIN_ENABLED then
+local function createPanelRemotes(): ()
 	local Events = ReplicatedStorage:FindFirstChild("Events") or Instance.new("Folder")
 	Events.Name = "Events"
 	Events.Parent = ReplicatedStorage
@@ -885,13 +808,15 @@ if ADMIN_ENABLED then
 			if not AdminCommands.IsAtLeast(player, "admin") then
 				return false, "forbidden"
 			end
-			local limit = tonumber(server().EConfig.Get(
+			local limit = tonumber(EConfig.Get(
 				"Admin.BanListLimit",
 				AdminConfig.BanListLimit or 50
 			)) or 50
-			local bans = server().Ban.ListBans(limit)
-			for _, b in ipairs(bans) do
-				b.name = nameForUserId(b.userId)
+			local bans: { { [string]: any } } = {}
+			for _, b in ipairs(BanService.ListBans(limit)) do
+				local row: { [string]: any } = table.clone(b)
+				row.name = nameForUserId(b.userId)
+				table.insert(bans, row)
 			end
 			return true, bans
 		end
@@ -961,5 +886,33 @@ if ADMIN_ENABLED then
 		task.spawn(pushRoleHint, p)
 	end
 end
+
+Lifecycle.Define(AdminCommands, {
+	Name = "Admin",
+	-- Ban: Init installs its escalation-exemption role resolver.
+	-- Chat: Init registers the built-in commands into it (chat bridge) and
+	-- installs its command-gating role resolver.
+	Needs = { BanService, ChatCommandSystem },
+	Init = function()
+		readConfig()
+		ROLES_STORE = DataStoreService:GetDataStore(AdminConfig.Stores.Roles or "GaxiaRoles")
+		registerBuiltins()
+		if ADMIN_ENABLED then
+			hookRolePersistence()
+			hookAutoGrant()
+			createPanelRemotes()
+		end
+		-- Role lookups for the modules that sit below AdminCommands (they never
+		-- require it). Installed last: if Init fails above, Ban keeps its
+		-- creator-only exemption and Chat denies role-gated commands, as when
+		-- AdminCommands used to fail to load.
+		BanService.SetRoleResolver(function(userId: number, role: string): boolean
+			return AdminCommands.IsUserIdAtLeast(userId, role)
+		end)
+		ChatCommandSystem.SetRoleResolver(function(player: Player, role: string): boolean
+			return AdminCommands.IsAtLeast(player, role)
+		end)
+	end,
+})
 
 return AdminCommands

@@ -6,51 +6,55 @@
 --           coercion, gate by AdminCommands roles, and dispatch
 --           to registered handlers. Supports modern TextChatService
 --           with LegacyChat fallback.
+--
+-- Lifecycle: Init reads the prefix, creates Events/Chat/SystemMessage, registers
+--            the built-ins (help, credits) and hooks TextChatService + legacy chat.
+--            Role gating uses the resolver AdminCommands installs
+--            (SetRoleResolver); without it every role-gated command is denied.
 -- ─────────────────────────────────────────────────────────────
 
 local Players           = game:GetService("Players")
 local TextChatService   = game:GetService("TextChatService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal    = SharedPkg.Signal
+-- ── Dependencies ──
+local Shared    = ReplicatedStorage.Gaxia_Packages.Shared
+local Signal    = require(Shared.Signal)
+local Lifecycle = require(script.Parent.ServiceLifecycle)
+local Config    = require(script.Parent.Parent.Config)
+local Types     = require(script.Parent.Parent.Types)
 
--- Config-driven command prefix (default "/"). FindFirstChild: no-yield require.
-local Config = require((script.Parent :: any).Parent:FindFirstChild("Config") :: ModuleScript) :: any
-local PREFIX : string = ((Config.Admin or {}) :: any).CommandPrefix or "/"
+-- Config-driven command prefix (Config.Admin.CommandPrefix, default "/"), read in Init.
+local PREFIX : string = "/"
 local PREFIX_LEN : number = #PREFIX
 
--- ── Lazy AdminCommands ref (sibling in same Lib folder) ──
-local _adminRef : any = nil
-local function getAdmin(): any
-	if _adminRef ~= nil then return _adminRef end
-	local lib = (script.Parent :: any)
-	local mod = lib:FindFirstChild("AdminCommands")
-	if mod and mod:IsA("ModuleScript") then
-		local ok, m = pcall(require, mod)
-		if ok then _adminRef = m end
-	end
-	return _adminRef
-end
+-- Role lookup for gated commands, installed by AdminCommands' Init
+-- (ChatCommandSystem never requires AdminCommands: AdminCommands depends on it).
+local roleResolver : Types.PlayerRoleResolver? = nil
 
-type CmdOpts = {
-	roles : { string }?,
-	args  : { string }?,
+export type CmdOpts = {
+	roles : { string }?,  -- caller must be at least ONE of these roles (none = everyone)
+	args  : { string }?,  -- type hints ("player" | "number" | "boolean" | "string"), see ParseArgs
 	help  : string?,
 }
+
+-- Returns the reply shown to the caller (nil = no reply).
+export type CommandHandler = (caller: Player, args: { string }) -> string?
 
 type CmdEntry = {
 	name    : string,
 	roles   : { string },
 	args    : { string },
 	help    : string,
-	handler : (caller: Player, args: { string }) -> string?,
+	handler : CommandHandler,
 }
 
 local commands : { [string]: CmdEntry } = {}
 
 local ChatCommandSystem = {}
-ChatCommandSystem.OnCommand = Signal.new()
+-- (caller, name, args, success) after every prefixed message: name as typed;
+-- args are the split arguments ({} when the command is unknown or denied)
+ChatCommandSystem.OnCommand = Signal.new() :: Signal.Signal<Player, string, { string }, boolean>
 
 -- ── Argument type parsers ──
 -- WHY: type hints let handlers receive raw strings AND get pre-validation;
@@ -115,7 +119,7 @@ end
 function ChatCommandSystem.Register(
 	name: string,
 	opts: CmdOpts,
-	handler: (caller: Player, args: { string }) -> string?
+	handler: CommandHandler
 ): ()
 	commands[name:lower()] = {
 		name    = name:lower(),
@@ -124,6 +128,12 @@ function ChatCommandSystem.Register(
 		help    = opts.help or "",
 		handler = handler,
 	}
+end
+
+-- Install the (player, role) -> boolean lookup used to gate commands that have
+-- roles. AdminCommands does this in its Init; game code does not need to call it.
+function ChatCommandSystem.SetRoleResolver(fn: Types.PlayerRoleResolver): ()
+	roleResolver = fn
 end
 
 -- WHY splitArgs handles quoted strings: `/say "hello world"` should be one arg.
@@ -160,7 +170,8 @@ end
 -- silently dropped. The Gaxia.ChatFeedback client module renders these locally.
 local _replyRemote: RemoteEvent? = nil
 local function replyRemote(): RemoteEvent
-	if _replyRemote then return _replyRemote :: RemoteEvent end
+	local existing = _replyRemote
+	if existing then return existing end
 	local events = ReplicatedStorage:FindFirstChild("Events") or Instance.new("Folder")
 	events.Name = "Events"
 	events.Parent = ReplicatedStorage
@@ -173,13 +184,13 @@ local function replyRemote(): RemoteEvent
 		remote.Name = "SystemMessage"
 		remote.Parent = chatFolder
 	end
-	_replyRemote = remote :: RemoteEvent
-	return _replyRemote :: RemoteEvent
+	local created = remote :: RemoteEvent
+	_replyRemote = created
+	return created
 end
--- Create it when the chat system loads, not on the first reply: the client's
--- ChatFeedback waits at most 30 s for Events/Chat/SystemMessage, so a remote that
--- appeared later left every reply after that silently dropped.
-replyRemote()
+-- (Created in Init — when the chat system starts, not on the first reply: the
+-- client's ChatFeedback waits at most 30 s for Events/Chat/SystemMessage, so a
+-- remote that appeared later left every reply after that silently dropped.)
 
 local function reply(caller: Player, text: string?): ()
 	if text == nil then return end
@@ -208,11 +219,11 @@ function ChatCommandSystem.Run(caller: Player, raw: string): boolean
 	end
 	-- Role gate
 	if #cmd.roles > 0 then
-		local admin = getAdmin()
+		local resolve = roleResolver
 		local allowed = false
-		if admin then
+		if resolve then
 			for _, role in cmd.roles do
-				if admin.IsAtLeast(caller, role) then
+				if resolve(caller, role) then
 					allowed = true
 					break
 				end
@@ -241,24 +252,26 @@ function ChatCommandSystem.Run(caller: Player, raw: string): boolean
 	end
 end
 
--- ── Built-in commands ──
-ChatCommandSystem.Register("help", { args = { "string" }, help = "List commands or show help for one" },
-	function(_caller: Player, args: { string }): string?
-		if args[1] then
-			local c = commands[args[1]:lower()]
-			if not c then return `Unknown command: {args[1]}` end
-			return `/{c.name} — {c.help}`
-		end
-		local names : { string } = {}
-		for n in commands do table.insert(names, n) end
-		table.sort(names)
-		return `Commands: {table.concat(names, ", ")}`
-	end)
+-- ── Built-in commands (registered in Init) ──
+local function registerBuiltins(): ()
+	ChatCommandSystem.Register("help", { args = { "string" }, help = "List commands or show help for one" },
+		function(_caller: Player, args: { string }): string?
+			if args[1] then
+				local c = commands[args[1]:lower()]
+				if not c then return `Unknown command: {args[1]}` end
+				return `/{c.name} — {c.help}`
+			end
+			local names : { string } = {}
+			for n in commands do table.insert(names, n) end
+			table.sort(names)
+			return `Commands: {table.concat(names, ", ")}`
+		end)
 
-ChatCommandSystem.Register("credits", { help = "Show credits" },
-	function(_caller: Player, _args: { string }): string?
-		return "Powered by Gaxia_Packages"
-	end)
+	ChatCommandSystem.Register("credits", { help = "Show credits" },
+		function(_caller: Player, _args: { string }): string?
+			return "Powered by Gaxia_Packages"
+		end)
+end
 
 -- ── Chat hooks ──
 -- WHY both paths: experiences may have TextChatService disabled (LegacyChatService)
@@ -317,10 +330,20 @@ local function hookLegacyChat(): ()
 	for _, p in Players:GetPlayers() do onPlayer(p) end
 end
 
--- WHY both: TextChatService is the modern path; legacy Chatted still fires on
--- some legacy-configured experiences. Hooking both is safe — TCS redacts so
--- there's no double-dispatch (legacy Chatted doesn't fire for TCS messages).
-tryHookTextChatService()
-hookLegacyChat()
+Lifecycle.Define(ChatCommandSystem, {
+	Name = "Chat",
+	Needs = {},
+	Init = function()
+		PREFIX = Config.Admin.CommandPrefix or "/"
+		PREFIX_LEN = #PREFIX
+		replyRemote()
+		registerBuiltins()
+		-- WHY both: TextChatService is the modern path; legacy Chatted still fires on
+		-- some legacy-configured experiences. Hooking both is safe — TCS redacts so
+		-- there's no double-dispatch (legacy Chatted doesn't fire for TCS messages).
+		tryHookTextChatService()
+		hookLegacyChat()
+	end,
+})
 
 return ChatCommandSystem
