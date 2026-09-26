@@ -46,6 +46,10 @@ const LAZY_ALLOW = [
   [/\/AntiCheat\/init\.lua$/, /^script\.\w+$/], // DETECTORS table closures
   [/\/Lib\/DataManager\/init\.lua$/, /ProfileService$/], // loads on first profile load
 ]
+// Non-static requires that are deliberate: [file suffix, require-arg regex].
+const DYNAMIC_ALLOW = [
+  [/\/AntiCheat\/init\.lua$/, /^child$/], // game-added detector modules (discovered by name)
+]
 // Never required at the top of a Lib/AntiCheat module (side effects or deprecated).
 const KEEP_LAZY = /(ProfileService|PerformanceMonitor|Maid|Janitor|ComponentLegacy|ReplicatedState)$/
 // Calls allowed at module top level (pure: they create values, not effects).
@@ -164,12 +168,14 @@ function checkFile(file, ctx) {
       const t = text(arg)
       if (/Gaxia_Packages(_Server)?("?\)?)?$/.test(t) || /WaitForChild\("Gaxia_Packages(_Server)?"\)$/.test(t)) {
         report(file, n.location, 'R1', `requires a loader (${t}) — require the module itself`)
+      } else if (DYNAMIC_ALLOW.some(([f, a]) => f.test(file) && a.test(t))) {
+        // allowed (see DYNAMIC_ALLOW)
       } else if (!arg || arg.type !== 'AstExprIndexName' && !(arg.type === 'AstExprGlobal' && arg.global === 'script')) {
         report(file, n.location, 'R3', `require argument is not a static path: ${t}`)
       } else if (/:(WaitForChild|FindFirstChild)/.test(t)) {
         report(file, n.location, 'R3', `require through ${t} — use a static path (script.Parent.X)`)
       }
-      if (inFn && isLibOrAC && !LAZY_ALLOW.some(([f, a]) => f.test(file) && a.test(t))) {
+      if (inFn && isLibOrAC && ![...LAZY_ALLOW, ...DYNAMIC_ALLOW].some(([f, a]) => f.test(file) && a.test(t))) {
         report(file, n.location, 'R6', `require inside a function (${t}) — require it at the top of the module`)
       }
       if (!inFn && isLibOrAC && KEEP_LAZY.test(t)) report(file, n.location, 'R7', `${t} must not be required at the top of this module`)

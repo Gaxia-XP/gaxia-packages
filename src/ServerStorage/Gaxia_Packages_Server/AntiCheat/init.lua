@@ -42,20 +42,24 @@ local Lifecycle = require(script.Parent.Lib.ServiceLifecycle)
 -- EffectiveConfig resolver (runtime Flag override <- static Config default).
 local EConfig   = require(script.Parent.Lib.EffectiveConfig)
 
+-- Player, Admin, Ban, Webhook, Journal and AntiCheatAdmin require this module at
+-- load, so its body must never throw: every Config.AntiCheat read falls back to
+-- the built-in default when the section is missing.
 local AntiCheatConfig = Config.AntiCheat
 
-local SAMPLER_INTERVAL  : number = AntiCheatConfig.SamplerInterval   or 0.5
-local SOFT_THRESHOLD    : number = AntiCheatConfig.SoftFlagThreshold or 3
-local HARD_THRESHOLD    : number = AntiCheatConfig.HardFlagThreshold or 5
+local SAMPLER_INTERVAL  : number = if AntiCheatConfig then AntiCheatConfig.SamplerInterval or 0.5 else 0.5
+local SOFT_THRESHOLD    : number = if AntiCheatConfig then AntiCheatConfig.SoftFlagThreshold or 3 else 3
+local HARD_THRESHOLD    : number = if AntiCheatConfig then AntiCheatConfig.HardFlagThreshold or 5 else 5
 
 -- Effective enable state (read LIVE, not frozen at boot — that is the whole point).
 local function isAntiCheatEnabled(): boolean
-	return EConfig.Enabled("AntiCheat.Enabled", AntiCheatConfig.Enabled ~= false)
+	local static = if AntiCheatConfig then AntiCheatConfig.Enabled ~= false else true
+	return EConfig.Enabled("AntiCheat.Enabled", static)
 end
 -- Static default from Config: a detector's section may carry `Enabled = false`
 -- to disable it at boot (Config.AntiCheat.<Name>.Enabled). Absent/true = enabled.
 local function detectorStaticDefault(name: string): boolean
-	local section = (AntiCheatConfig :: any)[name]
+	local section = if AntiCheatConfig then (AntiCheatConfig :: { [string]: any })[name] else nil
 	return not (typeof(section) == "table" and section.Enabled == false)
 end
 -- Effective per-detector enable: runtime flag override <- Config static default.
@@ -64,7 +68,8 @@ local function isDetectorEnabled(name: string): boolean
 end
 -- Observe mode (Enforce = false): see Config/AntiCheat.lua.
 local function isEnforcing(): boolean
-	return EConfig.Enabled("AntiCheat.Enforce", AntiCheatConfig.Enforce == true)
+	local static = if AntiCheatConfig then AntiCheatConfig.Enforce == true else false
+	return EConfig.Enabled("AntiCheat.Enforce", static)
 end
 
 -- ── Types ──
@@ -80,16 +85,34 @@ export type Flag = Types.AntiCheatFlag
 export type Snapshot = Types.AntiCheatSnapshot
 export type DetectorHost = Types.DetectorHost
 
+-- What a detector's Init actually receives: the orchestrator's public API. The
+-- built-in detectors only rely on the DetectorHost subset (Flag, IsEnforcing,
+-- IsDetectorEnabled); a game detector may use the rest.
+export type Host = {
+	Flag: (player: Player, reason: string, severity: (Types.Severity | string)?) -> (),
+	IsEnforcing: () -> boolean,
+	IsDetectorEnabled: (name: string) -> boolean,
+	IsEnabled: () -> boolean,
+	Whitelist: (player: Player, reason: string, duration: number?) -> (),
+	GetFlagCount: (player: Player, reason: string) -> number,
+	ClearFlags: (player: Player, reason: string?) -> (),
+	GetDetector: (name: string) -> any?,
+	GetDetectorNames: () -> { string },
+	OnFlag: Signal.Signal<Player, string, Types.Severity | string, number>,
+	OnAction: Signal.Signal<Player, string, Types.ActionKind>,
+}
+
 export type Detector = {
 	Name: string,
-	Init: ((orchestrator: DetectorHost) -> ())?,
+	Init: ((orchestrator: Host) -> ())?,
 	Sample: ((player: Player, snapshot: Snapshot) -> Flag?)?,
 }
 
 -- ── Built-in detectors ──
 -- Required when AntiCheat initialises (never at load), in this order — the order
--- script:GetChildren() registered them in (module names A → Z). A new detector
--- module must be added here. Load's result is only typed { Name: string }: Luau
+-- script:GetChildren() registered them in (module names A → Z). A built-in
+-- detector module must be added here; a game's own detector module (any other
+-- ModuleScript child of AntiCheat) is discovered by loadDetectors after these. Load's result is only typed { Name: string }: Luau
 -- rejects a module that leaves out an optional Detector field (Init or Sample).
 type DetectorModule = { Module: string, Load: () -> { Name: string } }
 local DETECTORS: { DetectorModule } = {
@@ -156,6 +179,30 @@ local samplerRunning = false
 -- Set by Init. Until then RegisterDetector only records a detector; its Init
 -- runs when AntiCheat starts.
 local initialized = false
+-- Players.PlayerRemoving cleanup. Connected by Init, or by the first Flag /
+-- Whitelist call when AntiCheat was never started (not listed in Features), so
+-- per-player state is always freed on leave.
+local cleanupConnection: RBXScriptConnection? = nil
+
+-- ── Player cleanup ──
+
+local function onPlayerRemoving(player: Player)
+	-- Drop per-player state so leavers don't linger in memory.
+	flagCounts[player.UserId] = nil
+	whitelists[player.UserId] = nil
+	local prefix = `{player.UserId}:`
+	for key in pairs(observeWarned) do
+		if key:sub(1, #prefix) == prefix then
+			observeWarned[key] = nil
+		end
+	end
+end
+
+local function ensureCleanup(): ()
+	if cleanupConnection == nil then
+		cleanupConnection = Players.PlayerRemoving:Connect(onPlayerRemoving)
+	end
+end
 
 -- ── Helpers ──
 
@@ -208,6 +255,7 @@ local function recordFlag(player: Player, reason: string, severity: Types.Severi
 	if not isAntiCheatEnabled() then return end
 	if isWhitelisted(player, reason) then return end
 	local uid = player.UserId
+	ensureCleanup()
 	flagCounts[uid] = flagCounts[uid] or {}
 	flagCounts[uid][reason] = (flagCounts[uid][reason] or 0) + 1
 	local count = flagCounts[uid][reason]
@@ -318,6 +366,7 @@ function AntiCheat.Whitelist(player: Player, reason: string, duration: number?)
 		end
 		d = n
 	end
+	ensureCleanup()
 	whitelists[player.UserId] = whitelists[player.UserId] or {}
 	whitelists[player.UserId][reason] = os.clock() + d
 end
@@ -355,7 +404,12 @@ end
 function AntiCheat.RegisterDetector(detector: Detector)
 	-- Reject duplicate registrations so loaders are idempotent.
 	for _, d in ipairs(detectors) do
-		if d.Name == detector.Name then return end
+		if d.Name == detector.Name then
+			if d ~= detector then
+				warn(`[AntiCheat] RegisterDetector: a detector named '{detector.Name}' is already registered — ignored`)
+			end
+			return
+		end
 	end
 	table.insert(detectors, detector)
 	-- WHY also store by name SYNCHRONOUSLY (before detector.Init runs async):
@@ -396,15 +450,33 @@ end
 
 -- ── Detector loading ──
 
--- Require + register every built-in detector, in DETECTORS order. A detector
--- whose module errors is warned and skipped.
+local function registerModuleResult(moduleName: string, ok: boolean, result: any): ()
+	if not ok then
+		-- pcall(entry.Load) re-raises require's error from inside the closure, which
+		-- prefixes this script's "<path>:<line>: "; strip it so the text is require's.
+		local message = string.gsub(tostring(result), "^[%w_%.]+:%d+: ", "", 1)
+		warn(`[AntiCheat] Failed to require detector '{moduleName}': {message}`)
+	elseif typeof(result) == "table" and result.Name then
+		AntiCheat.RegisterDetector(result :: any)
+	end
+end
+
+-- Require + register every built-in detector, in DETECTORS order, then every other
+-- ModuleScript child (a game's own detector, MANUAL §9). A built-in module deleted
+-- in Studio is skipped silently; a detector whose module errors is warned and skipped.
 local function loadDetectors()
+	local builtIn: { [string]: boolean } = {}
 	for _, entry in ipairs(DETECTORS) do
-		local ok, result = pcall(entry.Load)
-		if not ok then
-			warn(`[AntiCheat] Failed to require detector '{entry.Module}': {tostring(result)}`)
-		elseif typeof(result) == "table" and result.Name then
-			AntiCheat.RegisterDetector(result :: any)
+		builtIn[entry.Module] = true
+		if script:FindFirstChild(entry.Module) ~= nil then
+			local ok, result = pcall(entry.Load)
+			registerModuleResult(entry.Module, ok, result)
+		end
+	end
+	for _, child in ipairs(script:GetChildren()) do
+		if child:IsA("ModuleScript") and not builtIn[child.Name] then
+			local ok, result = pcall(require, child)
+			registerModuleResult(child.Name, ok, result)
 		end
 	end
 end
@@ -440,7 +512,7 @@ end
 -- ── Flag-count decay loop ──
 
 local function startFlagDecay()
-	local decayCfg = AntiCheatConfig.FlagDecay
+	local decayCfg = if AntiCheatConfig then AntiCheatConfig.FlagDecay else nil
 	local interval : number = if decayCfg then decayCfg.Interval or 60 else 60
 	local amount   : number = if decayCfg then decayCfg.Amount or 1 else 1
 	task.spawn(function()
@@ -449,20 +521,6 @@ local function startFlagDecay()
 			AntiCheat._decayFlags(amount)
 		end
 	end)
-end
-
--- ── Player cleanup ──
-
-local function onPlayerRemoving(player: Player)
-	-- Drop per-player state so leavers don't linger in memory.
-	flagCounts[player.UserId] = nil
-	whitelists[player.UserId] = nil
-	local prefix = `{player.UserId}:`
-	for key in pairs(observeWarned) do
-		if key:sub(1, #prefix) == prefix then
-			observeWarned[key] = nil
-		end
-	end
 end
 
 -- ── Remote channel bootstrap ──
@@ -528,21 +586,24 @@ Lifecycle.Define(AntiCheat, {
 	AutoStart = false,
 	Needs = {},
 	Init = function()
-		Players.PlayerRemoving:Connect(onPlayerRemoving)
+		ensureCleanup()
 		ensureAntiCheatRemotes() -- create channels BEFORE detectors Init (Phase 17.1)
 		-- NetService reports rate-limit / argument-validation violations through this
 		-- hook (it does not require this module from the shared side).
 		Net.SetViolationHandler(function(player: Player, reason: string, severity: Types.Severity)
 			recordFlag(player, reason, severity)
 		end)
-		-- Detectors game code registered before AntiCheat started: their Init runs
-		-- after the built-in detectors' (as when the built-ins always loaded first).
+		-- Detectors game code registered before AntiCheat started are registered
+		-- again after the built-in ones, as when the built-ins always loaded first:
+		-- a built-in keeps its name, and they sample and Init after the built-ins.
 		local registeredEarly = table.clone(detectors)
+		table.clear(detectors)
+		table.clear(detectorsByName)
 		initialized = true
 		loadDetectors()
 		installDetectorAccess()
 		for _, detector in ipairs(registeredEarly) do
-			initDetector(detector)
+			AntiCheat.RegisterDetector(detector)
 		end
 	end,
 	Start = function()
