@@ -52,6 +52,7 @@ export type BanListEntry = {
 	reason: string,
 	expiresAt: number?,  -- os.time(); nil = permanent
 	time: number,
+	name: string?,       -- resolved username (the Admin panel's ban list adds it)
 }
 
 local BanService = {}

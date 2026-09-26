@@ -23,6 +23,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 -- ── Dependencies ──
 local Signal    = require(ReplicatedStorage.Gaxia_Packages.Shared.Signal)
 local Lifecycle = require(script.Parent.ServiceLifecycle)
+local Types     = require(script.Parent.Parent.Types)
 -- The orchestrator (not a Need: Start only subscribes to its signals, which never
 -- starts AntiCheat).
 local AntiCheat = require(script.Parent.Parent.AntiCheat)
@@ -35,7 +36,7 @@ export type Entry = {
 	reason: string,
 	severity: string,
 	count: number?,
-	kind: string?,      -- set for action entries ("soft"|"hard"|"observe")
+	kind: Types.ActionKind?, -- set for action entries
 	action: boolean,    -- true = OnAction entry, false = OnFlag entry
 	time: number,       -- os.time()
 }
@@ -102,7 +103,7 @@ local function subscribe(): ()
 	AntiCheat.OnFlag:Connect(function(player: Player, reason: string, severity: string, count: number?)
 		record({ userId = player.UserId, name = player.Name, reason = reason, severity = severity, count = count, action = false, time = os.time() })
 	end)
-	AntiCheat.OnAction:Connect(function(player: Player, reason: string, kind: string)
+	AntiCheat.OnAction:Connect(function(player: Player, reason: string, kind: Types.ActionKind)
 		record({ userId = player.UserId, name = player.Name, reason = reason, severity = kind, kind = kind, action = true, time = os.time() })
 	end)
 end

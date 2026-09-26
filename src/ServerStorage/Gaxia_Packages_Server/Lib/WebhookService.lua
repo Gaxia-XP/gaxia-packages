@@ -216,12 +216,17 @@ export type EmbedOpts = {
 	fields: { { name: any, value: any, inline: boolean? } }?,
 }
 
--- A Discord embed object, ready to JSON-encode (what Embed returns).
+-- A Discord embed object, ready to JSON-encode (what Embed returns). Embed only
+-- fills the first five fields; set the others on the returned table.
 export type Embed = {
 	title: string?, description: string?, url: string?,
 	color: number?,
 	fields: { { name: string, value: string, inline: boolean } }?,
 	timestamp: string,
+	footer: { text: string, icon_url: string? }?,
+	author: { name: string, url: string?, icon_url: string? }?,
+	image: { url: string }?,
+	thumbnail: { url: string }?,
 }
 
 function Webhook.Embed(opts: EmbedOpts): Embed
