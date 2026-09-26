@@ -9,38 +9,24 @@
 
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
 
--- ── Direct-path lazy require for DataManager ──
-local _dataMgr: any = nil
-local function getDataManager(): any
-	if _dataMgr ~= nil then return _dataMgr end
-	local lib = (script.Parent :: any)
-	local mod = lib:FindFirstChild("DataManager")
-	if mod and mod:IsA("ModuleScript") then
-		local ok, m = pcall(require, mod) ; if ok then _dataMgr = m end
-	end
-	return _dataMgr
-end
+-- ── Dependencies ──
+-- DataManager / Config / EConfig are only used when a player's level is read or
+-- changed (call time), so there are no lifecycle Needs.
+local Shared      = ReplicatedStorage.Gaxia_Packages.Shared
+local Signal      = require(Shared.Signal)
+local Lifecycle   = require(script.Parent.ServiceLifecycle)
+local Config      = require(script.Parent.Parent.Config)
+local EConfig     = require(script.Parent.EffectiveConfig)
+local DataManager = require(script.Parent.DataManager)
 
--- ── Lazy server (Config + EConfig) — resolved at CALL-TIME, never module load ──
-local ServerStorage = game:GetService("ServerStorage")
-local _server: any = nil
-local function server(): any
-	if not _server then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		_server = require(serverInit :: any)
-	end
-	return _server
-end
+type Profile = DataManager.PlayerData
+
 -- Config default <- runtime Flag override via Gaxia.EConfig. Read per-call so an
 -- admin can `/flag set Level.CurveExponent N` to retune leveling pace live.
 local function levelCfg(key: string, default: number): number
-	local s = server()
-	return s.EConfig.Get("Level." .. key, (s.Config.Level or {})[key] or default)
+	local levelConfig: { [string]: any } = Config.Level
+	return EConfig.Get("Level." .. key, levelConfig[key] or default)
 end
 
 -- ── Module ──
@@ -54,26 +40,25 @@ end
 
 local curveFn: (level: number) -> number = DEFAULT_CURVE
 
-LevelSystem.OnXPGained = Signal.new()  -- (player, amount, newTotal)
-LevelSystem.OnLevelUp  = Signal.new()  -- (player, newLevel, oldLevel)
+-- (player, amount, newTotal) after AddXP adds XP (newTotal before any level-up carry)
+LevelSystem.OnXPGained = Signal.new() :: Signal.Signal<Player, number, number>
+-- (player, newLevel, oldLevel) per level gained in AddXP, or when SetLevel changes it
+LevelSystem.OnLevelUp  = Signal.new() :: Signal.Signal<Player, number, number>
 
 -- ── Helpers ──
 
-local function getProfile(player: Player): any?
-	local dm = getDataManager()
-	if not dm then return nil end
-	local ok, prof = pcall(dm.Get, player)
+local function getProfile(player: Player): Profile?
+	local ok, prof = pcall(DataManager.Get, player)
 	if not ok then return nil end
 	return prof
 end
 
 -- Ensure Level / Experience fields exist on the profile.
-local function ensureFields(player: Player): any?
+local function ensureFields(player: Player): Profile?
 	local prof = getProfile(player)
 	if not prof then return nil end
-	local alias: any = prof
-	if type(alias.Level) ~= "number" then alias.Level = levelCfg("StartLevel", 1) end
-	if type(alias.Experience) ~= "number" then alias.Experience = 0 end
+	if type(prof.Level) ~= "number" then prof.Level = levelCfg("StartLevel", 1) end
+	if type(prof.Experience) ~= "number" then prof.Experience = 0 end
 	return prof
 end
 
@@ -91,21 +76,20 @@ end
 function LevelSystem.GetLevel(player: Player): number
 	local prof = ensureFields(player)
 	if not prof then return 1 end
-	return (prof :: any).Level
+	return prof.Level
 end
 
 function LevelSystem.GetXP(player: Player): number
 	local prof = ensureFields(player)
 	if not prof then return 0 end
-	return (prof :: any).Experience
+	return prof.Experience
 end
 
 function LevelSystem.GetXPToNext(player: Player): number
 	local prof = ensureFields(player)
 	if not prof then return curveFn(1) end
-	local alias: any = prof
-	local needed = curveFn(alias.Level)
-	local remaining = needed - alias.Experience
+	local needed = curveFn(prof.Level)
+	local remaining = needed - prof.Experience
 	if remaining < 0 then remaining = 0 end
 	return remaining
 end
@@ -114,37 +98,39 @@ function LevelSystem.AddXP(player: Player, amount: number): ()
 	if amount == nil or amount <= 0 then return end
 	local prof = ensureFields(player)
 	if not prof then return end -- profile not loaded — silent no-op
-	local alias: any = prof
-	local oldLevel: number = alias.Level
-	alias.Experience = alias.Experience + amount
-	LevelSystem.OnXPGained:Fire(player, amount, alias.Experience)
+	prof.Experience = prof.Experience + amount
+	LevelSystem.OnXPGained:Fire(player, amount, prof.Experience)
 
 	-- Multi-level-up loop: keep promoting while XP overflow remains.
 	-- WHY: a huge AddXP (e.g. boss kill) could span several levels at once.
 	while true do
-		local needed = curveFn(alias.Level)
-		if alias.Experience < needed then break end
-		alias.Experience = alias.Experience - needed
-		alias.Level = alias.Level + 1
-		LevelSystem.OnLevelUp:Fire(player, alias.Level, alias.Level - 1)
+		local needed = curveFn(prof.Level)
+		if prof.Experience < needed then break end
+		prof.Experience = prof.Experience - needed
+		prof.Level = prof.Level + 1
+		LevelSystem.OnLevelUp:Fire(player, prof.Level, prof.Level - 1)
 		-- Sanity guard against pathological curves returning <=0.
 		if needed <= 0 then break end
 	end
-	-- Silence unused-warning on oldLevel — kept for potential future delta logging.
-	local _ = oldLevel
 end
 
 function LevelSystem.SetLevel(player: Player, level: number): ()
 	assert(type(level) == "number" and level >= 1, "SetLevel requires level >= 1")
 	local prof = ensureFields(player)
 	if not prof then return end
-	local alias: any = prof
-	local old: number = alias.Level
-	alias.Level = math.floor(level)
-	alias.Experience = 0
-	if alias.Level ~= old then
-		LevelSystem.OnLevelUp:Fire(player, alias.Level, old)
+	local old: number = prof.Level
+	prof.Level = math.floor(level)
+	prof.Experience = 0
+	if prof.Level ~= old then
+		LevelSystem.OnLevelUp:Fire(player, prof.Level, old)
 	end
 end
+
+-- Pure API: nothing to set up. The signals exist from require time, so a module
+-- that requires LevelSystem can connect to OnLevelUp immediately.
+Lifecycle.Define(LevelSystem, {
+	Name = "Level",
+	Needs = {},
+})
 
 return LevelSystem

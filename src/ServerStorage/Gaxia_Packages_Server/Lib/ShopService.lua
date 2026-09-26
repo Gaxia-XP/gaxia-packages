@@ -14,9 +14,15 @@
 --     levelReq = 3, grant = function(p) applyBoost(p) end })
 --   local ok, reason = Gaxia.Shop.Purchase(player, "SpeedBoost")
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
-local ServerStorage = game:GetService("ServerStorage")
+-- ── Dependencies ──
+-- Monetization / Level / Economy are only called from Purchase (call time), so they
+-- are plain requires, not lifecycle Needs. Requiring Monetization does not bind
+-- ProcessReceipt; its first call (OwnsGamePass / PromptProduct) starts it, as the
+-- old first G.Monetization touch did.
+local Lifecycle           = require(script.Parent.ServiceLifecycle)
+local EconomyService      = require(script.Parent.EconomyService)
+local LevelSystem         = require(script.Parent.LevelSystem)
+local MonetizationService = require(script.Parent.MonetizationService)
 
 export type ShopItem = {
 	id: string,
@@ -28,22 +34,14 @@ export type ShopItem = {
 	grant: (player: Player) -> (),
 	[string]: any,
 }
+-- Why Purchase did not complete ("prompted_robux": the Robux prompt was shown and
+-- the product's grantFn runs when the receipt arrives).
+export type PurchaseFailure = "unknown_item" | "requires_gamepass" | "level_too_low" | "prompted_robux"
+	| "insufficient_funds" | "grant_failed"
 
 local Shop = {}
 
 local catalog: { [string]: ShopItem } = {}
-
--- Lazy server loader (Economy / Level / Monetization).
-local GaxiaServer: any = nil
-local function server(): any
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer
-end
 
 -- ── Public API ──
 
@@ -70,47 +68,50 @@ function Shop.GetCatalog(): { ShopItem }
 	return out
 end
 
--- Server-authoritative purchase. Returns (ok, reason). reason ∈ unknown_item /
--- requires_gamepass / level_too_low / prompted_robux / insufficient_funds /
--- grant_failed.
-function Shop.Purchase(player: Player, id: string): (boolean, string?)
+-- Server-authoritative purchase. Returns (ok, reason); reason is nil on success.
+function Shop.Purchase(player: Player, id: string): (boolean, PurchaseFailure?)
 	local item = catalog[id]
 	if not item then
 		return false, "unknown_item"
 	end
-	local G = server()
 
-	if item.gamePassReq and not G.Monetization.OwnsGamePass(player, item.gamePassReq) then
+	if item.gamePassReq and not MonetizationService.OwnsGamePass(player, item.gamePassReq) then
 		return false, "requires_gamepass"
 	end
-	if item.levelReq and G.Level.GetLevel(player) < item.levelReq then
+	if item.levelReq and LevelSystem.GetLevel(player) < item.levelReq then
 		return false, "level_too_low"
 	end
 
 	-- Robux item: prompt the product; the actual grant fires from the product's
 	-- registered grantFn (Monetization.RegisterProduct), not here.
 	if item.devProductId then
-		G.Monetization.PromptProduct(player, item.devProductId)
+		MonetizationService.PromptProduct(player, item.devProductId)
 		return false, "prompted_robux"
 	end
 
 	local cost = item.cost or 0
 	local currency = item.currency or "Coins"
 	if cost > 0 then
-		if not G.Economy.Spend(player, currency, cost) then
+		if not EconomyService.Spend(player, currency, cost) then
 			return false, "insufficient_funds"
 		end
 	end
 
-	local ok, err = pcall(item.grant, player)
+	local ok, err = pcall(item.grant :: (Player) -> ...any, player)
 	if not ok then
 		warn(`[Shop] grant for '{id}' failed: {err}`)
 		if cost > 0 then
-			G.Economy.Add(player, currency, cost) -- refund a failed grant — never eat currency
+			EconomyService.Add(player, currency, cost) -- refund a failed grant — never eat currency
 		end
 		return false, "grant_failed"
 	end
 	return true
 end
+
+-- Pure API: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(Shop, {
+	Name = "Shop",
+	Needs = {},
+})
 
 return Shop
