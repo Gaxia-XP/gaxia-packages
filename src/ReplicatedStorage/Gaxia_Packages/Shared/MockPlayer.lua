@@ -9,9 +9,15 @@
 
 
 -- WHY: depend on sibling Signal for event semantics matching Roblox events.
-local Signal = require(script.Parent:WaitForChild("Signal"))
+local Signal = require(script.Parent.Signal)
 
 -- ── Types ──
+export type MockPlayerOpts = {
+	name        : string?,
+	userId      : number?,
+	displayName : string?,
+}
+
 export type MockPlayerObj = {
 	Name           : string,
 	UserId         : number,
@@ -20,9 +26,13 @@ export type MockPlayerObj = {
 	IsA            : (self: MockPlayerObj, className: string) -> boolean,
 	GetMouse       : (self: MockPlayerObj) -> any,
 	Kick           : (self: MockPlayerObj, reason: string?) -> (),
-	CharacterAdded : any,
-	Chatted        : any,
+	-- (character) — fired by SpawnCharacter
+	CharacterAdded : Signal.Signal<Model>,
+	-- (message) — never fired by the mock itself; tests fire it
+	Chatted        : Signal.Signal<string>,
 	SpawnCharacter : (self: MockPlayerObj) -> Model,
+	-- Test hook: the reason passed to Kick ("" when none); nil until kicked.
+	_kicked        : string?,
 }
 
 -- ── Constants ──
@@ -32,8 +42,8 @@ local DEFAULT_USER_ID: number = -1
 local MockPlayer = {}
 
 -- ── Constructor ──
-function MockPlayer.new(opts: { name: string?, userId: number?, displayName: string? }?): MockPlayerObj
-	local o = opts or {}
+function MockPlayer.new(opts: MockPlayerOpts?): MockPlayerObj
+	local o: MockPlayerOpts = opts or {}
 	local name: string = o.name or DEFAULT_NAME
 	local userId: number = o.userId or DEFAULT_USER_ID
 	local displayName: string = o.displayName or name

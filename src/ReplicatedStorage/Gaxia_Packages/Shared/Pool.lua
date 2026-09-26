@@ -10,35 +10,37 @@
 -- Access  : Gaxia.Pool  (shared)
 --   local p = Gaxia.Pool.new(function() return Instance.new("Part") end,
 --                            function(part) part.Parent = nil end)
---   local part = p.Get(); ... ; p.Return(part)
+--   local part = p.Get(); ... ; p.Return(part)   -- part: Part (inferred from the factory)
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
 
-export type PoolObject = {
-	Get: () -> any,
-	Return: (obj: any) -> (),
+-- T = the pooled object's type (inferred from the factory). A bare `PoolObject`
+-- annotation still means PoolObject<any>.
+export type PoolObject<T = any> = {
+	Get: () -> T,
+	Return: (obj: T?) -> (), -- nil is ignored
 	PreWarm: (n: number) -> (),
-	Clear: () -> (),
-	Size: () -> number,
+	Clear: () -> (), -- destroys parked Instances
+	Size: () -> number, -- parked (available) objects
 }
 
 local Pool = {}
 
 -- factory: builds a fresh object on a pool miss.
 -- reset:   (optional) called on Return() to scrub state before parking.
-function Pool.new(factory: () -> any, reset: ((obj: any) -> ())?): PoolObject
-	local available: { any } = {}
+function Pool.new<T>(factory: () -> T, reset: ((obj: T) -> ())?): PoolObject<T>
+	local available: { T } = {}
 	local p = {}
 
-	function p.Get(): any
+	function p.Get(): T
 		local obj = table.remove(available)
 		if obj == nil then
-			obj = factory()
+			local fresh = factory()
+			return fresh
 		end
 		return obj
 	end
 
-	function p.Return(obj: any): ()
+	function p.Return(obj: T?): ()
 		if obj == nil then
 			return
 		end
@@ -59,7 +61,7 @@ function Pool.new(factory: () -> any, reset: ((obj: any) -> ())?): PoolObject
 	function p.Clear(): ()
 		for _, obj in ipairs(available) do
 			if typeof(obj) == "Instance" then
-				(obj :: Instance):Destroy()
+				((obj :: any) :: Instance):Destroy()
 			end
 		end
 		table.clear(available)
@@ -69,7 +71,7 @@ function Pool.new(factory: () -> any, reset: ((obj: any) -> ())?): PoolObject
 		return #available
 	end
 
-	return p :: PoolObject
+	return p :: PoolObject<T>
 end
 
 return Pool

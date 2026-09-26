@@ -18,17 +18,18 @@
 --   -- client:
 --   Gaxia.Command.Send("Buy", { id = "Sword", qty = 1 })
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local RunService = game:GetService("RunService")
 local IS_SERVER : boolean = RunService:IsServer()
 
--- Sibling Shared modules (present, pure-enough bodies → FindFirstChild require).
-local Net = require(script.Parent:FindFirstChild("NetService") :: ModuleScript) :: any
+-- Sibling Shared module (typed static require). Requiring it runs NetService's
+-- body, as before: on the server that creates ReplicatedStorage.Events/Net.
+local Net = require(script.Parent.NetService)
 
 local COMMAND_REMOTE : string = "GaxiaCommand"
 local CHANNEL_RATE   : number = 30   -- commands/sec/player across the whole channel
 
+-- A registered command: optional Guard-style schema (a falsy first return drops
+-- the payload) + the server handler. Same shape as a Gaxia.Guard `Check`.
 export type Command = {
 	schema: ((value: any) -> (boolean, string?))?,
 	handler: (player: Player, payload: any) -> (),

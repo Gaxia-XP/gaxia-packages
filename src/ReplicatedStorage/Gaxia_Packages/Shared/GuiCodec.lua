@@ -14,8 +14,6 @@
 --   local src = Gaxia.GuiCodec.ToCode(myFrame)        -- Instance -> Luau string
 --   local gui = Gaxia.GuiCodec.Make("Frame", { Size = UDim2.fromScale(1,1) }, { child })
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local GuiCodec = {}
 
 -- Properties considered for emission, by relevance. Reads are pcall-guarded, so
@@ -87,11 +85,13 @@ end
 
 -- ── ToCode (Instance → Luau) ──
 
-local defaults: { [string]: Instance } = {}
+-- One unparented default Instance per class (nil = class could not be created;
+-- not cached, so it is retried next time).
+local defaults: { [string]: Instance? } = {}
 local function defaultFor(className: string): Instance?
 	if defaults[className] == nil then
 		local ok, inst = pcall(Instance.new, className)
-		defaults[className] = if ok then inst else (nil :: any)
+		defaults[className] = if ok then inst else nil
 	end
 	return defaults[className]
 end

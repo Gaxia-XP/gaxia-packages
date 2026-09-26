@@ -9,9 +9,10 @@
 
 -- ── Module ───────────────────────────────────────────────────
 
--- Typed as {[string]: any} to allow heterogeneous values without weakening
--- consumers — readers still get autocomplete on individual keys.
-local Constants : { [string]: any } = table.freeze({
+-- Deliberately NOT annotated: table.freeze returns the literal's own (sealed)
+-- type, so `Constants.UI_ANIMATION_TIME` autocompletes and is a `number`, and a
+-- removed or misspelled key is a type error instead of a silent nil.
+local Constants = table.freeze({
 
 	-- ── Network ──────────────────────────────────────────────
 	-- NOTE: still read by NetService (Shared) + RemoteRateLimiter (server).

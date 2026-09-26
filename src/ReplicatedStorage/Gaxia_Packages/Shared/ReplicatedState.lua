@@ -29,9 +29,8 @@ local RunService        = game:GetService("RunService")
 
 local IS_SERVER : boolean = RunService:IsServer()
 
--- Serializer (sibling Shared module) for nested-table values (Phase 19.2).
--- FindFirstChild (no yield) — Serializer is a present sibling with a pure body.
-local Serializer = require(script.Parent:FindFirstChild("Serializer") :: ModuleScript) :: any
+-- Serializer (sibling Shared module, pure body) for nested-table values (Phase 19.2).
+local Serializer = require(script.Parent.Serializer)
 
 -- ── Types ──
 
@@ -157,11 +156,15 @@ function State.Create(name: string, defaults: { [string]: any }?): StateObject
 	assert(IS_SERVER, "State.Create is server-only")
 	assert(typeof(name) == "string" and #name > 0, "State.Create requires a non-empty name")
 
-	local folder = container:FindFirstChild(name)
-	if not folder then
-		folder = Instance.new("Folder")
-		folder.Name = name
-		folder.Parent = container
+	local folder: Instance
+	local existing = container:FindFirstChild(name)
+	if existing then
+		folder = existing
+	else
+		local created = Instance.new("Folder")
+		created.Name = name
+		created.Parent = container
+		folder = created
 	end
 	if defaults then
 		for k, v in pairs(defaults) do

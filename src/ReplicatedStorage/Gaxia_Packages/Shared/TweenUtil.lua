@@ -10,10 +10,10 @@
 local TweenService = game:GetService("TweenService")
 
 -- ── Dependencies ──
--- Promise must live alongside us in the Shared folder.
--- WHY: avoids hard-coding any deeper require path; deferrable lookup is fine here
---      because TweenUtil is required at runtime, not during initial load order.
-local Promise = require(script.Parent:WaitForChild("Promise"))
+-- Sibling Shared modules, static paths (no WaitForChild: TweenUtil can be first
+-- required inside the Gaxia loader's __index, where yielding is not allowed).
+local Promise      = require(script.Parent.Promise)
+local PromiseTypes = require(script.Parent.PromiseTypes) -- types only
 
 -- ── Types ──
 export type TweenInfoLike = TweenInfo | {
@@ -72,10 +72,15 @@ function TweenUtil.Play(instance: Instance, infoOrTable: TweenInfoLike, props: {
 	return tw
 end
 
--- Returns a Promise that resolves with the TweenStatus when the tween completes.
-function TweenUtil.PlayAsync(instance: Instance, infoOrTable: TweenInfoLike, props: { [string]: any })
+-- Returns a Promise that resolves with the tween's final PlaybackState
+-- (Completed, or Cancelled if the tween was cancelled) when it ends.
+function TweenUtil.PlayAsync(
+	instance: Instance,
+	infoOrTable: TweenInfoLike,
+	props: { [string]: any }
+): PromiseTypes.Promise<Enum.PlaybackState>
 	local tw = TweenUtil.Create(instance, infoOrTable, props)
-	return Promise.new(function(resolve, _reject, onCancel)
+	return (Promise.new(function(resolve, _reject, onCancel)
 		local conn: RBXScriptConnection? = nil
 		-- WHY: support cancellation so callers can stop a chain mid-flight.
 		if onCancel then
@@ -89,12 +94,13 @@ function TweenUtil.PlayAsync(instance: Instance, infoOrTable: TweenInfoLike, pro
 			resolve(status)
 		end)
 		tw:Play()
-	end)
+	end) :: any) :: PromiseTypes.Promise<Enum.PlaybackState>
 end
 
--- Sequentially play a list of tween steps. Returns a Promise resolving when last step ends.
-function TweenUtil.Chain(steps: { ChainStep })
-	return Promise.new(function(resolve, reject)
+-- Sequentially play a list of tween steps. Returns a Promise resolving (true)
+-- when the last step ends.
+function TweenUtil.Chain(steps: { ChainStep }): PromiseTypes.Promise<boolean>
+	return (Promise.new(function(resolve, reject)
 		task.spawn(function()
 			for i, step in ipairs(steps) do
 				local ok, err = pcall(function()
@@ -108,7 +114,7 @@ function TweenUtil.Chain(steps: { ChainStep })
 			end
 			resolve(true)
 		end)
-	end)
+	end) :: any) :: PromiseTypes.Promise<boolean>
 end
 
 return TweenUtil

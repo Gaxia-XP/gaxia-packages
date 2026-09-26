@@ -12,28 +12,34 @@
 --   -- server: Gaxia.Flags.Set("Detector.Teleport", false)   -- disable at runtime
 --   -- anywhere: if Gaxia.Flags.IsEnabled("DoubleXP") then ... end
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local RunService = game:GetService("RunService")
 local IS_SERVER : boolean = RunService:IsServer()
 
 local FLAGS_STATE : string = "GaxiaFlags"
 
--- Lazy ReplicatedState require: its body WaitForChild's GaxiaState on the client,
--- which would yield under the shared loader metamethod. Resolve at USE time
--- (normal context) instead.
-local _State: any = nil
-local function stateModule(): any
-	if not _State then
-		_State = require(script.Parent:FindFirstChild("ReplicatedState") :: ModuleScript)
+-- Types only: `typeof(require(...))` in a type position is erased at compile time,
+-- so it does NOT load ReplicatedState here.
+type StateModule = typeof(require(script.Parent.ReplicatedState))
+type StateObject = typeof(require(script.Parent.ReplicatedState).Create("", nil))
+
+-- Lazy ReplicatedState require (keep-lazy): its body creates GaxiaState on the
+-- server and WaitForChild's it on the client, which would yield under the shared
+-- loader metamethod. Resolve at USE time (normal context) instead.
+local _State: StateModule? = nil
+local function stateModule(): StateModule
+	local cached = _State
+	if cached then
+		return cached
 	end
-	return _State
+	local State = require(script.Parent.ReplicatedState)
+	_State = State
+	return State
 end
 
 local Flags = {}
 
-local stateObj: any = nil
-local function getState(): any
+local stateObj: StateObject? = nil
+local function getState(): StateObject?
 	if stateObj then
 		return stateObj
 	end
@@ -50,7 +56,9 @@ end
 
 function Flags.Set(name: string, value: any): ()
 	assert(IS_SERVER, "Flags.Set is server-only")
-	getState():Set(name, value)
+	-- Server: getState() always returns the object State.Create made.
+	local s = getState() :: StateObject
+	s:Set(name, value)
 end
 
 function Flags.Get(name: string, default: any?): any

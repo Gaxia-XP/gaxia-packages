@@ -26,11 +26,11 @@ local RunService        = game:GetService("RunService")
 
 local IS_SERVER : boolean = RunService:IsServer()
 
--- Sibling module: Constants (always present in Shared/).
-local Constants : any = require(script.Parent:WaitForChild("Constants"))
+-- Sibling module: Constants (pure frozen table; typed, so its keys autocomplete).
+local Constants = require(script.Parent.Constants)
 
-local DEFAULT_RATE  : number = (Constants.REMOTE_RATE_LIMIT_DEFAULT :: any) or 10
-local DEFAULT_BURST : number = (Constants.REMOTE_RATE_BURST :: any) or 20
+local DEFAULT_RATE  : number = Constants.REMOTE_RATE_LIMIT_DEFAULT or 10
+local DEFAULT_BURST : number = Constants.REMOTE_RATE_BURST or 20
 
 -- ── Types ──
 
@@ -41,7 +41,8 @@ export type RemoteOpts = {
 	-- drop). Gaxia.Guard checks plug in directly — they return (ok, err) and Net
 	-- only reads the truthy `ok`. For a single table payload validate its SHAPE:
 	--   { validators = { Guard.strictInterface({ id = Guard.string, qty = Guard.integer }) } }
-	validators : { (any) -> boolean }?,
+	-- (typed `-> (boolean, ...any)` so both plain predicates and Guard checks fit)
+	validators : { (any) -> (boolean, ...any) }?,
 }
 
 -- ── Folder bootstrap ──
@@ -68,9 +69,10 @@ local function ensureServerFolders(): Folder
 	end
 	local found = (events :: Instance):FindFirstChild("Net")
 	if not found then
-		found = Instance.new("Folder")
-		found.Name = "Net"
-		found.Parent = events
+		local net = Instance.new("Folder")
+		net.Name = "Net"
+		net.Parent = events
+		found = net
 	end
 	return found :: Folder
 end
@@ -145,7 +147,7 @@ local function consume(player: Player, name: string, opts: RemoteOpts?): boolean
 	return false
 end
 
-local function validateArgs(validators: { (any) -> boolean }?, args: { any }): boolean
+local function validateArgs(validators: { (any) -> (boolean, ...any) }?, args: { any }): boolean
 	if not validators then return true end
 	for i, predicate in ipairs(validators) do
 		if not predicate(args[i]) then return false end
@@ -252,7 +254,8 @@ function Net.FireServer(name: string, ...: any): ()
 	re:FireServer(...)
 end
 
-function Net.InvokeServer(name: string, ...: any): any
+-- Returns whatever the server's OnInvoke handler returned (all values).
+function Net.InvokeServer(name: string, ...: any): ...any
 	assert(not IS_SERVER, "Net.InvokeServer is client-only")
 	local rf = getOrCreate("RemoteFunction", name) :: RemoteFunction
 	return rf:InvokeServer(...)
