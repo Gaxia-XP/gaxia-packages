@@ -352,7 +352,8 @@ local function openArgForm(cmd: any, players: { any }, preset: { [number]: strin
 
 	local getters: { () -> string } = {}
 	local y = 32
-	for i, token in ipairs(cmd.args) do
+	for i, rawToken in ipairs(cmd.args) do
+		local token: string = tostring(rawToken)
 		local labelRow = Instance.new("TextLabel")
 		labelRow.Size = UDim2.new(0, 90, 0, 36)
 		labelRow.Position = UDim2.new(0, 0, 0, y)
