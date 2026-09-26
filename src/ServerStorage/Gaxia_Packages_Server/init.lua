@@ -337,9 +337,18 @@ local function buildGaxiaServer(): { [string]: any }
 		return result
 	end
 
-	-- A service counts as started when it has no lifecycle spec (legacy module: its
-	-- body did the setup when it was loaded) or its spec reached "initialized".
+	-- A service counts as started when its spec reached "initialized", however it
+	-- was started: listed in Features, pulled in as another service's Need, or
+	-- first used through a direct require (those never pass through moduleCache).
+	-- A module with no lifecycle spec (legacy: its body did the setup when it was
+	-- loaded) counts as started once the loader has loaded it.
 	local function isStarted(key: string): boolean
+		if Lifecycle ~= nil then
+			local byName = Lifecycle.GetStateByName(key)
+			if byName ~= nil then
+				return byName == "initialized"
+			end
+		end
 		local mod = moduleCache[key]
 		if mod == nil then
 			return false
@@ -356,9 +365,11 @@ local function buildGaxiaServer(): { [string]: any }
 			return
 		end
 		local names: { string } = {}
-		for key in pairs(moduleCache) do
-			if (LIB_KEY_MAP[key] or ROOT_KEY_MAP[key]) and not UTILITY_KEYS[key] and isStarted(key) then
-				table.insert(names, key)
+		for _, map in ipairs({ LIB_KEY_MAP, ROOT_KEY_MAP }) do
+			for key in pairs(map) do
+				if not UTILITY_KEYS[key] and isStarted(key) then
+					table.insert(names, key)
+				end
 			end
 		end
 		table.sort(names)
