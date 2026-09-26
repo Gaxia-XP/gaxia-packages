@@ -3,7 +3,7 @@
 	Module : ZoneService
 	Location: ServerStorage.Gaxia_Packages_Server.Lib.ZoneService
 	Purpose : Trigger zones. Wraps a BasePart region with Enter/Left signals
-	          via OBB containment sampled at Constants.SAMPLER_INTERVAL (0.5s).
+	          via OBB containment sampled every SAMPLER_INTERVAL (0.5s).
 ]]
 
 
@@ -15,12 +15,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared    = ReplicatedStorage.Gaxia_Packages.Shared
 local Signal    = require(Shared.Signal)
 local Trove     = require(Shared.Trove)
-local Constants = require(Shared.Constants)
 local Lifecycle = require(script.Parent.ServiceLifecycle)
 
--- Constants no longer defines SAMPLER_INTERVAL (see Shared/Constants), so this
--- is 0.5 unless it is added back there.
-local SAMPLER_INTERVAL : number = Constants.SAMPLER_INTERVAL or 0.5
+-- Seconds between containment samples. (It used to read Constants.SAMPLER_INTERVAL,
+-- which no longer exists there, so the effective value has long been this 0.5.)
+local SAMPLER_INTERVAL : number = 0.5
 
 -- ── Types ──
 export type Zone = {

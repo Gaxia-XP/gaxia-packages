@@ -24,8 +24,6 @@ local Constants = table.freeze({
 	-- MOVED to ServerStorage/Gaxia_Packages_Server/Config.AntiCheat — kept
 	-- server-private (NOT replicated) so cheat clients cannot read tolerances
 	-- to tune around them. Detectors + orchestrator require() that Config now.
-	-- (ZoneService still reads SAMPLER_INTERVAL via a graceful `or 0.5` fallback;
-	--  repoint it at Config.AntiCheat.SamplerInterval in a follow-up.)
 
 	-- ── UI ───────────────────────────────────────────────────
 	NOTIFICATION_DEFAULT_DURATION = 3,    -- seconds a notification stays visible
