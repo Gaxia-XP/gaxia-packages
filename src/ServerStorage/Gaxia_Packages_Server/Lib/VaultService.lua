@@ -15,39 +15,39 @@
 --   Gaxia.Vault.Deposit(player, "Diamond", 3)
 --   local net = Gaxia.Vault.GetValue(player)   -- heist loot-cap / leaderboard
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
-
-local GaxiaServer: any = nil
-local function server(): any
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer
-end
+-- ── Dependencies ──
+local Shared      = ReplicatedStorage.Gaxia_Packages.Shared
+local Signal      = require(Shared.Signal)
+local Lifecycle   = require(script.Parent.ServiceLifecycle)
+local Config      = require(script.Parent.Parent.Config)
+local EConfig     = require(script.Parent.EffectiveConfig)
+local DataManager = require(script.Parent.DataManager)
+local ItemService = require(script.Parent.ItemService)
 
 local VAULT_KEY    : string = "Vault"
 local CAPACITY_KEY : string = "VaultCapacity"
-local DEFAULT_CAPACITY : number = 100        -- ultimate fallback if Config absent
-local MAX_CAPACITY     : number = 10_000_000
+local DEFAULT_ITEM_VALUE : number = 1        -- ultimate fallback if Config absent
+local DEFAULT_CAPACITY   : number = 100      -- ultimate fallback if Config absent
+local MAX_CAPACITY       : number = 10_000_000
 
--- Effective tunable: runtime Flag override <- Config.Vault default <- fallback.
-local function vaultGet(key: string, fallback: any): any
-	local s = server()
-	return s.EConfig.Get(`Vault.{key}`, (s.Config.Vault or {})[key] or fallback)
+-- Effective tunables: runtime Flag override <- Config.Vault default <- fallback.
+-- Read per call so an admin `/flag set Vault.X` applies live.
+local function defaultItemValue(): number
+	return EConfig.Get("Vault.DefaultItemValue", Config.Vault.DefaultItemValue or DEFAULT_ITEM_VALUE)
+end
+local function defaultCapacity(): number
+	return EConfig.Get("Vault.DefaultCapacity", Config.Vault.DefaultCapacity or DEFAULT_CAPACITY)
+end
+local function maxCapacity(): number
+	return EConfig.Get("Vault.MaxCapacity", Config.Vault.MaxCapacity or MAX_CAPACITY)
 end
 
 local VaultService = {}
 
-VaultService.OnChanged = Signal.new() -- (player, itemId, newCount)
+-- (player, itemId, newCount) after a Deposit / Withdraw changed a slot (newCount 0 = slot emptied)
+VaultService.OnChanged = Signal.new() :: Signal.Signal<Player, string, number>
 
 -- Global per-item value registry (for GetValue). Default 1.
 local itemValues: { [string]: number } = {}
@@ -59,35 +59,35 @@ function VaultService.SetItemValue(itemId: string, value: number): ()
 end
 
 function VaultService.GetItemValue(itemId: string): number
-	return itemValues[itemId] or vaultGet("DefaultItemValue", 1)
+	return itemValues[itemId] or defaultItemValue()
 end
 
 -- ── Persistence helpers ──
 
 local function loadVault(player: Player): { [string]: number }
-	local v = server().Data.Get(player, VAULT_KEY)
+	local v = DataManager.Get(player, VAULT_KEY)
 	return (typeof(v) == "table") and v or {}
 end
 
 local function saveVault(player: Player, v: { [string]: number }): ()
-	server().Data.Set(player, VAULT_KEY, v)
+	DataManager.Set(player, VAULT_KEY, v)
 end
 
 -- ── Capacity ──
 
 function VaultService.GetCapacity(player: Player): number
-	local c = server().Data.Get(player, CAPACITY_KEY)
-	return (typeof(c) == "number") and c or vaultGet("DefaultCapacity", DEFAULT_CAPACITY)
+	local c = DataManager.Get(player, CAPACITY_KEY)
+	return (typeof(c) == "number") and c or defaultCapacity()
 end
 
 function VaultService.SetCapacity(player: Player, n: number): ()
-	local clamped = math.clamp(math.floor(n), 0, vaultGet("MaxCapacity", MAX_CAPACITY))
-	server().Data.Set(player, CAPACITY_KEY, clamped)
+	local clamped = math.clamp(math.floor(n), 0, maxCapacity())
+	DataManager.Set(player, CAPACITY_KEY, clamped)
 end
 
 function VaultService.AddCapacity(player: Player, delta: number): number
-	local next = math.clamp(VaultService.GetCapacity(player) + math.floor(delta), 0, vaultGet("MaxCapacity", MAX_CAPACITY))
-	server().Data.Set(player, CAPACITY_KEY, next)
+	local next = math.clamp(VaultService.GetCapacity(player) + math.floor(delta), 0, maxCapacity())
+	DataManager.Set(player, CAPACITY_KEY, next)
 	return next
 end
 
@@ -139,8 +139,7 @@ function VaultService.Deposit(player: Player, itemId: string, count: number?): (
 	if VaultService.GetUsed(player) + amount > VaultService.GetCapacity(player) then
 		return false, "vault full"
 	end
-	local Item = server().Item
-	if not Item.Remove(player, itemId, amount) then
+	if not ItemService.Remove(player, itemId, amount) then
 		return false, "not enough in inventory"
 	end
 	local v = loadVault(player)
@@ -171,8 +170,7 @@ function VaultService.Withdraw(player: Player, itemId: string, count: number?): 
 	end
 	saveVault(player, v)
 
-	local Item = server().Item
-	if not Item.Give(player, itemId, amount) then
+	if not ItemService.Give(player, itemId, amount) then
 		v[itemId] = have -- refund vault
 		saveVault(player, v)
 		return false, "inventory credit failed"
@@ -180,5 +178,11 @@ function VaultService.Withdraw(player: Player, itemId: string, count: number?): 
 	VaultService.OnChanged:Fire(player, itemId, nextCount)
 	return true, "ok"
 end
+
+-- Pure API: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(VaultService, {
+	Name = "Vault",
+	Needs = {},
+})
 
 return VaultService

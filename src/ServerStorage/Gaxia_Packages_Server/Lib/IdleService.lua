@@ -15,49 +15,43 @@
 --   Gaxia.Idle.Configure(player, { Rate = 5, Currency = "Coins", Cap = 50000 })
 --   local earned, secs = Gaxia.Idle.Collect(player)  -- call on join + on a loop
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
-
-local GaxiaServer: any = nil
-local function server(): any
-	if not GaxiaServer then
-		-- Acquire the loader through an Instance-typed local + `:: any` so the Luau
-		-- analyzer does NOT statically follow this require back into the loader.
-		-- WHY: the loader's GaxiaServerPackage type does `typeof(require(<this service>))`
-		-- for IDE autocomplete (Gaxia.Idle.*), which is a loader→service edge. If the
-		-- analyzer ALSO followed this service→loader require it reports a false-positive
-		-- "cyclic module dependency" (runtime is acyclic: the loader resolves services
-		-- lazily via __index, and this require runs lazily at call-time). Type-only cast,
-		-- zero runtime change.
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer
-end
+-- ── Dependencies ──
+local Shared         = ReplicatedStorage.Gaxia_Packages.Shared
+local Signal         = require(Shared.Signal)
+local Lifecycle      = require(script.Parent.ServiceLifecycle)
+local Config         = require(script.Parent.Parent.Config)
+local EConfig        = require(script.Parent.EffectiveConfig)
+local DataManager    = require(script.Parent.DataManager)
+local EconomyService = require(script.Parent.EconomyService)
+-- Best-effort Coins multiplier (call-time only, so not a Need).
+local PetService     = require(script.Parent.PetService)
 
 local LAST_SEEN_KEY : string = "IdleLastSeen"
 local DEFAULT_RATE  : number = 1           -- ultimate fallback if Config absent
 local MAX_OFFLINE   : number = 8 * 3600    -- ultimate fallback (8h)
 local COIN_CURRENCY : string = "Coins"     -- the pet multiplier boosts only this currency (matches PetService.EGG_CURRENCY)
 
--- Effective tunable: runtime Flag override <- Config.Idle default <- fallback.
-local function idleGet(key: string, fallback: any): any
-	local s = server()
-	return s.EConfig.Get(`Idle.{key}`, (s.Config.Idle or {})[key] or fallback)
+-- Effective tunables: runtime Flag override <- Config.Idle default <- fallback.
+local function defaultRate(): number
+	return EConfig.Get("Idle.DefaultRate", Config.Idle.DefaultRate or DEFAULT_RATE)
+end
+local function maxOffline(): number
+	return EConfig.Get("Idle.MaxOffline", Config.Idle.MaxOffline or MAX_OFFLINE)
 end
 
--- Best-effort equipped-pet Coins multiplier. Returns 1.0 if the Pet service is
--- missing, the profile is unloaded, or the call errors / returns NaN — so wiring
--- this into a faucet can never break the grant itself.
+-- Best-effort equipped-pet Coins multiplier. Returns 1.0 if the Pet service
+-- failed to start (GaxiaServer.Pet is nil), the profile is unloaded, or the call
+-- errors / returns NaN — so wiring this into a faucet can never break the grant
+-- itself. Calling it starts Pet if nothing has yet (like touching GaxiaServer.Pet).
 local function coinMultiplierFor(player: Player): number
+	if Lifecycle.GetState(PetService) == "failed" then
+		return 1.0
+	end
 	local ok, mult = pcall(function(): number
-		return server().Pet.GetCoinMultiplier(player)
+		return PetService.GetCoinMultiplier(player)
 	end)
 	if ok and typeof(mult) == "number" and mult == mult then -- mult == mult rejects NaN
 		return mult
@@ -69,7 +63,9 @@ export type IdleConfig = { Rate: number?, Cap: number?, Currency: string? }
 
 local IdleService = {}
 
-IdleService.OnOfflineEarnings = Signal.new() -- (player, earnings, seconds)
+-- (player, earnings, seconds) after a Collect that paid > 0; earnings = the amount
+-- actually credited (after the pet multiplier), seconds = the clamped offline time
+IdleService.OnOfflineEarnings = Signal.new() :: Signal.Signal<Player, number, number>
 
 local configs: { [Player]: IdleConfig } = {}
 
@@ -87,25 +83,25 @@ function IdleService.Configure(player: Player, cfg: IdleConfig): ()
 end
 
 function IdleService.SetRate(player: Player, rate: number): ()
-	local c = configs[player] or {}
+	local c: IdleConfig = configs[player] or {}
 	c.Rate = rate
 	configs[player] = c
 end
 
 function IdleService.GetRate(player: Player): number
 	local c = configs[player]
-	return (c and c.Rate) or idleGet("DefaultRate", DEFAULT_RATE)
+	return (c and c.Rate) or defaultRate()
 end
 
 -- ── Internal ──
 
 local function paramsFor(player: Player): (number, number, string?)
-	local c = configs[player] or {}
-	return c.Rate or idleGet("DefaultRate", DEFAULT_RATE), c.Cap or math.huge, c.Currency
+	local c: IdleConfig = configs[player] or {}
+	return c.Rate or defaultRate(), c.Cap or math.huge, c.Currency
 end
 
 local function readLastSeen(player: Player): number
-	local v = server().Data.Get(player, LAST_SEEN_KEY)
+	local v = DataManager.Get(player, LAST_SEEN_KEY)
 	if typeof(v) == "number" then
 		return v
 	end
@@ -116,7 +112,7 @@ end
 
 function IdleService.GetPending(player: Player): (number, number)
 	local rate, cap = paramsFor(player)
-	return IdleService.ComputeOffline(readLastSeen(player), os.time(), rate, idleGet("MaxOffline", MAX_OFFLINE), cap)
+	return IdleService.ComputeOffline(readLastSeen(player), os.time(), rate, maxOffline(), cap)
 end
 
 -- ── Collect (consumes elapsed; grants + fires) ──
@@ -125,8 +121,8 @@ function IdleService.Collect(player: Player): (number, number)
 	local rate, cap, currency = paramsFor(player)
 	local lastSeen = readLastSeen(player)
 	local now = os.time()
-	local earnings, secs = IdleService.ComputeOffline(lastSeen, now, rate, idleGet("MaxOffline", MAX_OFFLINE), cap)
-	server().Data.Set(player, LAST_SEEN_KEY, now)
+	local earnings, secs = IdleService.ComputeOffline(lastSeen, now, rate, maxOffline(), cap)
+	DataManager.Set(player, LAST_SEEN_KEY, now)
 	local granted = earnings
 	if earnings > 0 then
 		if currency then
@@ -139,7 +135,7 @@ function IdleService.Collect(player: Player): (number, number)
 				-- Flip to exceed-cap by dropping the `math.min(…, cap)` wrapper.
 				granted = math.min(math.floor(earnings * coinMultiplierFor(player)), cap)
 			end
-			server().Economy.Add(player, currency, granted)
+			EconomyService.Add(player, currency, granted)
 		end
 		-- Fire + return the POST-multiplier amount actually credited (not the base),
 		-- so a UI listener / caller shows what the player really earned.
@@ -150,13 +146,22 @@ end
 
 -- Stamp lastSeen = now (e.g. on leave) so offline time is measured from here.
 function IdleService.RecordSeen(player: Player): ()
-	server().Data.Set(player, LAST_SEEN_KEY, os.time())
+	DataManager.Set(player, LAST_SEEN_KEY, os.time())
 end
 
-Players.PlayerRemoving:Connect(function(player: Player)
+local function onPlayerRemoving(player: Player): ()
 	-- best-effort stamp; pcall since the profile may already be releasing
 	pcall(IdleService.RecordSeen, player)
 	configs[player] = nil
-end)
+end
+
+Lifecycle.Define(IdleService, {
+	Name = "Idle",
+	Needs = {},
+	Init = function()
+		-- Stamp lastSeen on leave so offline time is measured from the leave.
+		Players.PlayerRemoving:Connect(onPlayerRemoving)
+	end,
+})
 
 return IdleService
