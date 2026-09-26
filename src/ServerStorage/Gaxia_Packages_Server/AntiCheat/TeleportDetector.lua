@@ -12,22 +12,8 @@ local Types  = require(script.Parent.Parent.Types)
 local Config = require(script.Parent.Parent.Config)
 
 -- ── Types ──
--- Keep identical to AntiCheat/init.lua's exported Snapshot and Flag (a
--- detector cannot require the orchestrator: it requires the detectors).
-type Snapshot = {
-	clock: number,
-	character: Model?,
-	hrp: BasePart?,
-	humanoid: Humanoid?,
-	position: Vector3?,
-	velocity: Vector3?,
-	state: Enum.HumanoidStateType?,
-	walkSpeed: number?,
-}
-type Flag = {
-	reason: string,
-	severity: Types.Severity | string,
-}
+type Snapshot = Types.AntiCheatSnapshot
+type Flag = Types.AntiCheatFlag
 
 local TeleportCfg = Config.AntiCheat.Teleport
 

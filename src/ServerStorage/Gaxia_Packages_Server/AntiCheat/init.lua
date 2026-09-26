@@ -73,33 +73,12 @@ export type Severity = Types.Severity
 -- "soft" | "hard" | "observe"
 export type ActionKind = Types.ActionKind
 
--- A detector's verdict for one sample. Detectors pass their
--- Config.AntiCheat.<Name>.Severity through, so any string is accepted.
-export type Flag = {
-	reason: string,
-	severity: Types.Severity | string,
-}
-
--- Built once per player per sampler tick and shared by every detector's Sample.
-export type Snapshot = {
-	clock: number,
-	character: Model?,
-	hrp: BasePart?,
-	humanoid: Humanoid?,
-	position: Vector3?,
-	velocity: Vector3?,
-	state: Enum.HumanoidStateType?,
-	walkSpeed: number?,
-}
-
--- What a detector's Init receives: this module (only these members are part of
--- the contract). The built-in detectors declare identical copies of this type,
--- Snapshot and Flag: they cannot require this module (it requires them).
-export type DetectorHost = {
-	Flag: (player: Player, reason: string, severity: (Types.Severity | string)?) -> (),
-	IsEnforcing: () -> boolean,
-	IsDetectorEnabled: (name: string) -> boolean,
-}
+-- A detector's verdict for one sample, the per-tick snapshot, and what a
+-- detector's Init receives. Defined in Types.lua (the detectors cannot require
+-- this module: it requires them).
+export type Flag = Types.AntiCheatFlag
+export type Snapshot = Types.AntiCheatSnapshot
+export type DetectorHost = Types.DetectorHost
 
 export type Detector = {
 	Name: string,

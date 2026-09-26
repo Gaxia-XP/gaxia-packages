@@ -20,14 +20,7 @@ local Types  = require(script.Parent.Parent.Types)
 local Config = require(script.Parent.Parent.Config)
 
 -- ── Types ──
--- The orchestrator API Init receives. Keep identical to AntiCheat/init.lua's
--- exported DetectorHost (a detector cannot require the orchestrator: it
--- requires the detectors).
-type DetectorHost = {
-	Flag: (player: Player, reason: string, severity: (Types.Severity | string)?) -> (),
-	IsEnforcing: () -> boolean,
-	IsDetectorEnabled: (name: string) -> boolean,
-}
+type DetectorHost = Types.DetectorHost
 
 -- Server config. Climbing/Swimming default to "soft" so a false-positive doesn't
 -- instant-kick; a game with custom climbing can set Enabled = false. The section

@@ -18,14 +18,7 @@ local Types     = require(script.Parent.Parent.Types)
 local Config    = require(script.Parent.Parent.Config)
 
 -- ── Types ──
--- The orchestrator API Init receives. Keep identical to AntiCheat/init.lua's
--- exported DetectorHost (a detector cannot require the orchestrator: it
--- requires the detectors).
-type DetectorHost = {
-	Flag: (player: Player, reason: string, severity: (Types.Severity | string)?) -> (),
-	IsEnforcing: () -> boolean,
-	IsDetectorEnabled: (name: string) -> boolean,
-}
+type DetectorHost = Types.DetectorHost
 
 -- Rate limits stay in Shared/Constants: NetService (shared, runs on the client too)
 -- reads the same keys, and a server-only Config can't be required from the client.

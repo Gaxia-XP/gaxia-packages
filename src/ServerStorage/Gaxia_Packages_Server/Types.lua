@@ -42,6 +42,37 @@ export type Severity = "soft" | "hard"
 -- "observe" = would have been "hard" while Config.AntiCheat.Enforce is false.
 export type ActionKind = "soft" | "hard" | "observe"
 
+-- The AntiCheat detector contract. They live here because a detector cannot
+-- require the orchestrator (the orchestrator requires the detectors);
+-- AntiCheat/init.lua re-exports them as AntiCheat.Flag / Snapshot / DetectorHost.
+--
+-- A detector's verdict for one sample. Detectors pass their
+-- Config.AntiCheat.<Name>.Severity through, so any string is accepted.
+export type AntiCheatFlag = {
+	reason: string,
+	severity: Severity | string,
+}
+
+-- Built once per player per sampler tick and shared by every detector's Sample.
+export type AntiCheatSnapshot = {
+	clock: number,
+	character: Model?,
+	hrp: BasePart?,
+	humanoid: Humanoid?,
+	position: Vector3?,
+	velocity: Vector3?,
+	state: Enum.HumanoidStateType?,
+	walkSpeed: number?,
+}
+
+-- What a detector's Init receives: the orchestrator (only these members are part
+-- of the contract).
+export type DetectorHost = {
+	Flag: (player: Player, reason: string, severity: (Severity | string)?) -> (),
+	IsEnforcing: () -> boolean,
+	IsDetectorEnabled: (name: string) -> boolean,
+}
+
 -- Cycle-breaking hooks (installed by the higher-level module's Init):
 -- NetService → AntiCheat: NetService reports rate-limit / validation violations.
 export type ViolationHandler = (player: Player, reason: string, severity: Severity) -> ()

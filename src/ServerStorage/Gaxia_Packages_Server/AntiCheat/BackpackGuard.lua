@@ -25,14 +25,7 @@ local Config      = require(script.Parent.Parent.Config)
 local ToolService = require(script.Parent.Parent.Lib.ToolService)
 
 -- ── Types ──
--- The orchestrator API Init receives. Keep identical to AntiCheat/init.lua's
--- exported DetectorHost (a detector cannot require the orchestrator: it
--- requires the detectors).
-type DetectorHost = {
-	Flag: (player: Player, reason: string, severity: (Types.Severity | string)?) -> (),
-	IsEnforcing: () -> boolean,
-	IsDetectorEnabled: (name: string) -> boolean,
-}
+type DetectorHost = Types.DetectorHost
 
 local UID_ATTR : string = "UID"
 
