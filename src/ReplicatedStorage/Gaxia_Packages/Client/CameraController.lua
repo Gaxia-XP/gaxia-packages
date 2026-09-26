@@ -10,10 +10,12 @@
 --           instead of fighting them.
 -- ─────────────────────────────────────────────────────────────
 
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService        = game:GetService("RunService")
 local TweenService      = game:GetService("TweenService")
 local Workspace         = game:GetService("Workspace")
+
+-- ── Dependencies ──
+local Signal = require(script.Parent.Parent.Shared.Signal)
 
 -- ── Types ──
 
@@ -22,8 +24,10 @@ export type CameraControllerType = {
 	SetFOV         : (fov: number, duration: number?) -> (),
 	ResetFOV       : (duration: number?) -> (),
 	GetCamera      : () -> Camera,
-	OnShakeStarted : any, -- Signal — fires (intensity, duration)
-	OnShakeEnded   : any, -- Signal — fires ()
+	-- (intensity, duration)
+	OnShakeStarted : Signal.Signal<number, number>,
+	-- () — the current shake decayed to zero
+	OnShakeEnded   : Signal.Signal<()>,
 }
 
 -- Client-only: shake/FOV are meaningless on the server. Return a typed empty
@@ -31,10 +35,6 @@ export type CameraControllerType = {
 if not RunService:IsClient() then
 	return ({} :: any) :: CameraControllerType
 end
-
--- ── Shared deps ──
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal    = SharedPkg.Signal
 
 -- ── Constants ──
 local DEFAULT_FOV       : number = 70    -- matches Roblox Camera default
@@ -52,14 +52,14 @@ local shakeStartedAt : number = 0
 local shakeDuration  : number = 0
 local activeShakeFOVTween: Tween? = nil
 
-local OnShakeStarted = Signal.new()
-local OnShakeEnded   = Signal.new()
+-- (intensity, duration)
+local OnShakeStarted = Signal.new() :: Signal.Signal<number, number>
+-- ()
+local OnShakeEnded   = Signal.new() :: Signal.Signal<()>
 
 local CameraController = {}
--- Attach Signal fields via `any` cast — same pattern UI controllers use.
-local self = CameraController :: any
-self.OnShakeStarted = OnShakeStarted
-self.OnShakeEnded   = OnShakeEnded
+CameraController.OnShakeStarted = OnShakeStarted
+CameraController.OnShakeEnded   = OnShakeEnded
 
 -- ── Internal helpers ──
 

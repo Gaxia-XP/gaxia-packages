@@ -11,9 +11,11 @@
 -- ─────────────────────────────────────────────────────────────
 
 local Debris            = game:GetService("Debris")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService        = game:GetService("RunService")
 local Workspace         = game:GetService("Workspace")
+
+-- ── Dependencies ──
+local Trove = require(script.Parent.Parent.Shared.Trove)
 
 -- ── Types ──
 
@@ -31,10 +33,6 @@ export type EffectsControllerType = {
 if not RunService:IsClient() then
 	return ({} :: any) :: EffectsControllerType
 end
-
--- ── Shared deps ──
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Trove     = SharedPkg.Trove
 
 -- ── Constants ──
 local FX_FOLDER_NAME      : string = "Gaxia_EffectsHost"  -- workspace folder for emitter parts
@@ -63,7 +61,7 @@ local hostFolder : Folder = ensureHost()
 -- One Trove tracks every effect we spawn — ClearAll() just calls Clean on it.
 -- We swap the Trove on ClearAll (rather than reusing) because Trove errors on
 -- Add() while it is cleaning.
-local fxTrove : any = Trove.new()
+local fxTrove = Trove.new()
 
 local EffectsController = {}
 

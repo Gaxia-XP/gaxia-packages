@@ -18,19 +18,21 @@ local CollectionService = game:GetService("CollectionService")
 
 local RunService = game:GetService("RunService")
 
-export type ToastOpts = { Text: string, Title: string?, Duration: number?, Variant: string? }
+-- Accent colour of a toast (Theme Primary / Success / Warning / Danger).
+export type ToastVariant = "info" | "success" | "warn" | "error"
+export type ToastOpts = { Text: string, Title: string?, Duration: number?, Variant: (ToastVariant | string)? }
 export type ToastStats = { visible: number, queued: number }
 
 local Toast = {}
 
--- ── Server stub ──
+-- ── Server stub (typed as the client module so Gaxia.UI.Toast autocompletes) ──
 if not RunService:IsClient() then
 	return ({
 		Show = function() end,
 		SetMaxVisible = function() end,
 		Clear = function() end,
 		Stats = function(): any return { visible = 0, queued = 0 } end,
-	} :: any)
+	} :: any) :: typeof(Toast)
 end
 
 -- ── Client implementation ──

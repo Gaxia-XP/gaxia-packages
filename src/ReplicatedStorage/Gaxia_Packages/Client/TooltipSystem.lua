@@ -13,19 +13,25 @@ export type TooltipSystem = {
 }
 
 local RunService = game:GetService("RunService")
+
+-- ── Dependencies ──
+local Trove = require(script.Parent.Parent.Shared.Trove)
+
+-- The value Trove.new() returns. (Annotating with the exported Trove.Trove is
+-- rejected by the type checker: its generic methods do not unify with the
+-- instantiated result of Trove.new().)
+type TroveObject = typeof(Trove.new())
+
 if not RunService:IsClient() then return ({} :: any) :: TooltipSystem end
 
 local CollectionService = game:GetService("CollectionService")
 
 -- ── Services ──
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players           = game:GetService("Players")
 local UserInputService  = game:GetService("UserInputService")
 local StarterGui        = game:GetService("StarterGui")
 
 local LocalPlayer : Player = Players.LocalPlayer
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Trove = SharedPkg.Trove
 
 -- ── Constants ──
 local DEFAULT_DELAY : number = 0.5
@@ -39,7 +45,7 @@ local Module = {}
 type Entry = {
 	target : GuiObject,
 	getText : () -> string,
-	trove : any,
+	trove : TroveObject,
 }
 
 local _entries : { [GuiObject]: Entry } = {}

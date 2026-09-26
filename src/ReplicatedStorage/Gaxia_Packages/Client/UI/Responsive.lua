@@ -16,6 +16,11 @@ local CollectionService = game:GetService("CollectionService")
 
 local RunService = game:GetService("RunService")
 
+-- Device class; "Server" only from the server stub of GetDeviceClass.
+export type DeviceClass = "Phone" | "Tablet" | "Desktop" | "Console" | "Server"
+-- Safe-area insets in pixels (topbar / notch), from GuiService:GetGuiInset().
+export type SafeAreaInsets = { top: number, bottom: number, left: number, right: number }
+
 local REF_RESOLUTION : Vector2 = Vector2.new(1280, 720)
 local MIN_SCALE : number = 0.5
 local MAX_SCALE : number = 1.6
@@ -35,7 +40,7 @@ function Responsive.ComputeScale(viewport: Vector2, ref: Vector2?): number
 end
 
 -- Classify a device from viewport width + input capabilities.
-function Responsive.ClassifyDevice(viewportX: number, touch: boolean, tenFoot: boolean): string
+function Responsive.ClassifyDevice(viewportX: number, touch: boolean, tenFoot: boolean): DeviceClass
 	if tenFoot then
 		return "Console"
 	end
@@ -48,10 +53,11 @@ end
 -- ── Server stub (the viewport-bound methods are meaningless off the client) ──
 if not RunService:IsClient() then
 	Responsive.GetViewport = function(): Vector2 return Vector2.zero end
-	Responsive.GetDeviceClass = function(): string return "Server" end
-	Responsive.Apply = function(_: Instance): any return nil end
-	Responsive.OnChanged = function(_: () -> ()): any return nil end
-	Responsive.SafeArea = function() return { top = 0, bottom = 0, left = 0, right = 0 } end
+	Responsive.GetDeviceClass = function(): DeviceClass return "Server" end
+	-- Returns nil on the server (typed as the client signature for autocomplete).
+	Responsive.Apply = function(_: Instance): UIScale return nil :: any end
+	Responsive.OnChanged = function(_: () -> ()): RBXScriptConnection? return nil end
+	Responsive.SafeArea = function(): SafeAreaInsets return { top = 0, bottom = 0, left = 0, right = 0 } end
 	return Responsive
 end
 
@@ -65,7 +71,7 @@ function Responsive.GetViewport(): Vector2
 	return (cam and cam.ViewportSize) or REF_RESOLUTION
 end
 
-function Responsive.GetDeviceClass(): string
+function Responsive.GetDeviceClass(): DeviceClass
 	return Responsive.ClassifyDevice(Responsive.GetViewport().X, UserInputService.TouchEnabled, GuiService:IsTenFootInterface())
 end
 
@@ -93,7 +99,7 @@ function Responsive.OnChanged(fn: () -> ()): RBXScriptConnection?
 end
 
 -- Safe-area insets (top/bottom/left/right) from the topbar / notch via GuiInset.
-function Responsive.SafeArea(): { top: number, bottom: number, left: number, right: number }
+function Responsive.SafeArea(): SafeAreaInsets
 	local a, b = GuiService:GetGuiInset()
 	return { top = a.Y, bottom = b.Y, left = a.X, right = b.X }
 end

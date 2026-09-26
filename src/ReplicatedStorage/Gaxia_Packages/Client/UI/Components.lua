@@ -28,21 +28,25 @@ export type Tabs = { Instance: GuiObject, GetActive: () -> number, Select: (i: n
 export type ScrollList = { Instance: ScrollingFrame, SetItems: (items: { any }) -> (), Refresh: () -> () }
 export type Modal = { Instance: GuiObject, Close: () -> () }
 
--- ── Server stub (UI is meaningless off the client) ──
+-- Button / modal-button colour variants.
+export type ButtonVariant = "primary" | "danger" | "surface"
+
+local Components = {}
+
+-- ── Server stub (UI is meaningless off the client; typed as the client module
+-- so Gaxia.UI.Components autocompletes) ──
 if not RunService:IsClient() then
 	local nilGui = function(): any return nil end
 	return ({
 		Button = nilGui, Toggle = nilGui, Slider = nilGui, TextInput = nilGui,
 		Dropdown = nilGui, Tabs = nilGui, ScrollList = nilGui, Modal = nilGui,
-	} :: any)
+	} :: any) :: typeof(Components)
 end
 
 -- ── Client implementation ──
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local Theme = require(script.Parent.Parent.Parent.Shared.Theme)
-
-local Components = {}
 
 local QUICK = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
@@ -73,7 +77,7 @@ end
 -- ── Button ──
 export type ButtonProps = {
 	Text: string?, Size: UDim2?, Position: UDim2?, Parent: Instance?,
-	OnClick: (() -> ())?, Variant: string?,
+	OnClick: (() -> ())?, Variant: (ButtonVariant | string)?, -- default "primary"
 }
 function Components.Button(props: ButtonProps): TextButton
 	local variant = props.Variant or "primary"
@@ -509,7 +513,7 @@ function Components.ScrollList(props: ScrollListProps): ScrollList
 end
 
 -- ── Modal (scrim + centered card + button row) ──
-export type ModalButton = { Text: string, OnClick: (() -> ())?, Variant: string? }
+export type ModalButton = { Text: string, OnClick: (() -> ())?, Variant: (ButtonVariant | string)? }
 export type ModalProps = {
 	Title: string?, Body: string?, Buttons: { ModalButton }?, Parent: Instance?, OnClose: (() -> ())?,
 }

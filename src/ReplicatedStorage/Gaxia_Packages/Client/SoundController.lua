@@ -11,7 +11,6 @@
 -- ─────────────────────────────────────────────────────────────
 
 local ContentProvider   = game:GetService("ContentProvider")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService        = game:GetService("RunService")
 local SoundService      = game:GetService("SoundService")
 local TweenService      = game:GetService("TweenService")
@@ -20,10 +19,20 @@ local TweenService      = game:GetService("TweenService")
 
 export type Category = "music" | "sfx" | "ui"
 
+-- Play / PlayOnce options: any Sound property by name (Looped, PlaybackSpeed,
+-- RollOffMaxDistance, ...) plus two special keys:
+--   category — mixer bus ("music" | "sfx" | "ui", case-insensitive; default "sfx")
+--   volume / Volume — intrinsic volume before the category mix (default 1)
+export type SoundProps = {
+	category: (Category | string)?,
+	volume: number?,
+	[string]: any,
+}
+
 export type SoundControllerType = {
 	Preload            : (soundIds: { string }) -> (),
-	Play               : (soundId: string, props: { [string]: any }?) -> Sound,
-	PlayOnce           : (soundId: string, props: { [string]: any }?) -> (),
+	Play               : (soundId: string, props: SoundProps?) -> Sound,
+	PlayOnce           : (soundId: string, props: SoundProps?) -> (),
 	SetCategoryVolume  : (category: Category, volume: number) -> (),
 	GetCategoryVolume  : (category: Category) -> number,
 	StopAll            : (category: Category?) -> (),
@@ -93,7 +102,7 @@ local SoundController = {}
 -- ── Helpers ──
 
 -- Default category for Play() — we use sfx unless caller overrides via props.
-local function categoryFromProps(props: { [string]: any }?): Category
+local function categoryFromProps(props: SoundProps?): Category
 	if props and props.category then
 		local c = tostring(props.category):lower()
 		if c == "music" or c == "sfx" or c == "ui" then
@@ -107,12 +116,14 @@ end
 -- acquire so a previously-used Sound starts in a clean state.
 local function acquire(category: Category): Sound
 	local pool = pools[category]
-	local s : Sound? = table.remove(pool.available)
-	if not s then
-		s = Instance.new("Sound")
-		s.Parent = poolFolder
+	local sound : Sound
+	local recycled : Sound? = table.remove(pool.available)
+	if recycled then
+		sound = recycled
+	else
+		sound = Instance.new("Sound")
+		sound.Parent = poolFolder
 	end
-	local sound = s :: Sound
 	pool.active[sound] = true
 	sound:SetAttribute(CATEGORY_ATTR, category)
 	-- Reset state so a recycled Sound doesn't leak prior config.
@@ -154,7 +165,7 @@ end
 
 -- Apply caller-supplied props to a Sound. The `category` and `volume` keys are
 -- special-cased; everything else passes through.
-local function applyProps(sound: Sound, soundId: string, category: Category, props: { [string]: any }?): ()
+local function applyProps(sound: Sound, soundId: string, category: Category, props: SoundProps?): ()
 	sound.SoundId = soundId
 	local intrinsic : number = 1
 	if props then
@@ -204,8 +215,8 @@ end
 -- Pool-backed playback; returns the Sound so callers can stop / inspect it.
 -- Caller is responsible for calling :Stop or letting it finish (PlayOnce
 -- handles auto-release).
-function SoundController.Play(soundId: string, props: { [string]: any }?): Sound
-	local category = categoryFromProps(props)
+function SoundController.Play(soundId: string, props: SoundProps?): Sound
+	local category: Category = categoryFromProps(props)
 	local sound = acquire(category)
 	applyProps(sound, soundId, category, props)
 	sound:Play()
@@ -216,7 +227,7 @@ end
 -- Fire-and-forget convenience. Sound auto-releases back to pool on Ended.
 -- WHY a separate API: callers that don't need the Sound handle shouldn't
 -- have to manage release themselves — easy to leak otherwise.
-function SoundController.PlayOnce(soundId: string, props: { [string]: any }?): ()
+function SoundController.PlayOnce(soundId: string, props: SoundProps?): ()
 	local sound = SoundController.Play(soundId, props)
 	local conn : RBXScriptConnection? = nil
 	conn = sound.Ended:Connect(function()

@@ -222,4 +222,4 @@ RunService.RenderStepped:Connect(function(_dt: number)
 	end
 end)
 
-return (DebugConsole :: any) :: DebugConsole
+return DebugConsole :: DebugConsole
