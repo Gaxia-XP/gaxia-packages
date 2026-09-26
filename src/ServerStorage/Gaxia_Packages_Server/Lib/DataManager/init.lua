@@ -313,8 +313,14 @@ local function onPlayerAdded(player: Player)
 	end
 
 	profile:ListenToRelease(function()
+		-- Our own releases (PlayerRemoving, shutdown flush) clear the map entry BEFORE
+		-- calling Release, so only a release we did not start — another server taking
+		-- the session — still finds this profile in the map. Kick only in that case;
+		-- before, every normal leave kicked the departing player too.
+		if loadedProfiles[player.UserId] ~= profile then
+			return
+		end
 		loadedProfiles[player.UserId] = nil
-		-- The profile session has been released by another server, kick to prevent stale state.
 		if player.Parent then
 			player:Kick("[DataManager] Profile released.")
 		end
@@ -334,8 +340,9 @@ end
 local function onPlayerRemoving(player: Player)
 	local profile = loadedProfiles[player.UserId]
 	if profile then
-		profile:Release()
+		-- Claim before releasing so the ListenToRelease handler treats this as ours.
 		loadedProfiles[player.UserId] = nil
+		profile:Release()
 		-- Fire INSIDE the guard so the claim (nil-ing the map) also gates the signal:
 		-- prevents a double OnReleased when BindToClose races PlayerRemoving on shutdown.
 		DataManager.OnReleased:Fire(player)
