@@ -14,40 +14,32 @@
 --   Gaxia.Event.Define("DoubleXP", { StartsAt = t0, EndsAt = t1, Data = { mult = 2 } })
 --   if Gaxia.Event.IsActive("DoubleXP") then xp *= 2 end
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
+-- ── Dependencies ──
+local Shared    = ReplicatedStorage.Gaxia_Packages.Shared
+local Signal    = require(Shared.Signal)
+local Lifecycle = require(script.Parent.ServiceLifecycle)
+local Config    = require(script.Parent.Parent.Config)
+local EConfig   = require(script.Parent.EffectiveConfig)
 
 local TICK : number = 5 -- seconds between window checks (Config-overridable; see tickInterval())
 
--- ── Lazy server (Config + EConfig) — resolved at CALL-TIME, never module load ──
-local ServerStorage = game:GetService("ServerStorage")
-local _server: any = nil
-local function server(): any
-	if not _server then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		_server = require(serverInit :: any)
-	end
-	return _server
-end
 -- Poll interval read per-tick so a live Flag override (Event.TickInterval) takes
 -- effect on the next loop without restarting the ticker. Default stays TICK (5).
 local function tickInterval(): number
-	local s = server()
-	return s.EConfig.Get("Event.TickInterval", (s.Config.Event or {}).TickInterval or TICK)
+	return EConfig.Get("Event.TickInterval", Config.Event.TickInterval or TICK)
 end
 
+-- Data is the game's own payload (a multiplier, a shop id, ...), passed through as-is.
 export type EventDef = { StartsAt: number, EndsAt: number, Data: any? }
 
 local EventService = {}
 
-EventService.OnEventStart = Signal.new() -- (eventId, data)
-EventService.OnEventEnd = Signal.new()   -- (eventId, data)
+-- (eventId, data) once when an event's window opens (data = its EventDef.Data)
+EventService.OnEventStart = Signal.new() :: Signal.Signal<string, any>
+-- (eventId, data) once when an event's window closes
+EventService.OnEventEnd = Signal.new() :: Signal.Signal<string, any>
 
 local events: { [string]: EventDef } = {}
 local lastActive: { [string]: boolean } = {}
@@ -102,7 +94,7 @@ function EventService.GetTimeUntilStart(eventId: string): number
 end
 
 -- ── Transition detection (fire start/end once) ──
--- Exposed so it's directly testable; the ticker below calls it on a loop.
+-- Exposed so it's directly testable; the ticker (lifecycle Start) calls it on a loop.
 function EventService.PollTransitions(): ()
 	for id, def in pairs(events) do
 		local active = EventService.IsActive(id)
@@ -116,11 +108,18 @@ function EventService.PollTransitions(): ()
 	end
 end
 
-task.spawn(function()
-	while true do
-		EventService.PollTransitions()
-		task.wait(tickInterval())
-	end
-end)
+-- EventService.Define above registers a live-ops event; Lifecycle.Define registers
+-- the service. Start runs the ticker forever (first poll immediately, as the old
+-- load-time task.spawn did); the interval is re-read every tick.
+Lifecycle.Define(EventService, {
+	Name = "Event",
+	Needs = {},
+	Start = function()
+		while true do
+			EventService.PollTransitions()
+			task.wait(tickInterval())
+		end
+	end,
+})
 
 return EventService

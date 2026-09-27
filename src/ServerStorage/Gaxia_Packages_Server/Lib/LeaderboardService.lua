@@ -5,38 +5,27 @@
 -- Purpose : Thin OrderedDataStore wrapper for global top-N
 --           leaderboards with name resolution and 60s caching
 --           so we don't burn the per-server DataStore budget.
+--
+-- Lifecycle: pure API (nothing to set up).
 -- ─────────────────────────────────────────────────────────────
-
-local CollectionService = game:GetService("CollectionService")
 
 local DataStoreService = game:GetService("DataStoreService")
 local UserService = game:GetService("UserService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage = game:GetService("ServerStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
+-- ── Dependencies ──
+local Signal    = require(ReplicatedStorage.Gaxia_Packages.Shared.Signal)
+local Lifecycle = require(script.Parent.ServiceLifecycle)
+local Config    = require(script.Parent.Parent.Config)
+local EConfig   = require(script.Parent.EffectiveConfig)
 
--- Lazy server access for Config (call-time; never at module load).
-local GaxiaServer: any = nil
+-- Config default <- runtime Flag override, read per call.
 local function cacheTTL(): number
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer.EConfig.Get("Leaderboard.CacheTTL", (GaxiaServer.Config.Leaderboard or {}).CacheTTL or 60)
+	return EConfig.Get("Leaderboard.CacheTTL", Config.Leaderboard.CacheTTL or 60)
 end
 
 local function defaultTopN(): number
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer.EConfig.Get("Leaderboard.DefaultTopN", (GaxiaServer.Config.Leaderboard or {}).DefaultTopN or 100)
+	return EConfig.Get("Leaderboard.DefaultTopN", Config.Leaderboard.DefaultTopN or 100)
 end
 
 -- ── Types ──
@@ -59,7 +48,8 @@ local LeaderboardService = {}
 local stores: { [string]: OrderedDataStore } = {}
 local topCache: { [string]: CachedTop } = {}
 
-LeaderboardService.OnUpdate = Signal.new()
+-- (name, userId, value) after a successful Update write
+LeaderboardService.OnUpdate = Signal.new() :: Signal.Signal<string, number, number>
 
 -- ── Helpers ──
 
@@ -178,5 +168,11 @@ function LeaderboardService.GetRank(name: string, userId: number): number?
 	end
 	return nil
 end
+
+-- Pure API: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(LeaderboardService, {
+	Name = "Leaderboard",
+	Needs = {},
+})
 
 return LeaderboardService

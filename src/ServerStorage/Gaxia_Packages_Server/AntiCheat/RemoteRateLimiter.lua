@@ -10,21 +10,24 @@
 	Public extra API: RemoteRateLimiter.Wrap(remote)  -- attach to ad-hoc remotes.
 ]]
 
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Constants = SharedPkg.Constants or {}
+
+-- ── Dependencies ──
+local Constants = require(ReplicatedStorage.Gaxia_Packages.Shared.Constants)
+local Types     = require(script.Parent.Parent.Types)
+local Config    = require(script.Parent.Parent.Config)
+
+-- ── Types ──
+type DetectorHost = Types.DetectorHost
 
 -- Rate limits stay in Shared/Constants: NetService (shared, runs on the client too)
 -- reads the same keys, and a server-only Config can't be required from the client.
-local RATE_LIMIT : number = (Constants.REMOTE_RATE_LIMIT_DEFAULT :: any) or 10
-local BURST      : number = (Constants.REMOTE_RATE_BURST :: any) or 20
+local RATE_LIMIT : number = Constants.REMOTE_RATE_LIMIT_DEFAULT or 10
+local BURST      : number = Constants.REMOTE_RATE_BURST or 20
 
 -- Severity, however, IS server-private — read it from the server Config like the
--- other detectors. FindFirstChild (never WaitForChild): loaded under the no-yield
--- __index metamethod; Config's body is a pure table so require cannot yield.
-local Config = require(script.Parent.Parent:FindFirstChild("Config") :: ModuleScript) :: any
-local RATE_SEVERITY : string = (Config.AntiCheat.RemoteRate.Severity :: any) or "soft"
+-- other detectors.
+local RATE_SEVERITY : string = Config.AntiCheat.RemoteRate.Severity or "soft"
 
 -- (userId, remote) → { tokens: number, lastClock: number }
 type Bucket = { tokens: number, lastClock: number }
@@ -33,7 +36,7 @@ local buckets: { [Player]: { [RemoteEvent]: Bucket } } = setmetatable({}, { __mo
 local RemoteRateLimiter = {}
 RemoteRateLimiter.Name = "RemoteRate"
 
-local orchestratorRef: any = nil
+local orchestratorRef: DetectorHost? = nil
 
 -- Refill tokens based on elapsed time. Caps at BURST so idle players cannot
 -- bank infinite firepower.
@@ -104,7 +107,7 @@ function RemoteRateLimiter.Wrap(remote: RemoteEvent): RemoteEvent
 	return remote
 end
 
-function RemoteRateLimiter.Init(orchestrator: any): ()
+function RemoteRateLimiter.Init(orchestrator: DetectorHost): ()
 	orchestratorRef = orchestrator
 	-- Auto-wrap every RemoteEvent under ReplicatedStorage.Events. Detectors
 	-- spawned after game start can still be wrapped via RemoteRateLimiter.Wrap.

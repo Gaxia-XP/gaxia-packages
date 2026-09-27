@@ -13,24 +13,22 @@
 --   Gaxia.UI.Router.Register("Shop", function() return buildShopFrame() end)
 --   Gaxia.UI.Router.Push("Shop")   ;   Gaxia.UI.Router.Pop()
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 
 local BASE_DISPLAY_ORDER : number = 100
 
-export type Router = {
-	Register: (name: string, builder: (props: any) -> Instance) -> (),
-	Push: (name: string, props: any?) -> Instance?,
-	Pop: () -> (),
-	Replace: (name: string, props: any?) -> Instance?,
-	Clear: () -> (),
-	Current: () -> string?,
-	IsOpen: (name: string) -> boolean,
-	Depth: () -> number,
-}
+-- A screen builder: gets the props passed to Push/Replace (whatever the game
+-- defines for that screen) and returns the content to parent into the screen.
+-- Route names are the game's own (Register decides them), so they stay `string`.
+export type Builder = (props: any) -> Instance
 
+local Router = {}
+-- The module's own type (every function below), so the server stub and the client
+-- module share one type and `Gaxia.UI.Router.<method>` autocompletes.
+export type Router = typeof(Router)
+
+-- Client-only; the server gets a no-op stub.
 if not RunService:IsClient() then
 	return ({
 		Register = function() end,
@@ -41,12 +39,10 @@ if not RunService:IsClient() then
 		Current = function() return nil end,
 		IsOpen = function() return false end,
 		Depth = function() return 0 end,
-	} :: any) :: Router
+	} :: any) :: typeof(Router)
 end
 
-local Router = {}
-
-local builders: { [string]: (props: any) -> Instance } = {}
+local builders: { [string]: Builder } = {}
 type Entry = { name: string, gui: ScreenGui }
 local stack: { Entry } = {}
 
@@ -56,7 +52,7 @@ end
 
 -- ── Public API ──
 
-function Router.Register(name: string, builder: (props: any) -> Instance): ()
+function Router.Register(name: string, builder: Builder): ()
 	builders[name] = builder
 end
 

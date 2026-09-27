@@ -21,6 +21,9 @@ local TweenService = game:GetService("TweenService")
 
 local DEFAULT_DUR : number = 0.25
 
+-- Edge SlideIn enters from (unknown values fall back to "Left").
+export type SlideDirection = "Left" | "Right" | "Up" | "Down"
+
 local Motion = {}
 
 local function info(dur: number?, style: Enum.EasingStyle?, dir: Enum.EasingDirection?): TweenInfo
@@ -28,12 +31,28 @@ local function info(dur: number?, style: Enum.EasingStyle?, dir: Enum.EasingDire
 end
 
 local function getScale(gui: GuiObject): UIScale
-	local s = gui:FindFirstChildOfClass("UIScale")
-	if not s then
-		s = Instance.new("UIScale")
-		s.Parent = gui
+	local existing = gui:FindFirstChildOfClass("UIScale")
+	if existing then
+		return existing
 	end
+	local s = Instance.new("UIScale")
+	s.Parent = gui
 	return s
+end
+
+-- TextLabel / TextButton / TextBox all have TextTransparency; sets it and returns
+-- true for those, false (untouched) for any other GuiObject.
+local function setTextTransparency(gui: GuiObject, value: number): boolean
+	if gui:IsA("TextLabel") then
+		gui.TextTransparency = value
+	elseif gui:IsA("TextButton") then
+		gui.TextTransparency = value
+	elseif gui:IsA("TextBox") then
+		gui.TextTransparency = value
+	else
+		return false
+	end
+	return true
 end
 
 -- ── Fades ──
@@ -42,8 +61,7 @@ function Motion.FadeIn(gui: GuiObject, dur: number?): Tween
 	gui.BackgroundTransparency = 1
 	gui.Visible = true
 	local goal: { [string]: any } = { BackgroundTransparency = 0 }
-	if gui:IsA("TextLabel") or gui:IsA("TextButton") or gui:IsA("TextBox") then
-		gui.TextTransparency = 1
+	if setTextTransparency(gui, 1) then
 		goal.TextTransparency = 0
 	end
 	local t = TweenService:Create(gui, info(dur), goal)
@@ -73,7 +91,7 @@ local OFFSCREEN: { [string]: UDim2 } = {
 	Down = UDim2.fromScale(0, 1.5),
 }
 
-function Motion.SlideIn(gui: GuiObject, direction: string?, dur: number?): Tween
+function Motion.SlideIn(gui: GuiObject, direction: (SlideDirection | string)?, dur: number?): Tween
 	local target = gui.Position
 	local off = OFFSCREEN[direction or "Left"] or OFFSCREEN.Left
 	gui.Position = target + off

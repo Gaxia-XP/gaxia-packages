@@ -13,38 +13,26 @@
 --   Gaxia.Protection.Grant(player, 600)        -- 10-minute shield
 --   if Gaxia.Protection.IsProtected(target) then return "shielded" end
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
-
-local GaxiaServer: any = nil
-local function getData(): any
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer.Data
-end
+-- ── Dependencies ──
+local Shared      = ReplicatedStorage.Gaxia_Packages.Shared
+local Signal      = require(Shared.Signal)
+local Lifecycle   = require(script.Parent.ServiceLifecycle)
+local DataManager = require(script.Parent.DataManager)
 
 local PROTECT_KEY : string = "ProtectedUntil"
 
 local ProtectionService = {}
 
-ProtectionService.OnProtected = Signal.new() -- (player, untilTimestamp, duration)
-ProtectionService.OnExpired = Signal.new()   -- (player)  (fired lazily on a checked read)
+-- (player, untilTimestamp, duration) after Grant
+ProtectionService.OnProtected = Signal.new() :: Signal.Signal<Player, number, number>
+-- (player) when Clear removes a shield that was still active (not on natural expiry)
+ProtectionService.OnExpired = Signal.new() :: Signal.Signal<Player>
 
+-- 0 when the profile is not loaded (or Data is not running).
 local function readUntil(player: Player): number
-	local Data = getData()
-	if not Data then
-		return 0
-	end
-	local v = Data.Get(player, PROTECT_KEY)
+	local v = DataManager.Get(player, PROTECT_KEY)
 	return (typeof(v) == "number") and v or 0
 end
 
@@ -52,10 +40,9 @@ end
 
 function ProtectionService.Grant(player: Player, duration: number): number
 	local untilTs = os.time() + math.max(0, math.floor(duration))
-	local Data = getData()
-	if Data then
-		Data.Set(player, PROTECT_KEY, untilTs)
-	end
+	-- Not persisted (Set returns false) while the profile is not loaded; the shield
+	-- stamp is still returned and announced, as before.
+	DataManager.Set(player, PROTECT_KEY, untilTs)
 	ProtectionService.OnProtected:Fire(player, untilTs, duration)
 	return untilTs
 end
@@ -70,13 +57,16 @@ end
 
 function ProtectionService.Clear(player: Player): ()
 	local was = ProtectionService.IsProtected(player)
-	local Data = getData()
-	if Data then
-		Data.Set(player, PROTECT_KEY, 0)
-	end
+	DataManager.Set(player, PROTECT_KEY, 0)
 	if was then
 		ProtectionService.OnExpired:Fire(player)
 	end
 end
+
+-- Pure API: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(ProtectionService, {
+	Name = "Protection",
+	Needs = {},
+})
 
 return ProtectionService

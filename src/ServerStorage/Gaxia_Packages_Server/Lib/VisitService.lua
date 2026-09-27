@@ -13,18 +13,18 @@
 --   Gaxia.Visit.Start(visitor, hostUserId)
 --   if not Gaxia.Visit.CanModify(player, baseOwnerUserId) then return end
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
+local Signal    = require(ReplicatedStorage.Gaxia_Packages.Shared.Signal)
+local Lifecycle = require(script.Parent.ServiceLifecycle)
 
 local VisitService = {}
 
-VisitService.OnVisitStart = Signal.new() -- (visitor, hostUserId)
-VisitService.OnVisitEnd = Signal.new()   -- (visitor, hostUserId)
+-- (visitor, hostUserId)
+VisitService.OnVisitStart = Signal.new() :: Signal.Signal<Player, number>
+-- (visitor, hostUserId)
+VisitService.OnVisitEnd = Signal.new() :: Signal.Signal<Player, number>
 
 -- visitorUserId → hostUserId (session-only)
 local visits: { [number]: number } = {}
@@ -76,8 +76,15 @@ function VisitService.CanModify(player: Player, baseOwnerUserId: number): boolea
 	return baseOwnerUserId == player.UserId
 end
 
-Players.PlayerRemoving:Connect(function(player: Player)
-	visits[player.UserId] = nil
-end)
+Lifecycle.Define(VisitService, {
+	Name = "Visit",
+	Needs = {},
+	Init = function()
+		-- Forget a leaving player's visit (session-only state).
+		Players.PlayerRemoving:Connect(function(player: Player)
+			visits[player.UserId] = nil
+		end)
+	end,
+})
 
 return VisitService

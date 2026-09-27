@@ -12,8 +12,6 @@
 --   local s = Gaxia.Serializer.Encode({ pos = Vector3.new(1,2,3), tint = Color3.new(1,0,0) })
 --   local t = Gaxia.Serializer.Decode(s)   -- t.pos is a real Vector3 again
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local HttpService = game:GetService("HttpService")
 
 local Serializer = {}

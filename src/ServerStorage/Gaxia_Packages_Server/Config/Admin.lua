@@ -3,7 +3,29 @@
 --
 -- Bootstrap: group-owned places have no creator auto-grant (CreatorId = group),
 -- so seed initial admins here rather than shipping with zero admins.
-return {
+export type AdminConfig = {
+	Enabled: boolean,
+	CommandPrefix: string,
+	AutoGrantCreator: boolean,
+	-- Role name -> tier; a higher tier includes every lower one.
+	Tiers: { [string]: number },
+	-- UserId -> role name.
+	Bootstrap: { [number]: string },
+	-- Alias -> command name.
+	Aliases: { [string]: string },
+	Disabled: { string },
+	Stores: {
+		Bans: string,
+		Friends: string,
+		Guilds: string,
+		GuildVaults: string,
+		Roles: string,
+	},
+	ActionWhitelistSeconds: number,
+	BanListLimit: number,
+}
+
+local Admin: AdminConfig = {
 	Enabled          = true,
 	CommandPrefix    = "/",
 	AutoGrantCreator = true,
@@ -35,3 +57,5 @@ return {
 	ActionWhitelistSeconds = 30,
 	BanListLimit           = 50,
 }
+
+return Admin

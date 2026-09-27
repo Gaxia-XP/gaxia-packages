@@ -16,32 +16,26 @@
 --   Gaxia.Trade.AddCurrency(a, id, "Coins", 100) ; Gaxia.Trade.AddItem(b, id, "Sword", 1)
 --   Gaxia.Trade.Confirm(a, id) ; Gaxia.Trade.Confirm(b, id)  -- executes on 2nd
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
+-- ── Dependencies ──
+local Signal         = require(ReplicatedStorage.Gaxia_Packages.Shared.Signal)
+local Lifecycle      = require(script.Parent.ServiceLifecycle)
+local ItemService    = require(script.Parent.ItemService)
+local EconomyService = require(script.Parent.EconomyService)
 
-local GaxiaServer: any = nil
-local function server(): any
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer
-end
-
-type Offer = { items: { [string]: number }, currencies: { [string]: number }, confirmed: boolean }
-type Trade = { id: string, a: any, b: any, offers: { [number]: Offer } }
+-- ── Types ──
+-- One side's offer: itemId → count, currency → amount, and whether that side confirmed.
+export type Offer = { items: { [string]: number }, currencies: { [string]: number }, confirmed: boolean }
+-- A live trade session (GetTrade). offers is keyed by each side's UserId.
+export type Trade = { id: string, a: Player, b: Player, offers: { [number]: Offer } }
 
 local TradeService = {}
 
-TradeService.OnUpdate = Signal.new()   -- (tradeId)
-TradeService.OnComplete = Signal.new() -- (tradeId, success)
+-- (tradeId) on Request, every offer change and every Confirm
+TradeService.OnUpdate = Signal.new() :: Signal.Signal<string>
+-- (tradeId, success) after the swap ran (Confirm) or the trade was cancelled (success = false)
+TradeService.OnComplete = Signal.new() :: Signal.Signal<string, boolean>
 
 local trades: { [string]: Trade } = {}
 local playerTrade: { [number]: string } = {}
@@ -65,7 +59,7 @@ end
 
 -- ── Session lifecycle ──
 
-function TradeService.Request(from: any, to: any): (string?, string?)
+function TradeService.Request(from: Player, to: Player): (string?, string?)
 	if from.UserId == to.UserId then
 		return nil, "cannot trade self"
 	end
@@ -81,7 +75,7 @@ function TradeService.Request(from: any, to: any): (string?, string?)
 	return id, nil
 end
 
-function TradeService.GetActiveTrade(player: any): string?
+function TradeService.GetActiveTrade(player: Player): string?
 	return playerTrade[player.UserId]
 end
 
@@ -89,7 +83,7 @@ function TradeService.GetTrade(tradeId: string): Trade?
 	return trades[tradeId]
 end
 
-local function sideOf(tradeId: string, player: any): (Trade?, Offer?)
+local function sideOf(tradeId: string, player: Player): (Trade?, Offer?)
 	local trade = trades[tradeId]
 	if not trade then
 		return nil, nil
@@ -99,7 +93,7 @@ end
 
 -- ── Building an offer (each change re-opens both confirmations) ──
 
-function TradeService.AddItem(player: any, tradeId: string, itemId: string, count: number): (boolean, string)
+function TradeService.AddItem(player: Player, tradeId: string, itemId: string, count: number): (boolean, string)
 	local trade, offer = sideOf(tradeId, player)
 	if not trade or not offer then
 		return false, "not in this trade"
@@ -110,7 +104,7 @@ function TradeService.AddItem(player: any, tradeId: string, itemId: string, coun
 	return true, "ok"
 end
 
-function TradeService.RemoveItem(player: any, tradeId: string, itemId: string, count: number?): (boolean, string)
+function TradeService.RemoveItem(player: Player, tradeId: string, itemId: string, count: number?): (boolean, string)
 	local trade, offer = sideOf(tradeId, player)
 	if not trade or not offer or not offer.items[itemId] then
 		return false, "not offered"
@@ -125,7 +119,7 @@ function TradeService.RemoveItem(player: any, tradeId: string, itemId: string, c
 	return true, "ok"
 end
 
-function TradeService.AddCurrency(player: any, tradeId: string, currency: string, amount: number): (boolean, string)
+function TradeService.AddCurrency(player: Player, tradeId: string, currency: string, amount: number): (boolean, string)
 	local trade, offer = sideOf(tradeId, player)
 	if not trade or not offer then
 		return false, "not in this trade"
@@ -136,7 +130,7 @@ function TradeService.AddCurrency(player: any, tradeId: string, currency: string
 	return true, "ok"
 end
 
-function TradeService.RemoveCurrency(player: any, tradeId: string, currency: string, amount: number?): (boolean, string)
+function TradeService.RemoveCurrency(player: Player, tradeId: string, currency: string, amount: number?): (boolean, string)
 	local trade, offer = sideOf(tradeId, player)
 	if not trade or not offer or not offer.currencies[currency] then
 		return false, "not offered"
@@ -151,22 +145,21 @@ function TradeService.RemoveCurrency(player: any, tradeId: string, currency: str
 	return true, "ok"
 end
 
-function TradeService.IsConfirmed(player: any, tradeId: string): boolean
+function TradeService.IsConfirmed(player: Player, tradeId: string): boolean
 	local _, offer = sideOf(tradeId, player)
 	return offer ~= nil and offer.confirmed
 end
 
 -- ── Atomic execution ──
 
-local function hasAll(player: any, offer: Offer): boolean
-	local Item, Economy = server().Item, server().Economy
+local function hasAll(player: Player, offer: Offer): boolean
 	for itemId, cnt in pairs(offer.items) do
-		if not Item.Has(player, itemId, cnt) then
+		if not ItemService.Has(player, itemId, cnt) then
 			return false
 		end
 	end
 	for cur, amt in pairs(offer.currencies) do
-		if Economy.Get(player, cur) < amt then
+		if EconomyService.Get(player, cur) < amt then
 			return false
 		end
 	end
@@ -176,7 +169,6 @@ end
 local function execute(trade: Trade): (boolean, string)
 	local A, B = trade.a, trade.b
 	local oa, ob = trade.offers[A.UserId], trade.offers[B.UserId]
-	local Item, Economy = server().Item, server().Economy
 
 	if not hasAll(A, oa) then
 		return false, "A lacks offered"
@@ -185,26 +177,26 @@ local function execute(trade: Trade): (boolean, string)
 		return false, "B lacks offered"
 	end
 
-	local removed: { { who: any, kind: string, id: string, amt: number } } = {}
+	local removed: { { who: Player, kind: string, id: string, amt: number } } = {}
 	local function refundRemoved()
 		for _, r in ipairs(removed) do
 			if r.kind == "item" then
-				Item.Give(r.who, r.id, r.amt)
+				ItemService.Give(r.who, r.id, r.amt)
 			else
-				Economy.Add(r.who, r.id, r.amt)
+				EconomyService.Add(r.who, r.id, r.amt)
 			end
 		end
 	end
-	local function take(player: any, offer: Offer): boolean
+	local function take(player: Player, offer: Offer): boolean
 		for itemId, cnt in pairs(offer.items) do
-			if Item.Remove(player, itemId, cnt) then
+			if ItemService.Remove(player, itemId, cnt) then
 				table.insert(removed, { who = player, kind = "item", id = itemId, amt = cnt })
 			else
 				return false
 			end
 		end
 		for cur, amt in pairs(offer.currencies) do
-			if Economy.Spend(player, cur, amt) then
+			if EconomyService.Spend(player, cur, amt) then
 				table.insert(removed, { who = player, kind = "cur", id = cur, amt = amt })
 			else
 				return false
@@ -218,17 +210,17 @@ local function execute(trade: Trade): (boolean, string)
 		return false, "debit failed — rolled back"
 	end
 
-	local given: { { who: any, kind: string, id: string, amt: number } } = {}
-	local function give(recipient: any, offer: Offer): boolean
+	local given: { { who: Player, kind: string, id: string, amt: number } } = {}
+	local function give(recipient: Player, offer: Offer): boolean
 		for itemId, cnt in pairs(offer.items) do
-			if Item.Give(recipient, itemId, cnt) then
+			if ItemService.Give(recipient, itemId, cnt) then
 				table.insert(given, { who = recipient, kind = "item", id = itemId, amt = cnt })
 			else
 				return false
 			end
 		end
 		for cur, amt in pairs(offer.currencies) do
-			if Economy.Add(recipient, cur, amt) then
+			if EconomyService.Add(recipient, cur, amt) then
 				table.insert(given, { who = recipient, kind = "cur", id = cur, amt = amt })
 			else
 				return false
@@ -241,9 +233,9 @@ local function execute(trade: Trade): (boolean, string)
 	if not give(B, oa) or not give(A, ob) then
 		for _, g in ipairs(given) do
 			if g.kind == "item" then
-				Item.Remove(g.who, g.id, g.amt)
+				ItemService.Remove(g.who, g.id, g.amt)
 			else
-				Economy.Spend(g.who, g.id, g.amt)
+				EconomyService.Spend(g.who, g.id, g.amt)
 			end
 		end
 		refundRemoved()
@@ -255,7 +247,7 @@ end
 -- ── Confirm / cancel ──
 
 -- Returns (ok, executed, message). The swap fires when BOTH sides are confirmed.
-function TradeService.Confirm(player: any, tradeId: string): (boolean, boolean, string)
+function TradeService.Confirm(player: Player, tradeId: string): (boolean, boolean, string)
 	local trade, offer = sideOf(tradeId, player)
 	if not trade or not offer then
 		return false, false, "not in this trade"
@@ -279,7 +271,7 @@ function TradeService.Confirm(player: any, tradeId: string): (boolean, boolean, 
 	return ok, ok, msg
 end
 
-function TradeService.Cancel(player: any, tradeId: string): boolean
+function TradeService.Cancel(player: Player, tradeId: string): boolean
 	local trade = trades[tradeId]
 	if not trade then
 		return false
@@ -288,5 +280,12 @@ function TradeService.Cancel(player: any, tradeId: string): boolean
 	TradeService.OnComplete:Fire(tradeId, false)
 	return true
 end
+
+-- Pure API (session state only): nothing to set up. Registered so Features /
+-- IsEnabled know it.
+Lifecycle.Define(TradeService, {
+	Name = "Trade",
+	Needs = {},
+})
 
 return TradeService

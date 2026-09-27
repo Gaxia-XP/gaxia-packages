@@ -11,21 +11,22 @@
 	whose new value does not match the expected attribute is a violation.
 ]]
 
-
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Maid      = SharedPkg.Maid
+-- ── Dependencies ──
+local Shared    = ReplicatedStorage.Gaxia_Packages.Shared
+local Trove     = require(Shared.Trove)
+local Constants = require(Shared.Constants)
+local Types     = require(script.Parent.Parent.Types)
+local Config    = require(script.Parent.Parent.Config)
 
--- ── Config (server-side, see ServerStorage/Gaxia_Packages_Server/Config) ──
--- FindFirstChild (not WaitForChild): detectors are required THROUGH the server
--- loader's no-yield __index metamethod; WaitForChild would yield across that
--- boundary. Config's body is a pure table (no yields), so require is safe.
-local Config = require(script.Parent.Parent:FindFirstChild("Config") :: ModuleScript) :: any
+-- ── Types ──
+type DetectorHost = Types.DetectorHost
 
-local EXPECTED_ATTR : string = "__GaxiaExpected"
+-- Set by the legitimate leaderstat writer (PlayerService) just before it changes
+-- a value; shared through Shared/Constants.
+local EXPECTED_ATTR : string = Constants.STAT_EXPECTED_ATTRIBUTE
 local LEADERSTATS_NAME : string = "leaderstats"
 local NUMERIC_TYPES: { [string]: boolean } = {
 	IntValue    = true,
@@ -35,8 +36,8 @@ local NUMERIC_TYPES: { [string]: boolean } = {
 local StatGuard = {}
 StatGuard.Name = "Stat"
 
-local orchestratorRef: any = nil
-local playerMaids: { [Player]: any } = {}
+local orchestratorRef: DetectorHost? = nil
+local playerTroves: { [Player]: typeof(Trove.new()) } = {}
 
 -- Hook one ValueObject: any change away from the EXPECTED_ATTR cached value
 -- is a violation, except increases of <= 0 (set/spend lowers balance freely).
@@ -47,8 +48,8 @@ local function hookValue(player: Player, stat: Instance)
 	-- write does not trip the guard.
 	stat:SetAttribute(EXPECTED_ATTR, s.Value)
 
-	local maid = playerMaids[player]
-	maid:GiveTask(stat:GetPropertyChangedSignal("Value"):Connect(function()
+	local trove = playerTroves[player]
+	trove:Add(stat:GetPropertyChangedSignal("Value"):Connect(function()
 		local expected = stat:GetAttribute(EXPECTED_ATTR)
 		if typeof(expected) == "number" and s.Value == expected then
 			-- Matches what EconomyService (or whoever) just wrote — pass.
@@ -67,16 +68,16 @@ local function hookValue(player: Player, stat: Instance)
 end
 
 local function attachPlayer(player: Player)
-	if playerMaids[player] then return end
-	local maid = Maid.new()
-	playerMaids[player] = maid
+	if playerTroves[player] then return end
+	local trove = Trove.new()
+	playerTroves[player] = trove
 
 	-- Hook current leaderstats children, and any added later.
 	local function hookFolder(folder: Folder)
 		for _, child in ipairs(folder:GetChildren()) do
 			hookValue(player, child)
 		end
-		maid:GiveTask(folder.ChildAdded:Connect(function(child)
+		trove:Add(folder.ChildAdded:Connect(function(child)
 			hookValue(player, child)
 		end))
 	end
@@ -85,7 +86,7 @@ local function attachPlayer(player: Player)
 	if existing then hookFolder(existing :: Folder) end
 
 	-- leaderstats may not yet exist at PlayerAdded; watch for it.
-	maid:GiveTask(player.ChildAdded:Connect(function(child)
+	trove:Add(player.ChildAdded:Connect(function(child)
 		if child.Name == LEADERSTATS_NAME and child:IsA("Folder") then
 			hookFolder(child :: Folder)
 		end
@@ -93,10 +94,10 @@ local function attachPlayer(player: Player)
 end
 
 local function detachPlayer(player: Player)
-	local maid = playerMaids[player]
-	if maid then
-		maid:DoCleaning()
-		playerMaids[player] = nil
+	local trove = playerTroves[player]
+	if trove then
+		trove:Clean()
+		playerTroves[player] = nil
 	end
 end
 
@@ -111,7 +112,7 @@ function StatGuard.Expect(player: Player, statName: string, newValue: number)
 	end
 end
 
-function StatGuard.Init(orchestrator: any): ()
+function StatGuard.Init(orchestrator: DetectorHost): ()
 	orchestratorRef = orchestrator
 	for _, p in ipairs(Players:GetPlayers()) do
 		attachPlayer(p)

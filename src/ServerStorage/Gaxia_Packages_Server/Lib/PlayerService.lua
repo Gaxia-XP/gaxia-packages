@@ -10,35 +10,43 @@
 -- ── Services ──
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
 
--- ── Shared ──
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal    = SharedPkg.Signal
-local Util      = SharedPkg.Util
-
--- ── Lazy server (Config + EConfig) — resolved at CALL-TIME, never module load ──
-local _server: any = nil
-local function server(): any
-	if not _server then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		_server = require(serverInit :: any)
-	end
-	return _server
-end
+-- ── Dependencies ──
+local Shared     = ReplicatedStorage.Gaxia_Packages.Shared
+local Signal     = require(Shared.Signal)
+local Constants  = require(Shared.Constants)
+local PlayerUtil = require(Shared.Util.Player)
+local Lifecycle  = require(script.Parent.ServiceLifecycle)
+local Config     = require(script.Parent.Parent.Config)
+local EConfig    = require(script.Parent.EffectiveConfig)
+-- The AntiCheat orchestrator, for the Teleport whitelist only (called at call
+-- time). Not a Need: teleporting a player must never start AntiCheat.
+local AntiCheat  = require(script.Parent.Parent.AntiCheat)
 
 -- ── Constants ──
 local LEADERSTATS_NAME : string = "leaderstats"
+-- Set to the value about to be written so AntiCheat's StatGuard sees our own
+-- writes as legitimate (it flags any leaderstats change that skips this).
+local STAT_EXPECTED_ATTRIBUTE : string = Constants.STAT_EXPECTED_ATTRIBUTE
+
+local function writeStat(stat: Instance, value: any): ()
+	if typeof(value) == "number" then
+		stat:SetAttribute(STAT_EXPECTED_ATTRIBUTE, value)
+	end
+	(stat :: any).Value = value
+end
 
 -- ── Module ──
 local PlayerService = {}
 
 -- ── Signals ──
-PlayerService.OnPlayerJoined   = Signal.new()
-PlayerService.OnPlayerLeft     = Signal.new()
-PlayerService.OnCharacterAdded = Signal.new()
+-- (player) when a player joins (or is already in the game when the service starts),
+-- before their character spawns
+PlayerService.OnPlayerJoined   = Signal.new() :: Signal.Signal<Player>
+-- (player) when a player is leaving the game
+PlayerService.OnPlayerLeft     = Signal.new() :: Signal.Signal<Player>
+-- (player, character) every time a player's character spawns
+PlayerService.OnCharacterAdded = Signal.new() :: Signal.Signal<Player, Model>
 
 -- ── Leaderstats ──
 
@@ -56,19 +64,26 @@ local function classForValue(value: any): string
 	return "StringValue"
 end
 
+-- The player's leaderstats Folder, created (and parented) when missing.
+local function getOrCreateLeaderstats(player: Player): Instance
+	local existing = player:FindFirstChild(LEADERSTATS_NAME)
+	if existing then
+		return existing
+	end
+	local folder = Instance.new("Folder")
+	folder.Name = LEADERSTATS_NAME
+	folder.Parent = player
+	return folder
+end
+
 -- Create a leaderstats Folder (if missing) and populate with one ValueObject per dict entry.
 -- Existing entries are overwritten (Value updated) so this can be called repeatedly.
 function PlayerService.SetupLeaderstats(player: Player, dict: { [string]: any }): ()
-	local folder = player:FindFirstChild(LEADERSTATS_NAME)
-	if not folder then
-		folder = Instance.new("Folder")
-		folder.Name = LEADERSTATS_NAME
-		folder.Parent = player
-	end
+	local folder = getOrCreateLeaderstats(player)
 	for name, value in pairs(dict) do
 		local existing = folder:FindFirstChild(name)
 		if existing then
-			(existing :: any).Value = value
+			writeStat(existing, value)
 		else
 			local cls = classForValue(value)
 			local v = Instance.new(cls)
@@ -91,20 +106,19 @@ function PlayerService.SetLeaderstat(player: Player, name: string, value: any): 
 	if not folder then return end
 	local stat = folder:FindFirstChild(name)
 	if stat then
-		(stat :: any).Value = value
+		writeStat(stat, value)
 	end
 end
 
 -- ── Character helpers (proxy to Util.Player) ──
 
--- Effective max (Config default <- runtime override), read at call-time.
+-- Effective max (runtime flag "Player.MaxWalkSpeed" <- Config.Player.MaxWalkSpeed),
+-- read at call-time.
 local DEFAULT_MAX_WALK_SPEED: number = 500
 local function maxWalkSpeed(): number
-	local s = server()
-	return tonumber(s.EConfig.Get(
-		"Player.MaxWalkSpeed",
-		(s.Config.Player or {}).MaxWalkSpeed or DEFAULT_MAX_WALK_SPEED
-	)) or DEFAULT_MAX_WALK_SPEED
+	local section = Config.Player
+	local static: number = if section then section.MaxWalkSpeed or DEFAULT_MAX_WALK_SPEED else DEFAULT_MAX_WALK_SPEED
+	return tonumber(EConfig.Get("Player.MaxWalkSpeed", static)) or static
 end
 
 -- Returns (applied, actualSpeed). Clamps to [0, Player.MaxWalkSpeed] as
@@ -116,48 +130,29 @@ function PlayerService.SetWalkSpeed(player: Player, speed: number): (boolean, nu
 	local n = tonumber(speed)
 	if n == nil or n ~= n then return false end
 	n = math.clamp(n, 0, maxWalkSpeed())
-	local hum = Util.Player.GetHumanoid(player)
+	local hum = PlayerUtil.GetHumanoid(player)
 	if not hum then return false end
 	hum.WalkSpeed = n
 	return true, n
 end
 
 function PlayerService.SetJumpPower(player: Player, power: number): ()
-	local hum = Util.Player.GetHumanoid(player)
+	local hum = PlayerUtil.GetHumanoid(player)
 	if hum then
 		hum.UseJumpPower = true
 		hum.JumpPower = power
 	end
 end
 
--- Cached lazy reference to the AntiCheat orchestrator. We resolve by direct
--- path (NOT via GaxiaServer) so that requiring this module from inside
--- GaxiaServer's __index doesn't form a recursion cycle.
-local _antiCheatRef: any = nil
-local function getAntiCheat(): any
-	if _antiCheatRef ~= nil then return _antiCheatRef end
-	local serverPkg = script.Parent.Parent  -- Lib → Gaxia_Packages_Server
-	local acFolder = serverPkg:FindFirstChild("AntiCheat")
-	local acInit = acFolder and acFolder
-	if acInit and acInit:IsA("ModuleScript") then
-		local ok, mod = pcall(require, acInit)
-		if ok then _antiCheatRef = mod end
-	end
-	return _antiCheatRef
-end
-
 -- Authorised teleport. Whitelists the player against TeleportDetector for a
 -- short window so the position-delta sample after this CFrame change does
 -- not raise a false-positive flag. 2 seconds comfortably covers one or two
--- sampler ticks (SAMPLER_INTERVAL = 0.5s) plus replication lag.
+-- sampler ticks (SAMPLER_INTERVAL = 0.5s) plus replication lag. The whitelist
+-- call is safe whether or not AntiCheat is running (it never starts it).
 function PlayerService.Teleport(player: Player, cframe: CFrame): ()
-	local ac = getAntiCheat()
-	if ac then
-		local s = server()
-		local grace = ((s.Config.AntiCheat or {}).Teleport or {}).WhitelistGraceSeconds or 2
-		ac.Whitelist(player, "Teleport", s.EConfig.Get("AntiCheat.Teleport.WhitelistGraceSeconds", grace))
-	end
-	Util.Player.Teleport(player, cframe)
+	local grace = Config.AntiCheat.Teleport.WhitelistGraceSeconds or 2
+	AntiCheat.Whitelist(player, "Teleport", EConfig.Get("AntiCheat.Teleport.WhitelistGraceSeconds", grace))
+	PlayerUtil.Teleport(player, cframe)
 end
 
 -- ── Iteration ──
@@ -190,11 +185,18 @@ local function onPlayerRemoving(player: Player)
 	PlayerService.OnPlayerLeft:Fire(player)
 end
 
--- Cover current + future players to avoid race between module load and join.
-for _, player in ipairs(Players:GetPlayers()) do
-	task.spawn(onPlayerAdded, player)
-end
-Players.PlayerAdded:Connect(onPlayerAdded)
-Players.PlayerRemoving:Connect(onPlayerRemoving)
+Lifecycle.Define(PlayerService, {
+	Name = "Player",
+	Needs = {},
+	Init = function()
+		-- Cover current + future players (players may already be in the game when
+		-- the service starts).
+		for _, player in ipairs(Players:GetPlayers()) do
+			task.spawn(onPlayerAdded, player)
+		end
+		Players.PlayerAdded:Connect(onPlayerAdded)
+		Players.PlayerRemoving:Connect(onPlayerRemoving)
+	end,
+})
 
 return PlayerService

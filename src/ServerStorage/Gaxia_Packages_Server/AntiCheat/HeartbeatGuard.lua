@@ -18,21 +18,24 @@
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
--- Server Config lives at the package root (sibling of the AntiCheat folder).
--- FindFirstChild (never WaitForChild): detectors are required through the
--- server loader's no-yield __index metamethod; yielding there throws
--- "attempt to yield across metamethod/C-call boundary". Config is a pure
--- table, so require(FindFirstChild(...)) cannot yield.
-local Config = require(script.Parent.Parent:FindFirstChild("Config") :: ModuleScript) :: any
+-- ── Dependencies ──
+local Types  = require(script.Parent.Parent.Types)
+local Config = require(script.Parent.Parent.Config)
+
+-- ── Types ──
+type Snapshot = Types.AntiCheatSnapshot
+type Flag = Types.AntiCheatFlag
+type DetectorHost = Types.DetectorHost
+
 local HeartbeatCfg = Config.AntiCheat.Heartbeat
 
 -- Tunables. JOIN_GRACE must comfortably exceed the client's first-heartbeat
 -- delay (default 5s in ClientAntiCheat) so a slow connection doesn't flag on
 -- spawn. TIMEOUT is long enough to tolerate a single missed beat from network
 -- jitter but short enough that escalation to hard kick happens within a minute.
-local HEARTBEAT_TIMEOUT : number = (HeartbeatCfg.TimeoutSeconds :: any) or 15
-local JOIN_GRACE        : number = (HeartbeatCfg.JoinGraceSeconds :: any) or 30
-local HEARTBEAT_SEVERITY: string = (HeartbeatCfg.Severity :: any) or "soft"
+local HEARTBEAT_TIMEOUT : number = HeartbeatCfg.TimeoutSeconds or 15
+local JOIN_GRACE        : number = HeartbeatCfg.JoinGraceSeconds or 30
+local HEARTBEAT_SEVERITY: string = HeartbeatCfg.Severity or "soft"
 
 local HeartbeatGuard = {}
 HeartbeatGuard.Name = "Heartbeat"
@@ -43,7 +46,7 @@ local joinTime      : { [Player]: number } = {}
 -- tick (sampler runs at 0.5s, much faster than the timeout window).
 local lastFlagged   : { [Player]: number } = {}
 
-function HeartbeatGuard.Init(_orchestrator: any): ()
+function HeartbeatGuard.Init(_orchestrator: DetectorHost): ()
 	local events = ReplicatedStorage:WaitForChild("Events", 5)
 	local remote = events and events:FindFirstChild("System_Heartbeat")
 	if not remote or not remote:IsA("RemoteEvent") then
@@ -71,7 +74,7 @@ function HeartbeatGuard.Init(_orchestrator: any): ()
 	end)
 end
 
-function HeartbeatGuard.Sample(player: Player, snapshot: any): any?
+function HeartbeatGuard.Sample(player: Player, snapshot: Snapshot): Flag?
 	local now = snapshot.clock
 	local joined = joinTime[player]
 	if not joined then return nil end                       -- not yet tracked

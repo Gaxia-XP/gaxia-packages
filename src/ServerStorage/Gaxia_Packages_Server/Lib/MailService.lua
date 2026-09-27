@@ -15,34 +15,20 @@
 --   Gaxia.Mail.Send(player, { Subject="Welcome", Attachments={Coins=100} })
 --   local att = Gaxia.Mail.Claim(player, mailId)   -- grant att yourself
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
-
-local GaxiaServer: any = nil
-local function server(): any
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer
-end
-local function getData(): any
-	return server().Data
-end
+-- ── Dependencies ──
+local Signal      = require(ReplicatedStorage.Gaxia_Packages.Shared.Signal)
+local Lifecycle   = require(script.Parent.ServiceLifecycle)
+local Config      = require(script.Parent.Parent.Config)
+local EConfig     = require(script.Parent.EffectiveConfig)
+local DataManager = require(script.Parent.DataManager)
 
 local MAILBOX_KEY : string = "Mailbox"
 local MAX_MAIL : number = 50  -- ultimate fallback if Config absent
 
 local function maxMail(): number
-	local s = server()
-	return s.EConfig.Get("Mail.MaxMail", (s.Config.Mail or {}).MaxMail or MAX_MAIL)
+	return EConfig.Get("Mail.MaxMail", Config.Mail.MaxMail or MAX_MAIL)
 end
 
 export type MailInput = { Subject: string?, Body: string?, From: string?, Attachments: any?, ExpiresAt: number? }
@@ -54,15 +40,17 @@ export type Mail = {
 
 local MailService = {}
 
-MailService.OnReceive = Signal.new() -- (player, mail)
+-- (player, mail) after Send stored the mail in the recipient's mailbox
+-- (mail is nil when the inbox cap trimmed the new mail straight away)
+MailService.OnReceive = Signal.new() :: Signal.Signal<Player, Mail?>
 
 local function loadBox(player: Player): { [string]: any }
-	local b = getData().Get(player, MAILBOX_KEY)
+	local b = DataManager.Get(player, MAILBOX_KEY)
 	return (typeof(b) == "table") and b or {}
 end
 
 local function saveBox(player: Player, box: { [string]: any }): ()
-	getData().Set(player, MAILBOX_KEY, box)
+	DataManager.Set(player, MAILBOX_KEY, box)
 end
 
 local function isExpired(mail: any, now: number): boolean
@@ -101,7 +89,7 @@ function MailService.Send(toPlayer: Player, input: MailInput): string
 	local seq = (tonumber(box.__seq) or 0) + 1
 	box.__seq = seq
 	local id = `mail_{seq}`
-	box[id] = {
+	local mail: Mail = {
 		id = id,
 		subject = input.Subject or "(no subject)",
 		body = input.Body or "",
@@ -112,6 +100,7 @@ function MailService.Send(toPlayer: Player, input: MailInput): string
 		read = false,
 		claimed = false,
 	}
+	box[id] = mail
 	enforceCap(box)
 	saveBox(toPlayer, box)
 	MailService.OnReceive:Fire(toPlayer, box[id])
@@ -185,5 +174,12 @@ function MailService.Delete(player: Player, mailId: string): boolean
 	saveBox(player, box)
 	return true
 end
+
+-- Pure API over the player's profile: nothing to set up. Registered so
+-- Features / IsEnabled know it.
+Lifecycle.Define(MailService, {
+	Name = "Mail",
+	Needs = {},
+})
 
 return MailService

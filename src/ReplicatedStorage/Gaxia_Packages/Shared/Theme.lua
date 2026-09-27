@@ -15,7 +15,15 @@
 --   label.TextColor3 = Gaxia.Theme.Color("Text")
 --   Gaxia.Theme.SetTheme({ Color = { Primary = Color3.fromRGB(255,120,180) } })
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
+
+-- Built-in token names. Color/Spacing/Radius take them (so the names autocomplete)
+-- but also accept any string, for tokens a game adds via SetTheme. FontName lists
+-- the built-in keys of Get().Font. (Tokens stays map-typed so SetTheme can add keys.)
+export type ColorName = "Background" | "BackgroundDeep" | "Surface" | "Primary" | "Success"
+	| "Danger" | "Warning" | "Text" | "TextMuted"
+export type FontName = "Regular" | "Medium" | "Bold"
+export type SpacingName = "XS" | "S" | "M" | "L" | "XL"
+export type RadiusName = "S" | "M" | "L" | "Pill"
 
 export type Tokens = {
 	Color: { [string]: Color3 },
@@ -55,15 +63,18 @@ function Theme.Get(): Tokens
 	return tokens
 end
 
-function Theme.Color(name: string): Color3
+-- Unknown names return white.
+function Theme.Color(name: ColorName | string): Color3
 	return tokens.Color[name] or Color3.new(1, 1, 1)
 end
 
-function Theme.Spacing(name: string): number
+-- Unknown names return 0.
+function Theme.Spacing(name: SpacingName | string): number
 	return tokens.Spacing[name] or 0
 end
 
-function Theme.Radius(name: string): number
+-- Unknown names return 0.
+function Theme.Radius(name: RadiusName | string): number
 	return tokens.Radius[name] or 0
 end
 
@@ -79,7 +90,8 @@ function Theme.SetTheme(partial: { [string]: { [string]: any } }): ()
 		end
 	end
 	for _, fn in ipairs(listeners) do
-		local ok, err = pcall(fn, tokens)
+		-- (widened to ...any so pcall's (ok, err) typechecks for a `-> ()` listener)
+		local ok, err = pcall(fn :: (Tokens) -> ...any, tokens)
 		if not ok then
 			warn(`[Theme] OnThemeChanged listener errored: {err}`)
 		end

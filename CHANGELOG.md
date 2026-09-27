@@ -8,6 +8,112 @@ this framework uses a single rolling version until a public release cut.
 
 ## Unreleased
 
+### Changed — services start only when the game uses them (Features + typed lifecycle)
+The server no longer loads everything at boot. Each service registers its setup with
+`ServiceLifecycle.Define(module, { Name, Needs, Init, Start })`, and its module body does
+nothing when required. A service starts when the first of these happens: it is listed in
+`Config/Features` (started at Boot, dependencies first), game code first touches
+`GaxiaServer.<Name>`, or one of its functions is first called. Services nobody uses are
+never loaded.
+- `Config/Features.lua`: the boot list, typed as `Types.ServiceName` so names autocomplete
+  and typos are flagged. Default = exactly what the bootstrap force-loaded before. To
+  customise it, games create `ServerStorage.GaxiaFeatures` (and optionally
+  `ReplicatedStorage.GaxiaClientFeatures`). Companion's Install/Update replaces the whole
+  package, Config included, and these files live outside it.
+- `Gaxia_ServerBootstrap` just calls `GaxiaServer.Boot()`. The hand-kept 19-service list
+  and its ordering comments are gone; order comes from `Needs`. This also fixes the
+  violated "Ban before Admin" rule.
+- Boot also runs on the first service access, and `ReplicatedStorage.Events/Net` exist as
+  soon as the loader is required. Game Scripts no longer depend on Roblox's Script run order.
+- A module whose body errors, or whose Init fails, affects only that service (warned once;
+  `GaxiaServer.<Name>` returns nil).
+- `GaxiaServer.IsEnabled(name)`. The server publishes its started services to clients,
+  and the client bootstrap skips client modules whose server side is not running.
+- Cycle-free typed dependencies: modules require each other directly (no `server()` /
+  `SharedPkg :: any`). The two-way couplings became hooks: `Net.SetViolationHandler`,
+  `Ban.SetRoleResolver`, `Chat.SetRoleResolver`.
+- `GaxiaServer.Lifecycle`'s documented `Register/Start/OnStarted` API keeps its old
+  synchronous semantics for game code.
+- `tools/check-architecture.mjs` enforces the module rules (needs `luau-ast`).
+
+### Improved — types / autocomplete
+Signals declare their payloads, so `:Connect(function(player, ...)` callbacks are typed
+(e.g. `Economy.OnTransaction` → `kind: "add" | "spend" | "set" | "transfer"`). Public
+functions are annotated, and the stub-returning UI modules are typed.
+- Config sections carry types (`AdminConfig`, `AntiCheatConfig`, `WebhookConfig`,
+  `PlayerConfig`), so `Config.AntiCheat.BanPolicy.` autocompletes and a mistyped
+  `Severity` is flagged.
+- The AntiCheat detector contract (`AntiCheatSnapshot`, `AntiCheatFlag`, `DetectorHost`)
+  is defined once in `Types.lua` instead of copied into each detector.
+- New `Config/Player.lua` (`MaxWalkSpeed`, default 500 as before): the clamp in
+  `Player.SetWalkSpeed` can now be configured.
+- Stricter on purpose (no runtime change): `Random.Choice/Weighted/Shuffle` are generic,
+  so `Random.Choice(spawnPoints)` returns a `BasePart?`; a literal mixing types
+  (`Random.Choice({ "Sword", 100 })`) is now a type error — annotate it
+  (`local pool: { any } = { "Sword", 100 }`). `Scheduler.Debounce/Throttle` return a
+  function with `fn`'s parameters, so calling it with extra arguments is flagged.
+
+### Fixed — AntiCheat detectors never loaded (now in observe mode)
+Since e3b2e06 (2026-07-17) the orchestrator scanned the wrong parent, so none of the 15
+detectors registered. They load again, but in OBSERVE mode by default
+(`Config.AntiCheat.Enforce = false`): flags are recorded and warned, and would-be hard
+actions are published as `OnAction(..., "observe")`, so nobody is kicked or banned. Three
+false-positive causes found in simulation are fixed too:
+- StarterPack/StarterGear tools are now legitimate for BackpackGuard.
+- PlayerService's leaderstat writes announce the expected value to StatGuard.
+- BanService escalates at most once per player per session. Before, simultaneous flags
+  walked kick → temp ban → perm ban inside one frame.
+
+Play-test with a non-creator account before setting `Enforce = true` (MANUAL §9.0).
+
+### Changed — AntiCheat sampling is spread over frames
+Each 0.5 s pass used to sample every player in one frame. It now spreads the players
+over the pass (within 80% of the interval); each player is still sampled every 0.5 s,
+and a player who left mid-pass is skipped. MicroProfiler labels `AntiCheat.Sampler`
+and `AntiCheat.<Detector>` show the cost in a live server.
+
+### Fixed
+- Runtime flags with dotted names (all of them: `AntiCheat.Enforce`,
+  `AntiCheat.Detector.Speed.Enabled`, …) threw "Attribute name is not valid", so
+  `EConfig.Set`, `/flag`, `/ac` and `AntiCheat.SetEnabled/SetDetectorEnabled` failed.
+  Flags now stores each name under a valid attribute name; callers keep the dotted names.
+- `Gaxia.State` (ReplicatedState) waited for `GaxiaState` while being required, which
+  fails inside the client loader when the folder has not replicated yet. The client now
+  waits in `State.Get` (documented to yield) instead.
+- DataManager kicked every player on a normal leave ("Profile released.").
+- Chat command replies were dropped when no command had run in the server's first 30 s:
+  the reply remote was created lazily and the client stopped waiting for it.
+- The loaders' auto-tagger tagged all of ReplicatedStorage/ServerStorage instead of just
+  the package.
+- MANUAL told games to `require(... .init)`, which errors under Rojo. Require the package
+  ModuleScript itself.
+
+### Removed / deprecated
+- `Shared/Comm` removed. It required a non-existent `Option` module and nothing used it.
+- `Janitor` and `ComponentLegacy` are deprecated (they warn on first use) in favour of
+  `Trove` / `Component`.
+- Test and config files (`*.test.luau`, `jest.config.luau`, `wally.toml`) no longer end up
+  in the built place.
+
+### Changed — framework cleanup uses Trove; Maid is deprecated
+One cleanup library instead of three. Every framework module that used `Maid`
+now uses `Trove` (the one `Component` already depends on): the five AntiCheat
+guards (Animation / Backpack / Combat / HumanoidState / Stat), `ZoneService`,
+`TooltipSystem`, `DialogSystem`, `CutsceneSystem` and `EffectsController`.
+- Mapping: `Maid.new` → `Trove.new`, `:GiveTask` → `:Add`, `:DoCleaning` → `:Clean`,
+  `:Destroy` → `:Destroy`.
+- **Fixed as a side effect** — `CutsceneSystem.Stop()` (and cancelling the
+  `Play` promise) destroyed the cutscene's Maid, then the play thread destroyed
+  it a second time. `Maid:Destroy()` clears the metatable, so that second call
+  errored in the play thread; after `Stop()` this meant the `Play` promise
+  never settled. `Trove:Destroy()` is safe to call twice.
+- `Maid` stays in `Shared/` for existing game code but warns on first require;
+  MANUAL §5.2 has the Maid → Trove mapping. It will be removed in a later version.
+- Behaviour differences to know when migrating your own code: `Trove:Clean()`
+  order is not guaranteed (Maid was LIFO), `:Add()` during `:Clean()` errors,
+  and function tasks run via `task.spawn`. None of the migrated call sites
+  depend on these.
+
 ### Added — Pet Coins multiplier wired into the Idle & Quest faucets
 `PetService.GetCoinMultiplier` (built in the Pet MVP) was previously **dead** — no
 faucet consumed it, so equipped pets had no in-game effect. The two **generated**

@@ -14,30 +14,28 @@
 local RunService        = game:GetService("RunService")
 local UserInputService  = game:GetService("UserInputService")
 
-export type PetController = {
-	Open: () -> (),
-	Close: () -> (),
-	Toggle: () -> (),
-}
+local PetController = {}
+-- The module's own type (Open / Close / Toggle below), so the server stub and the
+-- client module share one type and `Gaxia.UI.PetController.<method>` autocompletes.
+export type PetController = typeof(PetController)
 
--- Client-only module; return a typed stub on the server so the union collapses.
+-- Client-only module; return a no-op stub on the server.
 if not RunService:IsClient() then
 	return ({
 		Open = function() end,
 		Close = function() end,
 		Toggle = function() end,
-	} :: any) :: PetController
+	} :: any) :: typeof(PetController)
 end
 
-local UIController = require(script.Parent:WaitForChild("UIController"))
-local Toast        = require(script.Parent:WaitForChild("Toast"))
--- Net via the shared package (Gaxia_Packages/init), same as every server service
--- consumes it — survives a Shared/ folder move that a hand-counted path would not.
-local SharedPkg    = require(script.Parent.Parent.Parent) :: any
-local Net          = SharedPkg.Net
+local UIController = require(script.Parent.UIController)
+local Toast        = require(script.Parent.Toast)
+-- Shared/NetService directly (typed). Its client body does not wait for
+-- Events/Net; the folder is resolved on the first OnClient/Fire/Invoke below.
+local Net          = require(script.Parent.Parent.Parent.Shared.NetService)
 
 -- ── Constants ──
-local TEMPLATE_NAME    : string = "MenuTemplate"
+local TEMPLATE_NAME    : UIController.TemplateName = "MenuTemplate"
 local TOGGLE_KEY       : Enum.KeyCode = Enum.KeyCode.P
 local PLACEHOLDER_ICON : string = "rbxasset://textures/ui/GuiImagePlaceholder.png" -- provisional; swap real pet art server-side
 local SLOT_SIZE        : UDim2 = UDim2.fromOffset(78, 92)
@@ -60,8 +58,6 @@ local multLabel  : TextLabel? = nil
 local equipLabel : TextLabel? = nil
 local buyButton  : TextButton? = nil
 local grid       : Frame? = nil
-
-local PetController = {}
 
 -- ── Helpers ──
 
@@ -390,4 +386,4 @@ UserInputService.InputBegan:Connect(function(input: InputObject)
 	PetController.Toggle()
 end)
 
-return PetController :: PetController
+return PetController

@@ -10,10 +10,10 @@
 --           reads hit DataStore directly.
 -- Access  : Gaxia.GuildLock  (server)
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local HttpService = game:GetService("HttpService")
 local MemoryStoreService = game:GetService("MemoryStoreService")
+
+local Lifecycle = require(script.Parent.ServiceLifecycle)
 
 local MAP_NAME: string = "GaxiaGuildLocks"
 local MAX_ATTEMPTS: number = 3
@@ -22,7 +22,7 @@ local DEFAULT_TTL: number = 5
 
 local GuildLock = {}
 
-local function map(): any
+local function map(): MemoryStoreSortedMap
 	return MemoryStoreService:GetSortedMap(MAP_NAME)
 end
 
@@ -34,7 +34,7 @@ end
 local function tryClaim(guildId: string, ownerId: string, ttlSec: number): boolean
 	local claimed = false
 	local ok, err = pcall(function()
-		map():UpdateAsync(guildId, function(current: any)
+		map():UpdateAsync(guildId, function(current: any): string?
 			-- nil  → free, claim it
 			-- ""   → released sentinel (see Release), treat as free
 			-- ours → renew
@@ -81,7 +81,7 @@ function GuildLock.Release(guildId: string, ownerId: string): ()
 	-- we cannot rely on that path. If current ~= ownerId (TTL expired, someone
 	-- else took over), we leave the slot alone.
 	local ok, err = pcall(function()
-		map():UpdateAsync(guildId, function(current: any)
+		map():UpdateAsync(guildId, function(current: any): string?
 			if current == ownerId then
 				return "" -- sentinel: not ours, not held; will expire in 1s anyway
 			end
@@ -105,5 +105,11 @@ function GuildLock.WithLock(guildId: string, fn: () -> any, ttlSec: number?): (b
 	end
 	return true, result
 end
+
+-- Pure API: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(GuildLock, {
+	Name = "GuildLock",
+	Needs = {},
+})
 
 return GuildLock

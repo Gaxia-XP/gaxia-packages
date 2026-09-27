@@ -5,15 +5,17 @@
 -- Purpose:  Spawn-pool for ParticleEmitter / Beam / Trail bursts.
 --           Game code typically wants to "play a hit-flash at this
 --           CFrame" without thinking about cleanup. This module
---           owns a Maid of every spawned effect so a single
+--           owns a Trove of every spawned effect so a single
 --           ClearAll() (e.g. on respawn / scene transition) can
 --           wipe in-flight effects without leaking instances.
 -- ─────────────────────────────────────────────────────────────
 
 local Debris            = game:GetService("Debris")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService        = game:GetService("RunService")
 local Workspace         = game:GetService("Workspace")
+
+-- ── Dependencies ──
+local Trove = require(script.Parent.Parent.Shared.Trove)
 
 -- ── Types ──
 
@@ -31,10 +33,6 @@ export type EffectsControllerType = {
 if not RunService:IsClient() then
 	return ({} :: any) :: EffectsControllerType
 end
-
--- ── Shared deps ──
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Maid      = SharedPkg.Maid
 
 -- ── Constants ──
 local FX_FOLDER_NAME      : string = "Gaxia_EffectsHost"  -- workspace folder for emitter parts
@@ -60,20 +58,20 @@ end
 
 local hostFolder : Folder = ensureHost()
 
--- One Maid tracks every effect we spawn — ClearAll() just calls DoCleaning on
--- it. We swap the Maid on ClearAll (rather than reusing) so any tasks added
--- mid-cleanup don't get silently discarded.
-local fxMaid : any = Maid.new()
+-- One Trove tracks every effect we spawn — ClearAll() just calls Clean on it.
+-- We swap the Trove on ClearAll (rather than reusing) because Trove errors on
+-- Add() while it is cleaning.
+local fxTrove = Trove.new()
 
 local EffectsController = {}
 
 -- ── Helpers ──
 
--- Schedule destruction via Debris so it survives if our Maid is cleared.
--- Returns nothing — the Maid + Debris together cover cleanup paths.
+-- Schedule destruction via Debris so it survives if our Trove is cleared.
+-- Returns nothing — the Trove + Debris together cover cleanup paths.
 local function scheduleDestroy(inst: Instance, lifetime: number): ()
 	Debris:AddItem(inst, lifetime)
-	fxMaid:GiveTask(inst)
+	fxTrove:Add(inst)
 end
 
 -- ── EmitParticle ──
@@ -156,13 +154,13 @@ function EffectsController.SpawnTrail(
 end
 
 -- ── ClearAll ──
--- Wipe every effect we've spawned. We swap the Maid before calling
--- DoCleaning so new spawns triggered from within cleanup callbacks attach to
--- the FRESH maid and don't get mid-iteration mutated.
+-- Wipe every effect we've spawned. We swap the Trove before calling Clean so
+-- new spawns triggered from within cleanup callbacks attach to the FRESH
+-- trove instead of erroring on the one being cleaned.
 function EffectsController.ClearAll(): ()
-	local old = fxMaid
-	fxMaid = Maid.new()
-	old:DoCleaning()
+	local old = fxTrove
+	fxTrove = Trove.new()
+	old:Clean()
 end
 
 return EffectsController :: EffectsControllerType

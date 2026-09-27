@@ -2,12 +2,13 @@
 --[[
 	Script  : Gaxia_ServerBootstrap (Server)
 	Location: ServerScriptService.Gaxia_ServerBootstrap
-	Purpose : Eagerly boot the Gaxia server stack:
-	            • Load the master server package (GaxiaServer.Shared / .AntiCheat)
-	            • Force-load every Lib service so their PlayerAdded hooks wire up
-	              before the first player joins.
-	            • Load the AntiCheat orchestrator + all detectors.
-	            • Wire OnAction into a default action handler (kick on hard).
+	Purpose : Boot the Gaxia server stack:
+	            • GaxiaServer.Boot() starts the services listed in Config/Features
+	              (or the game-owned ServerStorage.GaxiaFeatures) in dependency
+	              order. Services not listed start on first use.
+	            • Wire AntiCheat.OnAction into the default action handler (kick on
+	              "hard"; AntiCheat runs in observe mode until
+	              Config.AntiCheat.Enforce = true, so it only reports "observe").
 ]]
 
 -- ── Single-boot guard ─────────────────────────────────────────
@@ -29,70 +30,18 @@ end
 local Players       = game:GetService("Players")
 local ServerStorage = game:GetService("ServerStorage")
 
--- ── Master loader ──────────────────────────────────────────────
--- GaxiaServer is the namespace returned by the server master init module.
-local GaxiaServer = require(
-	ServerStorage:WaitForChild("Gaxia_Packages_Server")
-) :: any
+-- ── Master loader + boot ──────────────────────────────────────
+local GaxiaServer = require(ServerStorage:WaitForChild("Gaxia_Packages_Server"))
+GaxiaServer.Boot()
 
--- ── Force-load Lib services ───────────────────────────────────
--- The Lib namespace is a lazy proxy: accessing GaxiaServer.<Name> requires
--- the underlying module. We touch each service here so its module body runs
--- (PlayerAdded hooks, signal definitions, etc.) before any player joins.
-local LIB_SERVICES: { string } = {
-	"Data",        -- DataManager — must be first; other services use it
-	"Player",      -- PlayerService
-	"Item",        -- ItemService
-	"Economy",     -- EconomyService
-	-- Pet: stat-boost pet system. Force-loaded so its NetService remotes AND its
-	-- ItemDef/Loot/Codex catalog register before any player joins — a client
-	-- firing PetBuyEgg before the server registered that remote would error.
-	"Pet",         -- PetService
-	"Tool",        -- ToolService
-	"Zone",        -- ZoneService
-	-- Chat MUST load before Admin so AdminCommands' chat bridge can register
-	-- each built-in command into the ChatCommandSystem at AdminCommands' load.
-	"Chat",        -- ChatCommandSystem
-	"Admin",       -- AdminCommands (auto-grants owner role to game creator)
-	"Quest",       -- QuestSystem
-	"Achievement", -- AchievementSystem
-	"Level",       -- LevelSystem
-	"Migration",   -- DataMigration
-	"Leaderboard", -- LeaderboardService
-	"Messages",    -- CrossServerMessaging
-	-- Ban: persistent ban storage + PlayerAdded gate. MUST load before "Admin"
-	-- so BanService.gate is registered for PlayerAdded before any player
-	-- connects, AND before "Webhook" so Webhook.autoSubscribe sees Ban already
-	-- present without triggering a lazy require from inside task.spawn. The
-	-- /ban and /unban chat commands in AdminCommands are thin wrappers around
-	-- BanService.Ban / .Unban — one ban code path for the whole framework.
-	"Ban",         -- BanService
-	-- Webhook: load so its auto-reports (Ban / AntiCheat) wire up at boot when a
-	-- channel URL is configured. No-ops harmlessly if no channels are set.
-	"Webhook",     -- WebhookService
-	-- Friend: drains cross-server invite queue at PlayerAdded; needs to be loaded
-	-- early so the drain hook is registered before late PlayerAdded events.
-	"Friend",
-	-- Guild: reconciles orphan GuildId on PlayerAdded; subscribes "guild:vault"
-	-- via CrossServerMessaging. Must load AFTER Webhook (so the optional Guild
-	-- auto-report subscriber in Task 8 sees Guild already present).
-	"Guild",
-}
-for _, key in ipairs(LIB_SERVICES) do
-	local mod = GaxiaServer[key]
-	if mod == nil then
-		warn(`[Gaxia_ServerBootstrap] Failed to load service '{key}'`)
-	end
+-- ── AntiCheat default action handler ──────────────────────────
+-- Only when AntiCheat is running (it is in Features by default); touching
+-- GaxiaServer.AntiCheat otherwise would load it just to wire this handler.
+if not GaxiaServer.IsEnabled("AntiCheat") then
+	print("[Gaxia_ServerBootstrap] complete — AntiCheat not enabled in Features")
+	return
 end
-
--- ── AntiCheat orchestrator + detectors ────────────────────────
--- Requiring the orchestrator runs its loader which auto-discovers every
--- sibling detector ModuleScript and starts the shared sampler loop.
-local AntiCheat = require(
-	ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		:WaitForChild("AntiCheat")
-		
-) :: any
+local AntiCheat = GaxiaServer.AntiCheat
 
 -- ── Default OnAction handler ──────────────────────────────────
 -- Soft action  → warn the player via output + game console.
@@ -121,10 +70,12 @@ AntiCheat.OnAction:Connect(function(player: Player, reason: string, kind: string
 				player:Kick(`Kicked by Gaxia_AntiCheat (reason: {reason})`)
 			end
 		end)
-	else
+	elseif kind == "soft" then
 		-- soft: print only. Plug in your own warning UI / log here.
 		warn(`[Gaxia_AntiCheat] soft action against {player.Name}: {reason}`)
 	end
+	-- kind == "observe": would have been "hard", but Config.AntiCheat.Enforce is
+	-- false — the orchestrator already warned once; nothing to enforce here.
 end)
 
 Players.PlayerRemoving:Connect(function(player: Player)

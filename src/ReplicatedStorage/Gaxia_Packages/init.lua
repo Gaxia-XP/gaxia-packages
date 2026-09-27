@@ -38,8 +38,8 @@ export type GaxiaPackage = {
 	VERSION : string,
 	-- ── Shared (always available) ──
 	Signal    : typeof(require(script.Shared.Signal)),
-	Maid      : typeof(require(script.Shared.Maid)),
-	Janitor   : typeof(require(script.Shared.Janitor)),
+	Maid      : typeof(require(script.Shared.Maid)),     -- DEPRECATED: use Trove
+	Janitor   : typeof(require(script.Shared.Janitor)),  -- DEPRECATED: use Trove
 	Trove     : typeof(require(script.Shared.Trove)),
 	Promise   : typeof(require(script.Shared.Promise)),
 	TweenUtil : typeof(require(script.Shared.TweenUtil)),
@@ -96,6 +96,11 @@ export type GaxiaPackage = {
 		Haptics : typeof(require(script.Client.UI.Haptics)),
 		Motion : typeof(require(script.Client.UI.Motion)),
 		AdminPanel : typeof(require(script.Client.UI.AdminPanel)),
+		FriendListPanel : typeof(require(script.Client.UI.FriendListPanel)),
+		GuildPanel : typeof(require(script.Client.UI.GuildPanel)),
+		InviteToast : typeof(require(script.Client.UI.InviteToast)), -- `true`; requiring it wires the invite listeners (waits for their remotes)
+		PetController : typeof(require(script.Client.UI.PetController)),
+		Templates : typeof(require(script.Client.UI.Templates)),
 	},
 
 	-- ── Client modules accessed via short keys (CLIENT_KEY_MAP) ──
@@ -145,6 +150,13 @@ local SHARED_KEY_MAP : { [string]: string } = {
 	MockPlayer = "MockPlayer",
 }
 
+-- Deprecated vendored modules: they still resolve (game code may use them) but
+-- warn once on first access. First-party deprecated modules (Maid,
+-- ComponentLegacy) warn from their own body instead.
+local DEPRECATED_SHARED : { [string]: string } = {
+	Janitor = "Gaxia.Trove",
+}
+
 -- ── Internal Cache ───────────────────────────────────────────
 
 local moduleCache : { [string]: any } = {}
@@ -180,10 +192,12 @@ end
 -- ── Auto-tagger ──────────────────────────────────────────────
 
 local function autoTagDescendants(): ()
-	-- script.Parent is the Gaxia_Packages Folder; script is the `init` ModuleScript
-	-- (sibling). Tag the folder + all package descendants so consumers can query
-	-- "everything that belongs to Gaxia_Packages" via CollectionService.
-	local packageRoot = script.Parent :: Instance
+	-- Under Rojo this `init` IS the Gaxia_Packages ModuleScript and the package's
+	-- modules are its descendants. (It used to tag script.Parent, which is the
+	-- whole ReplicatedStorage — every game asset got the tag.) Tag the
+	-- package + all its descendants so consumers can query "everything that
+	-- belongs to Gaxia_Packages" via CollectionService.
+	local packageRoot = script :: Instance
 	if not CollectionService:HasTag(packageRoot, TAG_NAME) then
 		CollectionService:AddTag(packageRoot, TAG_NAME)
 	end
@@ -316,6 +330,10 @@ local function buildGaxia(): { [string]: any }
 			local sharedName = SHARED_KEY_MAP[key] or key
 			local sharedMod = resolveChild(sharedFolder, sharedName)
 			if sharedMod then
+				local replacement = DEPRECATED_SHARED[sharedName]
+				if replacement then
+					warn(`[Gaxia_Packages] {sharedName} is deprecated — use {replacement} instead`)
+				end
 				local result = safeRequire(sharedMod, key)
 				moduleCache[key] = result
 				rawset(t, key, result)

@@ -13,21 +13,11 @@
 --     OnTrigger = function(player) refine(player) end,
 --   })
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
 
-local ServerStorage = game:GetService("ServerStorage")
-
--- ── Lazy server (Config + EConfig) ──
-local _server: any = nil
-local function server(): any
-	if not _server then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		_server = require(serverInit :: any)
-	end
-	return _server
-end
+-- ── Dependencies ──
+local Lifecycle = require(script.Parent.ServiceLifecycle)
+local Config    = require(script.Parent.Parent.Config)
+local EConfig   = require(script.Parent.EffectiveConfig)
 
 export type InteractionConfig = {
 	ActionText: string?,
@@ -69,9 +59,8 @@ function InteractionService.Register(target: Instance, config: InteractionConfig
 	prompt.ActionText = config.ActionText or "Interact"
 	prompt.ObjectText = config.ObjectText or ""
 	prompt.HoldDuration = config.HoldDuration or 0
-	local s = server()
 	prompt.MaxActivationDistance = config.MaxDistance
-		or s.EConfig.Get("Interaction.DefaultMaxDistance", (s.Config.Interaction or {}).DefaultMaxDistance or 10)
+		or EConfig.Get("Interaction.DefaultMaxDistance", Config.Interaction.DefaultMaxDistance or 10)
 	prompt.RequiresLineOfSight = if config.RequiresLineOfSight == nil then false else config.RequiresLineOfSight
 	if config.KeyboardKeyCode then
 		prompt.KeyboardKeyCode = config.KeyboardKeyCode
@@ -90,7 +79,8 @@ function InteractionService.Register(target: Instance, config: InteractionConfig
 			end
 			lastUse[player] = now
 		end
-		local ok, err = pcall(config.OnTrigger, player)
+		-- Cast: OnTrigger returns nothing, so pcall's type would have no error value.
+		local ok, err = pcall(config.OnTrigger :: (Player) -> ...any, player)
 		if not ok then
 			warn(`[InteractionService] OnTrigger errored: {err}`)
 		end
@@ -104,5 +94,11 @@ function InteractionService.Register(target: Instance, config: InteractionConfig
 	end
 	return handle :: Handle
 end
+
+-- Pure API: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(InteractionService, {
+	Name = "Interaction",
+	Needs = {},
+})
 
 return InteractionService

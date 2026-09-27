@@ -14,15 +14,19 @@ local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CollectionService = game:GetService("CollectionService")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Maid      = SharedPkg.Maid
+-- ── Dependencies ──
+local Trove  = require(ReplicatedStorage.Gaxia_Packages.Shared.Trove)
+local Types  = require(script.Parent.Parent.Types)
+local Config = require(script.Parent.Parent.Config)
 
--- Server config (FindFirstChild = no-yield; Config is a pure table at the package
--- root). Climbing/Swimming default to "soft" so a false-positive doesn't instant-
--- kick; a game with custom climbing can set Enabled = false.
-local Config = require((script.Parent :: any).Parent:FindFirstChild("Config") :: ModuleScript) :: any
-local HS_CONFIG = (Config.AntiCheat and Config.AntiCheat.HumanoidState) or {}
-local STATE_SEVERITY : string = (HS_CONFIG.Severity :: any) or "soft"
+-- ── Types ──
+type DetectorHost = Types.DetectorHost
+
+-- Server config. Climbing/Swimming default to "soft" so a false-positive doesn't
+-- instant-kick; a game with custom climbing can set Enabled = false. The section
+-- is optional (severity falls back to "soft" without it).
+local HS_CONFIG = Config.AntiCheat.HumanoidState
+local STATE_SEVERITY : string = if HS_CONFIG then HS_CONFIG.Severity or "soft" else "soft"
 
 -- ── Tunables ──
 -- Radius around the HRP we sweep for valid climb / swim surroundings.
@@ -36,8 +40,8 @@ local DOUBLE_JUMP_STREAK : number = 2
 local HumanoidStateGuard = {}
 HumanoidStateGuard.Name = "HumanoidState"
 
-local orchestratorRef : any = nil
-local playerMaids : { [Player]: any } = {}
+local orchestratorRef : DetectorHost? = nil
+local playerTroves : { [Player]: typeof(Trove.new()) } = {}
 -- (humanoid) → { jumpsAirborne, lastJumpClock }
 type JumpState = { jumpsAirborne: number, lastJumpClock: number }
 local jumpState : { [Humanoid]: JumpState } = setmetatable({}, { __mode = "k" }) :: any
@@ -136,34 +140,34 @@ local function onStateChanged(player: Player, humanoid: Humanoid, _old: Enum.Hum
 end
 
 local function attachHumanoid(player: Player, humanoid: Humanoid)
-	local maid = playerMaids[player]
-	if not maid then return end
-	maid:GiveTask(humanoid.StateChanged:Connect(function(old, new)
+	local trove = playerTroves[player]
+	if not trove then return end
+	trove:Add(humanoid.StateChanged:Connect(function(old, new)
 		onStateChanged(player, humanoid, old, new)
 	end))
 end
 
 local function attachPlayer(player: Player)
-	if playerMaids[player] then return end
-	local maid = Maid.new()
-	playerMaids[player] = maid
+	if playerTroves[player] then return end
+	local trove = Trove.new()
+	playerTroves[player] = trove
 	local function hookCharacter(character: Model)
 		local hum = character:WaitForChild("Humanoid", 5) :: Humanoid?
 		if hum then attachHumanoid(player, hum) end
 	end
 	if player.Character then hookCharacter(player.Character) end
-	maid:GiveTask(player.CharacterAdded:Connect(hookCharacter))
+	trove:Add(player.CharacterAdded:Connect(hookCharacter))
 end
 
 local function detachPlayer(player: Player)
-	local maid = playerMaids[player]
-	if maid then
-		maid:DoCleaning()
-		playerMaids[player] = nil
+	local trove = playerTroves[player]
+	if trove then
+		trove:Clean()
+		playerTroves[player] = nil
 	end
 end
 
-function HumanoidStateGuard.Init(orchestrator: any): ()
+function HumanoidStateGuard.Init(orchestrator: DetectorHost): ()
 	orchestratorRef = orchestrator
 	for _, p in ipairs(Players:GetPlayers()) do attachPlayer(p) end
 	Players.PlayerAdded:Connect(attachPlayer)

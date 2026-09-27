@@ -21,6 +21,21 @@
 --     this preserves the original .rbxm template behavior.
 -- ─────────────────────────────────────────────────────────────
 
+-- ── Types ──
+-- Every builder name below. UIController.CloneTemplate takes one of these
+-- (autocompletes; a typo is caught by the type checker, not a runtime warn).
+export type TemplateName =
+	"ButtonTemplate"
+	| "FrameTemplate"
+	| "HealthBarTemplate"
+	| "NotificationTemplate"
+	| "MenuTemplate"
+	| "InventoryTemplate"
+	| "DialogTemplate"
+	| "TooltipTemplate"
+	| "LoadingScreenTemplate"
+	| "ConfirmDialogTemplate"
+
 -- ── Shared fonts ──
 -- Keeping these as locals (not Constants) so type inference picks them up
 -- as `Font` and editor auto-complete works inside builders.
@@ -118,6 +133,7 @@ end
 
 -- ── Module ──
 local Templates = {}
+export type Templates = typeof(Templates)
 
 -- Every builder accepts an optional `parent` so callers can chain. Parenting
 -- happens AFTER the tree is fully built (Roblox's set-parent-last pattern

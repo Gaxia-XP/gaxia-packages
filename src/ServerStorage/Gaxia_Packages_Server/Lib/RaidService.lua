@@ -16,24 +16,21 @@
 --   local id, err = Gaxia.Raid.Start(attacker, defender)
 --   local ok, summary = Gaxia.Raid.Resolve(id, true)   -- summary.loot
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
-
-local GaxiaServer: any = nil
-local function server(): any
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer
-end
+-- ── Dependencies ──
+-- Protection / Cooldown / Vault / Economy / Data are only called from CanRaid and
+-- Resolve (call time), so they are plain requires, not lifecycle Needs.
+local Shared            = ReplicatedStorage.Gaxia_Packages.Shared
+local Signal            = require(Shared.Signal)
+local Lifecycle         = require(script.Parent.ServiceLifecycle)
+local Config            = require(script.Parent.Parent.Config)
+local EConfig           = require(script.Parent.EffectiveConfig)
+local DataManager       = require(script.Parent.DataManager)
+local EconomyService    = require(script.Parent.EconomyService)
+local CooldownService   = require(script.Parent.CooldownService)
+local ProtectionService = require(script.Parent.ProtectionService)
+local VaultService      = require(script.Parent.VaultService)
 
 local REVENGE_KEY    : string = "RaidRevenge"
 
@@ -44,13 +41,27 @@ export type RaidConfig = {
 	LootFraction: number,       -- fraction of defender vault value that's lootable
 	MaxLoot: number,            -- hard cap per raid
 }
-export type RaidState = { id: string, attacker: any, defender: any, startedAt: number }
+export type RaidState = { id: string, attacker: Player, defender: Player, startedAt: number }
 export type RaidSummary = { success: boolean, loot: number }
+-- Why CanRaid / Start refused a raid.
+export type RaidRefusal = "cannot raid self" | "target protected" | "on cooldown" | "already in a raid"
+-- Partial override bag for Configure (any subset of Config.Raid's keys).
+export type RaidOverrides = {
+	Currency: string?,
+	Cooldown: number?,
+	RevengeProtection: number?,
+	LootFraction: number?,
+	MaxLoot: number?,
+	RevengeMax: number?,
+	[string]: any,
+}
 
 local RaidService = {}
 
-RaidService.OnRaidStart = Signal.new() -- (attacker, defender, raidId)
-RaidService.OnRaidEnd = Signal.new()   -- (attacker, defender, success, loot)
+-- (attacker, defender, raidId) after Start opens a raid
+RaidService.OnRaidStart = Signal.new() :: Signal.Signal<Player, Player, string>
+-- (attacker, defender, success, loot) after Resolve closes it; loot = currency moved
+RaidService.OnRaidEnd = Signal.new() :: Signal.Signal<Player, Player, boolean, number>
 
 -- Runtime override bag (set via Configure()). Precedence for any setting:
 --   Configure() override  >  Flag override (EConfig)  >  Config.Raid default  >  hardcoded fallback
@@ -65,8 +76,8 @@ local function raidGet(key: string, fallback: any?): any
 	if config[key] ~= nil then
 		return config[key]
 	end
-	local s = server()
-	return s.EConfig.Get(`Raid.{key}`, (s.Config.Raid or {})[key] or DEFAULTS[key] or fallback)
+	local raidConfig = Config.Raid :: { [string]: any }
+	return EConfig.Get(`Raid.{key}`, raidConfig[key] or DEFAULTS[key] or fallback)
 end
 
 local activeRaids: { [string]: RaidState } = {}
@@ -81,21 +92,20 @@ end
 
 -- ── Config ──
 
-function RaidService.Configure(partial: { [string]: any }): ()
+function RaidService.Configure(partial: RaidOverrides): ()
 	for k, v in pairs(partial) do
-		(config :: any)[k] = v
+		config[k] = v
 	end
 end
 
-local function cooldownKey(player: any): string
+local function cooldownKey(player: Player): string
 	return `Raid:{player.UserId}`
 end
 
 -- ── Revenge list (persisted on the defender) ──
 
-local function addRevenge(defender: any, attackerUserId: number): ()
-	local Data = server().Data
-	local list = Data.Get(defender, REVENGE_KEY)
+local function addRevenge(defender: Player, attackerUserId: number): ()
+	local list = DataManager.Get(defender, REVENGE_KEY)
 	if typeof(list) ~= "table" then
 		list = {}
 	end
@@ -109,11 +119,11 @@ local function addRevenge(defender: any, attackerUserId: number): ()
 			table.insert(trimmed, uid)
 		end
 	end
-	Data.Set(defender, REVENGE_KEY, trimmed)
+	DataManager.Set(defender, REVENGE_KEY, trimmed)
 end
 
-function RaidService.GetRevengeTargets(player: any): { number }
-	local list = server().Data.Get(player, REVENGE_KEY)
+function RaidService.GetRevengeTargets(player: Player): { number }
+	local list = DataManager.Get(player, REVENGE_KEY)
 	if typeof(list) ~= "table" then
 		return {}
 	end
@@ -126,25 +136,25 @@ end
 
 -- ── State queries ──
 
-function RaidService.IsRaiding(player: any): boolean
+function RaidService.IsRaiding(player: Player): boolean
 	return playerRaid[player.UserId] ~= nil
 end
 
-function RaidService.GetActiveRaid(player: any): RaidState?
+function RaidService.GetActiveRaid(player: Player): RaidState?
 	local id = playerRaid[player.UserId]
 	return id and activeRaids[id]
 end
 
 -- ── Gate ──
 
-function RaidService.CanRaid(attacker: any, defender: any): (boolean, string)
+function RaidService.CanRaid(attacker: Player, defender: Player): (boolean, RaidRefusal | "ok")
 	if attacker.UserId == defender.UserId then
 		return false, "cannot raid self"
 	end
-	if server().Protection.IsProtected(defender) then
+	if ProtectionService.IsProtected(defender) then
 		return false, "target protected"
 	end
-	if server().Cooldown.IsActive(cooldownKey(attacker)) then
+	if CooldownService.IsActive(cooldownKey(attacker)) then
 		return false, "on cooldown"
 	end
 	if playerRaid[attacker.UserId] or playerRaid[defender.UserId] then
@@ -154,11 +164,12 @@ function RaidService.CanRaid(attacker: any, defender: any): (boolean, string)
 end
 
 -- ── Start ──
+-- Gameplay API (opens a raid), not a lifecycle hook — see Lifecycle.Define below.
 
-function RaidService.Start(attacker: any, defender: any): (string?, string?)
+function RaidService.Start(attacker: Player, defender: Player): (string?, RaidRefusal?)
 	local ok, err = RaidService.CanRaid(attacker, defender)
 	if not ok then
-		return nil, err
+		return nil, err :: RaidRefusal
 	end
 	seq += 1
 	local raidId = `raid_{seq}`
@@ -177,15 +188,13 @@ function RaidService.Resolve(raidId: string, success: boolean): (boolean, RaidSu
 		return false, { success = false, loot = 0 }
 	end
 	local attacker, defender = raid.attacker, raid.defender
-	local Economy = server().Economy
-	local Vault = server().Vault
 
 	local currency = raidGet("Currency")
 	local loot = 0
 	if success then
 		local cap = RaidService.ComputeLoot(
-			Vault.GetValue(defender),
-			Economy.Get(defender, currency),
+			VaultService.GetValue(defender),
+			EconomyService.Get(defender, currency),
 			raidGet("LootFraction"),
 			raidGet("MaxLoot")
 		)
@@ -195,11 +204,11 @@ function RaidService.Resolve(raidId: string, success: boolean): (boolean, RaidSu
 			-- zero-sum TRANSFER (defender loses `cap`, attacker gains `cap`).
 			-- Multiplying the credit would MINT currency; pets boost generated
 			-- faucets (Idle / Quest), never transfers.
-			if Economy.Spend(defender, currency, cap) then
-				if Economy.Add(attacker, currency, cap) then
+			if EconomyService.Spend(defender, currency, cap) then
+				if EconomyService.Add(attacker, currency, cap) then
 					loot = cap
 				else
-					Economy.Add(defender, currency, cap) -- refund — no dupe/loss
+					EconomyService.Add(defender, currency, cap) -- refund — no dupe/loss
 				end
 			end
 		end
@@ -207,8 +216,8 @@ function RaidService.Resolve(raidId: string, success: boolean): (boolean, RaidSu
 	end
 
 	-- Defender gets a revenge shield; attacker goes on cooldown.
-	server().Protection.Grant(defender, raidGet("RevengeProtection"))
-	server().Cooldown.Start(cooldownKey(attacker), raidGet("Cooldown"))
+	ProtectionService.Grant(defender, raidGet("RevengeProtection"))
+	CooldownService.Start(cooldownKey(attacker), raidGet("Cooldown"))
 
 	-- Tear down the active-raid bookkeeping.
 	playerRaid[attacker.UserId] = nil
@@ -218,5 +227,12 @@ function RaidService.Resolve(raidId: string, success: boolean): (boolean, RaidSu
 	RaidService.OnRaidEnd:Fire(attacker, defender, success, loot)
 	return true, { success = success, loot = loot }
 end
+
+-- Pure API (raid state lives in memory, created on use): nothing to set up.
+-- RaidService.Start above is the gameplay API; this spec has no lifecycle hooks.
+Lifecycle.Define(RaidService, {
+	Name = "Raid",
+	Needs = {},
+})
 
 return RaidService

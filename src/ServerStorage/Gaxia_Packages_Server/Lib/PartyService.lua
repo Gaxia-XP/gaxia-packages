@@ -16,33 +16,36 @@
 --   Gaxia.Party.QueueForMatch(pid, "Duel", placeId)
 --   local match = Gaxia.Party.PollMatch("Duel", 2)   -- {parties, accessCode, placeId}
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
-
-local GaxiaServer: any = nil
-local function server(): any
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer
-end
+-- ── Dependencies ──
+local Signal          = require(ReplicatedStorage.Gaxia_Packages.Shared.Signal)
+local Lifecycle       = require(script.Parent.ServiceLifecycle)
+local Config          = require(script.Parent.Parent.Config)
+local EConfig         = require(script.Parent.EffectiveConfig)
+local MemoryStore     = require(script.Parent.MemoryStore)
+local TeleportService = require(script.Parent.TeleportService)
+local InviteQueue     = require(script.Parent.InviteQueue)
+local FriendService   = require(script.Parent.FriendService)
 
 local POOL_TTL : number = 120
 
+-- ── Types ──
+-- Party members / leaders stay `any`: tests pass MockPlayers (StartMatch only
+-- teleports the members that are real Player Instances).
 type Party = { id: string, leader: any, members: { any } }
+
+-- One queued party in the matchmaking pool (Memory sorted map value).
+export type PoolEntry = { partyId: string, memberIds: { number }, size: number, placeId: number }
+-- PollMatch result: the parties that formed the match and the reserved server.
+export type MatchResult = { parties: { PoolEntry }, accessCode: string?, placeId: number? }
 
 local PartyService = {}
 
-PartyService.OnPartyChanged = Signal.new() -- (partyId)
-PartyService.OnMatchFound = Signal.new()   -- (matchType, parties, accessCode)
+-- (partyId)
+PartyService.OnPartyChanged = Signal.new() :: Signal.Signal<string>
+-- (matchType, parties, accessCode)
+PartyService.OnMatchFound = Signal.new() :: Signal.Signal<string, { PoolEntry }, string?>
 
 local parties: { [string]: Party } = {}
 local playerParty: { [number]: string } = {}
@@ -50,12 +53,11 @@ local seq = 0
 local maxSizeOverride: number? = nil -- set via SetMaxSize; else Config.Party.MaxSize
 
 -- Effective tunable: runtime Flag override <- Config.Party default <- fallback.
-local function partyGet(key: string, fallback: any): any
-	local s = server()
-	return s.EConfig.Get(`Party.{key}`, (s.Config.Party or {})[key] or fallback)
+local function partyGet(key: string, configured: number?, fallback: number): number
+	return EConfig.Get(`Party.{key}`, configured or fallback)
 end
 local function getMaxSize(): number
-	return maxSizeOverride or partyGet("MaxSize", 4)
+	return maxSizeOverride or partyGet("MaxSize", Config.Party.MaxSize, 4)
 end
 
 -- ── Lifecycle ──
@@ -167,20 +169,20 @@ function PartyService.QueueForMatch(partyId: string, matchType: string, placeId:
 	for _, m in ipairs(p.members) do
 		table.insert(memberIds, m.UserId)
 	end
-	local entry = { partyId = partyId, memberIds = memberIds, size = #p.members, placeId = placeId }
-	server().Memory.MapSet(poolName(matchType), partyId, entry, partyGet("PoolTTL", POOL_TTL), os.time())
+	local entry: PoolEntry = { partyId = partyId, memberIds = memberIds, size = #p.members, placeId = placeId }
+	MemoryStore.MapSet(poolName(matchType), partyId, entry, partyGet("PoolTTL", Config.Party.PoolTTL, POOL_TTL), os.time())
 	return true, "ok"
 end
 
 function PartyService.Unqueue(partyId: string, matchType: string): ()
-	server().Memory.MapRemove(poolName(matchType), partyId)
+	MemoryStore.MapRemove(poolName(matchType), partyId)
 end
 
 -- Pull oldest queued parties until `neededPlayers` is reached; if a full match
 -- forms, remove those parties from the pool, reserve a server, and return it.
-function PartyService.PollMatch(matchType: string, neededPlayers: number): { parties: { any }, accessCode: string?, placeId: number? }?
-	local pool = server().Memory.MapRange(poolName(matchType), partyGet("PoolScanLimit", 50), true) -- oldest first
-	local chosen: { any } = {}
+function PartyService.PollMatch(matchType: string, neededPlayers: number): MatchResult?
+	local pool = MemoryStore.MapRange(poolName(matchType), partyGet("PoolScanLimit", Config.Party.PoolScanLimit, 50), true) -- oldest first
+	local chosen: { PoolEntry } = {}
 	local total = 0
 	local placeId: number? = nil
 	for _, row in ipairs(pool) do
@@ -196,9 +198,9 @@ function PartyService.PollMatch(matchType: string, neededPlayers: number): { par
 		return nil
 	end
 	for _, entry in ipairs(chosen) do
-		server().Memory.MapRemove(poolName(matchType), entry.partyId)
+		MemoryStore.MapRemove(poolName(matchType), entry.partyId)
 	end
-	local accessCode = server().Teleport.ReserveServer(placeId or 0)
+	local accessCode = TeleportService.ReserveServer(placeId or 0)
 	PartyService.OnMatchFound:Fire(matchType, chosen, accessCode)
 	return { parties = chosen, accessCode = accessCode, placeId = placeId }
 end
@@ -209,7 +211,7 @@ function PartyService.StartMatch(partyId: string, placeId: number): (boolean, an
 	if not p then
 		return false, "no such party"
 	end
-	local code, _, rerr = server().Teleport.ReserveServer(placeId)
+	local code, _, rerr = TeleportService.ReserveServer(placeId)
 	if not code then
 		return false, rerr or "reserve failed"
 	end
@@ -220,7 +222,7 @@ function PartyService.StartMatch(partyId: string, placeId: number): (boolean, an
 			table.insert(toSend, m)
 		end
 	end
-	local ok, err = server().Teleport.ToPrivate(toSend, placeId, code, { Data = { partyId = partyId } })
+	local ok, err = TeleportService.ToPrivate(toSend, placeId, code, { Data = { partyId = partyId } })
 	return ok, err
 end
 
@@ -229,10 +231,13 @@ end
 -- OnInvite. Cross-server: InviteQueue.Push("party", ...) drained at
 -- PlayerAdded for the joining player.
 
-PartyService.OnInvite = Signal.new() -- (toPlayer, partyId, fromName)
-PartyService.OnInviteResponded = Signal.new() -- (leader, targetUserId, accepted)
+-- (toPlayer, partyId, fromName)
+PartyService.OnInvite = Signal.new() :: Signal.Signal<Player, string, string>
+-- (leader, targetUserId, accepted)
+PartyService.OnInviteResponded = Signal.new() :: Signal.Signal<Player, number, boolean>
 
-type PendingInvite = {
+-- A pending party invite (GetPendingInvites; also the InviteQueue "party" item).
+export type PendingInvite = {
 	partyId: string,
 	fromUserId: number,
 	fromName: string,
@@ -243,10 +248,8 @@ type PendingInvite = {
 -- multiple invites from different parties without overwriting.
 local pendingByUser: { [number]: { [string]: PendingInvite } } = {}
 
-local function inviteCfg(key: string, fallback: any): any
-	local s = server()
-	local social = (s.Config.Social or {}).Party or {}
-	return s.EConfig.Get(`Social.Party.{key}`, social[key] or fallback)
+local function inviteCfg(key: string, configured: number?, fallback: number): number
+	return EConfig.Get(`Social.Party.{key}`, configured or fallback)
 end
 
 local function getPendingMap(userId: number): { [string]: PendingInvite }
@@ -321,21 +324,16 @@ function PartyService.Invite(leader: any, targetUserId: number): (boolean, strin
 	if (#party.members + outstanding) >= maxSize then
 		return false, "party + pending invites would exceed max size"
 	end
-	if pendingCount(targetUserId) >= inviteCfg("MaxPending", 10) then
+	if pendingCount(targetUserId) >= inviteCfg("MaxPending", Config.Social.Party.MaxPending, 10) then
 		return false, "target has too many pending invites"
 	end
 
-	-- Friend block check (best-effort; if Friend not loaded yet, skip).
-	local s = server()
-	-- FriendService may not be loaded yet; field-read is safe (no pcall needed).
-	local FriendMod = s.Friend
-	if FriendMod and FriendMod.IsBlockedByUserId then
-		if FriendMod.IsBlockedByUserId(targetUserId, leader.UserId) then
-			return false, "could not invite"
-		end
+	-- Friend block check (best-effort: only a blocker in this server is known).
+	if FriendService.IsBlockedByUserId(targetUserId, leader.UserId) then
+		return false, "could not invite"
 	end
 
-	local ttl = inviteCfg("InviteTTL", 60)
+	local ttl = inviteCfg("InviteTTL", Config.Social.Party.InviteTTL, 60)
 	local invite: PendingInvite = {
 		partyId = partyId,
 		fromUserId = leader.UserId,
@@ -350,10 +348,7 @@ function PartyService.Invite(leader: any, targetUserId: number): (boolean, strin
 		PartyService.OnInvite:Fire(targetPlayer, partyId, leader.Name)
 	else
 		-- Cross-server: push to MemoryStore queue for drain at PlayerAdded.
-		local IQ = s.InviteQueue
-		if IQ then
-			IQ.Push("party", targetUserId, invite, ttl)
-		end
+		InviteQueue.Push("party", targetUserId, invite, ttl)
 	end
 	return true, nil
 end
@@ -398,7 +393,7 @@ function PartyService.DeclineInvite(player: any, partyId: string): (boolean, str
 	cleanExpired(player.UserId)
 	local pmap = peekPendingMap(player.UserId)
 	local inv = pmap and pmap[partyId]
-	if not inv then
+	if not pmap or not inv then
 		return false, "no such invite"
 	end
 	pmap[partyId] = nil
@@ -417,7 +412,7 @@ function PartyService.AcceptInvite(player: any, partyId: string): (boolean, stri
 	cleanExpired(player.UserId)
 	local pmap = peekPendingMap(player.UserId)
 	local inv = pmap and pmap[partyId]
-	if not inv then
+	if not pmap or not inv then
 		return false, "no such invite or it expired"
 	end
 	if not parties[partyId] then
@@ -439,12 +434,7 @@ end
 
 -- Drain cross-server invite queue at PlayerAdded for this player.
 local function drainOnJoin(player: Player): ()
-	local s = server()
-	local IQ = s and s.InviteQueue
-	if not IQ then
-		return
-	end
-	local items = IQ.DrainFor("party", player.UserId)
+	local items = InviteQueue.DrainFor("party", player.UserId)
 	local pmap = getPendingMap(player.UserId)
 	local now = os.time()
 	for _, item in ipairs(items) do
@@ -457,7 +447,8 @@ local function drainOnJoin(player: Player): ()
 	end
 end
 
-do
+-- Runs in Init. The drain yields on MemoryStore, so each runs on its own thread.
+local function hookPlayers(): ()
 	local Players = game:GetService("Players")
 	Players.PlayerAdded:Connect(function(player)
 		task.spawn(drainOnJoin, player)
@@ -473,8 +464,8 @@ do
 	end
 end
 
--- ── RemoteFunction surface ──
-do
+-- ── RemoteFunction surface (created in Init) ──
+local function createRemotes(): ()
 	local Events = ReplicatedStorage:FindFirstChild("Events") or Instance.new("Folder")
 	Events.Name = "Events"
 	Events.Parent = ReplicatedStorage
@@ -514,5 +505,18 @@ do
 		Inbound:FireClient(toPlayer, { type = "invite", partyId = partyId, fromName = fromName })
 	end)
 end
+
+Lifecycle.Define(PartyService, {
+	Name = "Party",
+	-- Init's existing-player drain calls InviteQueue.DrainFor.
+	Needs = { InviteQueue },
+	Init = function()
+		-- Same order as the old module body: player hooks + existing-player drain
+		-- (each drain on its own thread — it yields on MemoryStore), then the
+		-- Events/Party remotes and the OnInvite client forwarder.
+		hookPlayers()
+		createRemotes()
+	end,
+})
 
 return PartyService

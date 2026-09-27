@@ -8,16 +8,18 @@
 --           were previously dead — no endpoint reached them. Unknown keys and
 --           bad-typed values are rejected (anti-exploit).
 --
--- Access  : Gaxia.Settings  (server) — touch it at boot to activate the bridge:
+-- Access  : Gaxia.Settings  (server) — list "Settings" in Features (or touch it at
+--           boot) to create the client bridge before a client invokes it:
 --   Gaxia.Settings.RegisterSetting("Quality", function(v) return typeof(v)=="number" end)
 --   Gaxia.Settings.Set(player, "Music", false)
 -- Client  : RemoteFunction ReplicatedStorage.Events.Gaxia_Settings
 --   remote:InvokeServer("get"|"getAll"|"set", key, value)
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
+
+-- ── Dependencies ──
+local Lifecycle   = require(script.Parent.ServiceLifecycle)
+local DataManager = require(script.Parent.DataManager)
 
 local SETTINGS_KEY : string = "Settings"        -- Profile.Data.Settings
 local REMOTE_NAME  : string = "Gaxia_Settings"
@@ -33,19 +35,6 @@ local whitelist: { [string]: (value: any) -> boolean } = {
 	SFX   = isBool,
 }
 
--- Lazy DataManager (require the loader at CALL time, not module load — module
--- load runs under the no-yield loader metamethod; calls run in normal context).
-local GaxiaServer: any = nil
-local function getData(): any
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer.Data
-end
-
 -- ── Public API ──
 
 function SettingsService.RegisterSetting(key: string, validator: (value: any) -> boolean): ()
@@ -56,8 +45,7 @@ function SettingsService.RegisterSetting(key: string, validator: (value: any) ->
 end
 
 function SettingsService.Get(player: Player, key: string): any
-	local Data = getData()
-	local settings = Data and Data.Get(player, SETTINGS_KEY)
+	local settings = DataManager.Get(player, SETTINGS_KEY)
 	if typeof(settings) ~= "table" then
 		return nil
 	end
@@ -65,8 +53,7 @@ function SettingsService.Get(player: Player, key: string): any
 end
 
 function SettingsService.GetAll(player: Player): { [string]: any }
-	local Data = getData()
-	local settings = Data and Data.Get(player, SETTINGS_KEY)
+	local settings = DataManager.Get(player, SETTINGS_KEY)
 	local out: { [string]: any } = {}
 	if typeof(settings) == "table" then
 		for k, v in pairs(settings) do
@@ -88,21 +75,17 @@ function SettingsService.Set(player: Player, key: string, value: any): boolean
 		warn(`[SettingsService] rejected invalid value for '{key}'`)
 		return false
 	end
-	local Data = getData()
-	if not Data then
-		return false
-	end
-	local settings = Data.Get(player, SETTINGS_KEY)
+	local settings = DataManager.Get(player, SETTINGS_KEY)
 	if typeof(settings) ~= "table" then
 		settings = {}
 	end
 	settings[key] = value
-	return Data.Set(player, SETTINGS_KEY, settings) == true
+	return DataManager.Set(player, SETTINGS_KEY, settings) == true
 end
 
 -- ── Client bridge (RemoteFunction) ──
--- Created at module load (no yield: FindFirstChild + Instance.new). The game must
--- touch Gaxia.Settings server-side at boot so this runs before the client invokes.
+-- Created in Init (no yield: FindFirstChild + Instance.new), so the service must
+-- start before the client invokes (list "Settings" in Features).
 local function getOrCreateEvents(): Instance
 	local events = ReplicatedStorage:FindFirstChild("Events")
 	if events then
@@ -114,20 +97,7 @@ local function getOrCreateEvents(): Instance
 	return folder
 end
 
-local events = getOrCreateEvents()
-local existing = events:FindFirstChild(REMOTE_NAME)
-if existing and not existing:IsA("RemoteFunction") then
-	existing:Destroy()
-	existing = nil
-end
-local remote: RemoteFunction = (existing :: RemoteFunction?) or (function()
-	local r = Instance.new("RemoteFunction")
-	r.Name = REMOTE_NAME
-	r.Parent = events
-	return r
-end)()
-
-remote.OnServerInvoke = function(player: Player, op: any, key: any, value: any): any
+local function onServerInvoke(player: Player, op: any, key: any, value: any): any
 	if op == "get" and typeof(key) == "string" then
 		return SettingsService.Get(player, key)
 	elseif op == "getAll" then
@@ -137,5 +107,25 @@ remote.OnServerInvoke = function(player: Player, op: any, key: any, value: any):
 	end
 	return nil
 end
+
+Lifecycle.Define(SettingsService, {
+	Name = "Settings",
+	Needs = {},
+	Init = function()
+		local events = getOrCreateEvents()
+		local existing = events:FindFirstChild(REMOTE_NAME)
+		if existing and not existing:IsA("RemoteFunction") then
+			existing:Destroy()
+			existing = nil
+		end
+		local remote: RemoteFunction = (existing :: RemoteFunction?) or (function()
+			local r = Instance.new("RemoteFunction")
+			r.Name = REMOTE_NAME
+			r.Parent = events
+			return r
+		end)()
+		remote.OnServerInvoke = onServerInvoke
+	end,
+})
 
 return SettingsService

@@ -15,24 +15,15 @@
 --   Gaxia.Loot.DefineTable("Chest", { {Item="Common",Weight=80}, {Item="Epic",Weight=1,Pity=50} })
 --   local drop = Gaxia.Loot.Roll(player, "Chest")   -- {Item, viaPity}
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
-
-local GaxiaServer: any = nil
-local function server(): any
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer
-end
+-- ── Dependencies ──
+local Shared       = ReplicatedStorage.Gaxia_Packages.Shared
+local Signal       = require(Shared.Signal)
+local Lifecycle    = require(script.Parent.ServiceLifecycle)
+local DataManager  = require(script.Parent.DataManager)
+-- Best-effort auto-discovery on every roll (call-time only, so not a Need).
+local CodexService = require(script.Parent.CodexService)
 
 local PITY_KEY : string = "LootPity"
 
@@ -41,7 +32,8 @@ export type Drop = { Item: string, viaPity: boolean }
 
 local LootService = {}
 
-LootService.OnDrop = Signal.new() -- (player, tableId, item, viaPity)
+-- (player, tableId, item, viaPity) after every successful Roll
+LootService.OnDrop = Signal.new() :: Signal.Signal<Player, string, string, boolean>
 
 local tables: { [string]: { LootEntry } } = {}
 local rng = Random.new()
@@ -97,12 +89,12 @@ end
 -- ── Pity persistence ──
 
 local function loadPity(player: Player): { [string]: any }
-	local p = server().Data.Get(player, PITY_KEY)
+	local p = DataManager.Get(player, PITY_KEY)
 	return (typeof(p) == "table") and p or {}
 end
 
 local function savePity(player: Player, p: { [string]: any }): ()
-	server().Data.Set(player, PITY_KEY, p)
+	DataManager.Set(player, PITY_KEY, p)
 end
 
 function LootService.GetPity(player: Player, tableId: string, item: string): number
@@ -156,10 +148,16 @@ function LootService.Roll(player: Player, tableId: string): Drop?
 	savePity(player, pity)
 
 	pcall(function()
-		server().Codex.Discover(player, chosen.Item)
+		CodexService.Discover(player, chosen.Item)
 	end)
 	LootService.OnDrop:Fire(player, tableId, chosen.Item, viaPity)
 	return { Item = chosen.Item, viaPity = viaPity }
 end
+
+-- Pure API: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(LootService, {
+	Name = "Loot",
+	Needs = {},
+})
 
 return LootService

@@ -2,7 +2,21 @@
 -- Config/Webhook.lua — WebhookService tunables (SERVER-PRIVATE, never replicated)
 -- Channels hold secret URLs (Discord etc.). AutoReport maps an event source
 -- to a channel name; that channel must have a URL set or the report stays off.
-return {
+export type WebhookConfig = {
+	Enabled: boolean,
+	-- Channel name -> webhook URL (a secret).
+	Channels: { [string]: string },
+	-- Event source ("Bans", "AntiCheat", "Guild") -> channel name.
+	AutoReport: { [string]: string },
+	RateLimit: {
+		MinInterval: number,
+		MaxQueue: number,
+		MaxRetries: number,
+	},
+	Username: string,
+}
+
+local Webhook: WebhookConfig = {
 	Enabled = true,
 	Channels = {
 		-- BanReports = "https://discord.com/api/webhooks/...",
@@ -20,3 +34,5 @@ return {
 	},
 	Username = "Gaxia", -- default Discord webhook username override
 }
+
+return Webhook

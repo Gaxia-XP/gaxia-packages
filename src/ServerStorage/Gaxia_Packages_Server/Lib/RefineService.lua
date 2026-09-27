@@ -16,24 +16,16 @@
 --   local ok, err = Gaxia.Refine.Craft(player, "Bronze")
 --   local jobId = Gaxia.Refine.Begin(player, "Steel")  -- timed; later Claim(jobId)
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
-
-local GaxiaServer: any = nil
-local function server(): any
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer
-end
+-- ── Dependencies ──
+local Shared      = ReplicatedStorage.Gaxia_Packages.Shared
+local Signal      = require(Shared.Signal)
+local Lifecycle   = require(script.Parent.ServiceLifecycle)
+local DataManager = require(script.Parent.DataManager)
+local ItemService = require(script.Parent.ItemService)
+-- Optional level gate: a Level service that failed to start never blocks a craft.
+local LevelSystem = require(script.Parent.LevelSystem)
 
 local JOBS_KEY : string = "RefineJobs"
 
@@ -47,9 +39,12 @@ export type Job = { recipeId: string, completeAt: number }
 
 local RefineService = {}
 
-RefineService.OnCraft = Signal.new()    -- (player, recipeId, outputs)
-RefineService.OnBegin = Signal.new()    -- (player, jobId, recipeId, completeAt)
-RefineService.OnComplete = Signal.new() -- (player, jobId, recipeId, outputs)
+-- (player, recipeId, outputs) after an instant Craft granted its outputs
+RefineService.OnCraft = Signal.new() :: Signal.Signal<Player, string, { [string]: number }>
+-- (player, jobId, recipeId, completeAt) after Begin consumed the inputs and queued a job (completeAt: os.time() seconds)
+RefineService.OnBegin = Signal.new() :: Signal.Signal<Player, string, string, number>
+-- (player, jobId, recipeId, outputs) after Claim granted a finished job ({} when the recipe no longer exists)
+RefineService.OnComplete = Signal.new() :: Signal.Signal<Player, string, string, { [string]: number }>
 
 local recipes: { [string]: Recipe } = {}
 
@@ -84,30 +79,28 @@ local function meetsLevel(player: Player, recipe: Recipe): boolean
 	if not recipe.RequiresLevel then
 		return true
 	end
-	local lvl = server().Level
-	if not lvl or typeof(lvl.GetLevel) ~= "function" then
-		return true -- no level system wired → don't block
+	if Lifecycle.GetState(LevelSystem) == "failed" then
+		return true -- level system failed to start (GaxiaServer.Level is nil) → don't block
 	end
-	local ok, current = pcall(lvl.GetLevel, player)
+	local ok, current = pcall(LevelSystem.GetLevel, player)
 	return (not ok) or (current >= recipe.RequiresLevel)
 end
 
 -- Verify every input is in stock, then consume them all. If any consume fails,
 -- refund what was already taken so the craft is all-or-nothing.
 local function consumeInputs(player: Player, recipe: Recipe): boolean
-	local Item = server().Item
 	for id, cnt in pairs(recipe.Inputs) do
-		if not Item.Has(player, id, cnt) then
+		if not ItemService.Has(player, id, cnt) then
 			return false
 		end
 	end
 	local removed: { [string]: number } = {}
 	for id, cnt in pairs(recipe.Inputs) do
-		if Item.Remove(player, id, cnt) then
+		if ItemService.Remove(player, id, cnt) then
 			removed[id] = cnt
 		else
 			for rid, rcnt in pairs(removed) do
-				Item.Give(player, rid, rcnt)
+				ItemService.Give(player, rid, rcnt)
 			end
 			return false
 		end
@@ -116,9 +109,8 @@ local function consumeInputs(player: Player, recipe: Recipe): boolean
 end
 
 local function produceOutputs(player: Player, recipe: Recipe): ()
-	local Item = server().Item
 	for id, cnt in pairs(recipe.Outputs) do
-		Item.Give(player, id, cnt)
+		ItemService.Give(player, id, cnt)
 	end
 end
 
@@ -132,9 +124,8 @@ function RefineService.CanCraft(player: Player, recipeId: string): (boolean, str
 	if not meetsLevel(player, recipe) then
 		return false, "level too low"
 	end
-	local Item = server().Item
 	for id, cnt in pairs(recipe.Inputs) do
-		if not Item.Has(player, id, cnt) then
+		if not ItemService.Has(player, id, cnt) then
 			return false, `missing {id}`
 		end
 	end
@@ -163,13 +154,12 @@ end
 -- ── Timed Begin / Claim ──
 
 local function loadJobs(player: Player): { [string]: any }
-	local Data = server().Data
-	local j = Data.Get(player, JOBS_KEY)
+	local j = DataManager.Get(player, JOBS_KEY)
 	return (typeof(j) == "table") and j or {}
 end
 
 local function saveJobs(player: Player, jobs: { [string]: any }): ()
-	server().Data.Set(player, JOBS_KEY, jobs)
+	DataManager.Set(player, JOBS_KEY, jobs)
 end
 
 -- Consume inputs now, queue a timed job. Returns jobId (or nil + error).
@@ -242,5 +232,11 @@ function RefineService.Claim(player: Player, jobId: string): (boolean, string)
 	RefineService.OnComplete:Fire(player, jobId, j.recipeId, recipe and recipe.Outputs or {})
 	return true, "ok"
 end
+
+-- Pure API: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(RefineService, {
+	Name = "Refine",
+	Needs = {},
+})
 
 return RefineService

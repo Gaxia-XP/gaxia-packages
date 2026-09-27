@@ -9,19 +9,26 @@
 	          accel/decel/turn; a hack holds a near-constant high speed). Flags
 	          that statistical signature. Tunables in Config.AntiCheat.Heuristic.
 ]]
-local CollectionService = game:GetService("CollectionService")
 
 local Players = game:GetService("Players")
 
--- Server Config (sibling of AntiCheat). FindFirstChild — no-yield metamethod rule.
-local Config = require(script.Parent.Parent:FindFirstChild("Config") :: ModuleScript) :: any
-local Cfg = Config.AntiCheat.Heuristic or {}
+-- ── Dependencies ──
+local Types  = require(script.Parent.Parent.Types)
+local Config = require(script.Parent.Parent.Config)
 
-local WINDOW       : number = (Cfg.WindowSize :: any) or 20       -- samples per window (~10s at 0.5s)
-local NEAR_LIMIT   : number = (Cfg.NearLimitFactor :: any) or 1.3 -- mean > WalkSpeed * this = suspicious
-local MAX_VARIANCE : number = (Cfg.MaxVariance :: any) or 6       -- below this variance = "too consistent"
-local MIN_SPEED    : number = (Cfg.MinSpeed :: any) or 8          -- baseline floor (slow-zones)
-local SEVERITY     : string = (Cfg.Severity :: any) or "soft"
+-- ── Types ──
+type Snapshot = Types.AntiCheatSnapshot
+type Flag = Types.AntiCheatFlag
+type DetectorHost = Types.DetectorHost
+
+-- The section is optional: every tunable falls back to its default without it.
+local Cfg = Config.AntiCheat.Heuristic
+
+local WINDOW       : number = if Cfg then Cfg.WindowSize or 20 else 20          -- samples per window (~10s at 0.5s)
+local NEAR_LIMIT   : number = if Cfg then Cfg.NearLimitFactor or 1.3 else 1.3   -- mean > WalkSpeed * this = suspicious
+local MAX_VARIANCE : number = if Cfg then Cfg.MaxVariance or 6 else 6           -- below this variance = "too consistent"
+local MIN_SPEED    : number = if Cfg then Cfg.MinSpeed or 8 else 8              -- baseline floor (slow-zones)
+local SEVERITY     : string = if Cfg then Cfg.Severity or "soft" else "soft"
 
 local HeuristicDetector = {}
 HeuristicDetector.Name = "Heuristic"
@@ -29,8 +36,8 @@ HeuristicDetector.Name = "Heuristic"
 -- per-player rolling window of horizontal speeds
 local windows: { [number]: { number } } = {}
 
-function HeuristicDetector.Sample(player: Player, snapshot: any): any?
-	local vel = snapshot.velocity :: Vector3?
+function HeuristicDetector.Sample(player: Player, snapshot: Snapshot): Flag?
+	local vel = snapshot.velocity
 	local humanoid = snapshot.humanoid
 	if not vel or not humanoid then
 		return nil
@@ -78,8 +85,11 @@ function HeuristicDetector.Sample(player: Player, snapshot: any): any?
 	return nil
 end
 
-Players.PlayerRemoving:Connect(function(p: Player)
-	windows[p.UserId] = nil
-end)
+-- Runs when the orchestrator registers this detector (was connected at require time).
+function HeuristicDetector.Init(_orchestrator: DetectorHost): ()
+	Players.PlayerRemoving:Connect(function(p: Player)
+		windows[p.UserId] = nil
+	end)
+end
 
 return HeuristicDetector

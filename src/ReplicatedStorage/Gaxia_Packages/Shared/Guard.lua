@@ -12,8 +12,6 @@
 --   local checkBuy = Gaxia.Guard.strictInterface({ id = Gaxia.Guard.string, qty = Gaxia.Guard.integer })
 --   local ok, err = checkBuy(payload); if not ok then return end
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 export type Check = (value: any) -> (boolean, string?)
 
 local Guard = {}

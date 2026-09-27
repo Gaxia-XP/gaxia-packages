@@ -10,8 +10,15 @@
 
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
+
+-- ── Dependencies ──
+-- Data / Economy are only called when unlocks are read or a reward is paid (call
+-- time), so they are plain requires, not lifecycle Needs.
+local Shared         = ReplicatedStorage.Gaxia_Packages.Shared
+local Signal         = require(Shared.Signal)
+local Lifecycle      = require(script.Parent.ServiceLifecycle)
+local DataManager    = require(script.Parent.DataManager)
+local EconomyService = require(script.Parent.EconomyService)
 
 -- ── Types ──
 export type AchievementDef = {
@@ -23,43 +30,21 @@ export type AchievementDef = {
 	condition: ((player: Player, eventType: string, ...any) -> boolean)?,
 }
 
--- ── Direct-path lazy requires ──
-local _dataMgr: any = nil
-local function getDataManager(): any
-	if _dataMgr ~= nil then return _dataMgr end
-	local lib = (script.Parent :: any)
-	local mod = lib:FindFirstChild("DataManager")
-	if mod and mod:IsA("ModuleScript") then
-		local ok, m = pcall(require, mod) ; if ok then _dataMgr = m end
-	end
-	return _dataMgr
-end
-
-local _econ: any = nil
-local function getEconomy(): any
-	if _econ ~= nil then return _econ end
-	local lib = (script.Parent :: any)
-	local mod = lib:FindFirstChild("EconomyService")
-	if mod and mod:IsA("ModuleScript") then
-		local ok, m = pcall(require, mod) ; if ok then _econ = m end
-	end
-	return _econ
-end
-
 -- ── Module ──
 local AchievementSystem = {}
 
 -- All known achievements, keyed by id.
 local Registry: { [string]: AchievementDef } = {}
 
-AchievementSystem.OnUnlocked = Signal.new()  -- (player, id, def)
+-- (player, id, def) once per player when an achievement unlocks (Award / Track)
+AchievementSystem.OnUnlocked = Signal.new() :: Signal.Signal<Player, string, AchievementDef>
 
 -- ── Helpers ──
 
 local function getProfile(player: Player): any?
-	local dm = getDataManager()
-	if not dm then return nil end
-	local ok, prof = pcall(dm.Get, player)
+	local ok, prof = pcall(function()
+		return DataManager.Get(player)
+	end)
 	if not ok then return nil end
 	return prof
 end
@@ -82,10 +67,7 @@ local function payReward(player: Player, def: AchievementDef): ()
 	local reward = def.reward
 	if not reward then return end
 	if reward.currency and reward.amount and reward.amount > 0 then
-		local econ = getEconomy()
-		if econ and econ.Add then
-			pcall(econ.Add, player, reward.currency, reward.amount)
-		end
+		pcall(EconomyService.Add, player, reward.currency, reward.amount)
 	end
 end
 
@@ -143,5 +125,11 @@ function AchievementSystem.Track(player: Player, eventType: string, ...: any): (
 		end
 	end
 end
+
+-- Pure API: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(AchievementSystem, {
+	Name = "Achievement",
+	Needs = {},
+})
 
 return AchievementSystem

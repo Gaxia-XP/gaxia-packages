@@ -16,12 +16,9 @@
 --   local mult = EConfig.Get("AntiCheat.Speed.ToleranceMultiplier", cfg.Speed.ToleranceMultiplier)
 --   EConfig.Set("AntiCheat.Enabled", false)   -- runtime override (admin command)
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Flags = SharedPkg.Flags
+local Flags = require(ReplicatedStorage.Gaxia_Packages.Shared.Flags)
 
 local EConfig = {}
 

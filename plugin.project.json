@@ -1,5 +1,10 @@
 {
   "name": "GaxiaCompanion",
+  "globIgnorePaths": [
+    "**/*.spec.lua", "**/*.spec.luau",
+    "**/*.test.lua", "**/*.test.luau",
+    "**/jest.config.luau", "**/wally.toml"
+  ],
   "tree": {
     "$path": "plugin/src",
     "Payload": {

@@ -127,7 +127,7 @@ function Table.Count<K, V>(t: {[K]: V}, predicate: ((V, K) -> boolean)?): number
 			end
 		end
 	else
-		for _ in pairs(t) do
+		for _ in pairs(t :: {[any]: any}) do
 			n += 1
 		end
 	end
@@ -142,7 +142,7 @@ end
 -- Returns an array of the table's keys. Order is undefined for dictionaries.
 function Table.Keys<K, V>(t: {[K]: V}): {K}
 	local out: {K} = {}
-	for k in pairs(t) do
+	for k: K in pairs(t :: {[any]: any}) do
 		out[#out + 1] = k
 	end
 	return out

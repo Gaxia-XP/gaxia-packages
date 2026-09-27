@@ -15,15 +15,20 @@
 --   local stop = Gaxia.AI.Roam(npcModel, spawnPos, 30)   ;  stop()
 --   Gaxia.AI.Follow(npcModel, player.Character)
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local PathfindingService = game:GetService("PathfindingService")
 local ReplicatedStorage  = game:GetService("ReplicatedStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
+-- ── Dependencies ──
+local Shared    = ReplicatedStorage.Gaxia_Packages.Shared
+local Signal    = require(Shared.Signal)
+local Lifecycle = require(script.Parent.ServiceLifecycle)
 
-local DEFAULT_AGENT: { [string]: any } = {
+-- ── Types ──
+-- PathfindingService:CreatePath agent parameters (AgentRadius, AgentHeight,
+-- AgentCanJump, AgentCanClimb, WaypointSpacing, Costs, ...), passed through as-is.
+export type AgentParams = { [string]: any }
+
+local DEFAULT_AGENT: AgentParams = {
 	AgentRadius = 2,
 	AgentHeight = 5,
 	AgentCanJump = true,
@@ -32,10 +37,11 @@ local DEFAULT_AGENT: { [string]: any } = {
 
 local AIService = {}
 
-AIService.OnReached = Signal.new() -- (model, target)
+-- (model, target) after MoveTo walks the whole route (not when cancelled)
+AIService.OnReached = Signal.new() :: Signal.Signal<Model, Vector3>
 
 -- One active movement token per model; replacing it cancels the prior walk.
-local activeTokens: { [Model]: any } = {}
+local activeTokens: { [Model]: {} } = {}
 
 -- ── Helpers ──
 
@@ -51,7 +57,7 @@ end
 
 -- Returns the waypoint list (or nil) + the PathStatus name. Pure-ish: no model,
 -- just geometry — easy to assert on.
-function AIService.ComputePath(from: Vector3, to: Vector3, agentParams: { [string]: any }?): ({ PathWaypoint }?, string)
+function AIService.ComputePath(from: Vector3, to: Vector3, agentParams: AgentParams?): ({ PathWaypoint }?, string)
 	local path = PathfindingService:CreatePath(agentParams or DEFAULT_AGENT)
 	local ok, err = pcall(function()
 		path:ComputeAsync(from, to)
@@ -70,7 +76,7 @@ end
 -- Walk `model` to `target`, following the path. Yields until arrival, an 8s
 -- per-waypoint Humanoid timeout, or cancellation (Stop / a newer command).
 -- Returns true if the route completed.
-function AIService.MoveTo(model: Model, target: Vector3, agentParams: { [string]: any }?): boolean
+function AIService.MoveTo(model: Model, target: Vector3, agentParams: AgentParams?): boolean
 	local hum = getHumanoid(model)
 	local root = getRoot(model)
 	if not hum or not root then
@@ -166,5 +172,11 @@ function AIService.Follow(model: Model, target: Instance, opts: { Interval: numb
 		AIService.Stop(model)
 	end
 end
+
+-- Pure library: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(AIService, {
+	Name = "AI",
+	Needs = {},
+})
 
 return AIService

@@ -13,14 +13,20 @@
 -- Access  : Gaxia.Journal  (server)
 --   Gaxia.Journal.SetSink(function(entry) postToDiscord(entry) end)
 --   for _, e in ipairs(Gaxia.Journal.GetForPlayer(player)) do ... end
+--
+-- Lifecycle: Start subscribes to AntiCheat.OnFlag/OnAction (not in the default
+--            Features: it records from the moment it starts — list "Journal" in
+--            Features to record from boot).
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
+-- ── Dependencies ──
+local Signal    = require(ReplicatedStorage.Gaxia_Packages.Shared.Signal)
+local Lifecycle = require(script.Parent.ServiceLifecycle)
+local Types     = require(script.Parent.Parent.Types)
+-- The orchestrator (not a Need: Start only subscribes to its signals, which never
+-- starts AntiCheat).
+local AntiCheat = require(script.Parent.Parent.AntiCheat)
 
 local MAX_BUFFER : number = 250  -- recent entries kept in memory
 
@@ -30,32 +36,21 @@ export type Entry = {
 	reason: string,
 	severity: string,
 	count: number?,
-	kind: string?,      -- set for action entries ("soft"|"hard")
+	kind: Types.ActionKind?, -- set for action entries
 	action: boolean,    -- true = OnAction entry, false = OnFlag entry
 	time: number,       -- os.time()
 }
 
 local Journal = {}
 
--- (entry)
-Journal.OnEntry = Signal.new()
+-- (entry) for every recorded flag / action
+Journal.OnEntry = Signal.new() :: Signal.Signal<Entry>
 
 local buffer: { Entry } = {}
 local byUser: { [number]: { Entry } } = {}
 
 local sink: (entry: Entry) -> () = function(entry)
 	warn(`[AntiCheatJournal] {entry.name} · {entry.reason} ({entry.severity}{if entry.action then " ACTION" else ""})`)
-end
-
-local GaxiaServer: any = nil
-local function server(): any
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer
 end
 
 local function record(entry: Entry): ()
@@ -103,29 +98,20 @@ function Journal.Clear(): ()
 	table.clear(byUser)
 end
 
--- ── Subscribe to the orchestrator (deferred, off the load metamethod path) ──
-local subscribed = false
+-- ── Subscribe to the orchestrator ──
 local function subscribe(): ()
-	if subscribed then
-		return
-	end
-	subscribed = true
-	local AC = server().AntiCheat
-	if not AC then
-		return
-	end
-	if AC.OnFlag then
-		AC.OnFlag:Connect(function(player: Player, reason: string, severity: string, count: number?)
-			record({ userId = player.UserId, name = player.Name, reason = reason, severity = severity, count = count, action = false, time = os.time() })
-		end)
-	end
-	if AC.OnAction then
-		AC.OnAction:Connect(function(player: Player, reason: string, kind: string)
-			record({ userId = player.UserId, name = player.Name, reason = reason, severity = kind, kind = kind, action = true, time = os.time() })
-		end)
-	end
+	AntiCheat.OnFlag:Connect(function(player: Player, reason: string, severity: string, count: number?)
+		record({ userId = player.UserId, name = player.Name, reason = reason, severity = severity, count = count, action = false, time = os.time() })
+	end)
+	AntiCheat.OnAction:Connect(function(player: Player, reason: string, kind: Types.ActionKind)
+		record({ userId = player.UserId, name = player.Name, reason = reason, severity = kind, kind = kind, action = true, time = os.time() })
+	end)
 end
 
-task.spawn(subscribe)
+Lifecycle.Define(Journal, {
+	Name = "Journal",
+	Needs = {},
+	Start = subscribe,
+})
 
 return Journal

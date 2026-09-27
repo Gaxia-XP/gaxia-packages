@@ -14,9 +14,12 @@
 -- Access  : Gaxia.UI.InviteToast  (client) — just `require` it from a
 --   LocalScript at game start, no further calls needed. Returning `true`
 --   instead of a module table keeps the boot side-effect explicit.
+--   Requiring it WAITS (up to 10 s per missing folder/remote; about 20 s when
+--   PartyService is not running) for the Friend, Guild and Party remotes, so
+--   `require` the ModuleScript directly from a LocalScript. Reaching it through
+--   Gaxia.UI.InviteToast runs it inside the loader's __index, which cannot wait:
+--   that fails (nil + warning) whenever one of those remotes is missing.
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
@@ -28,7 +31,7 @@ if not RunService:IsClient() then
 	return true
 end
 
-local Toast = require(script.Parent:WaitForChild("Toast")) :: any
+local Toast = require(script.Parent.Toast)
 
 local function waitRemote(folderName: string, name: string): Instance?
 	local Events = ReplicatedStorage:WaitForChild("Events", 10)
@@ -50,7 +53,8 @@ local PartyInbound = waitRemote("Party", "InviteInbound") :: RemoteEvent?
 local PartyAction = waitRemote("Party", "InviteAction") :: RemoteFunction?
 
 local function show(text: string, onAccept: () -> (), onDecline: () -> ()): ()
-	-- Feature-detect a future ShowAction(text, acceptLabel, onAccept, declineLabel, onDecline).
+	-- Feature-detect a future ShowAction(text, acceptLabel, onAccept, declineLabel, onDecline)
+	-- (not part of Toast's API yet, hence the `any` index).
 	if Toast and typeof((Toast :: any).ShowAction) == "function" then
 		(Toast :: any).ShowAction(text, "Accept", onAccept, "Decline", onDecline)
 		return

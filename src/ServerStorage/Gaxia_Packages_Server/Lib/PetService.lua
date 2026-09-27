@@ -16,27 +16,27 @@
 --   local mult = Gaxia.Pet.GetCoinMultiplier(player)  -- 1 + Σ equipped coinBonus
 --   local ok, petId = Gaxia.Pet.BuyEgg(player, "BasicEgg")
 --   Gaxia.Pet.Equip(player, uid)
+--
+-- Lifecycle: Init registers the catalog into ItemDef / Loot / Codex and the client
+--            remotes (PetGetState, PetBuyEgg, PetEquip, PetUnequip, PetSync,
+--            PetHatch) — listed in Features, so they exist before any player joins.
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
-local Net    = SharedPkg.Net
-local Guard  = SharedPkg.Guard
-
-local GaxiaServer: any = nil
-local function server(): any
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer
-end
+-- ── Dependencies ──
+local Shared         = ReplicatedStorage.Gaxia_Packages.Shared
+local Signal         = require(Shared.Signal)
+local Net            = require(Shared.NetService)
+local Guard          = require(Shared.Guard)
+local Lifecycle      = require(script.Parent.ServiceLifecycle)
+local Config         = require(script.Parent.Parent.Config)
+local EConfig        = require(script.Parent.EffectiveConfig)
+local DataManager    = require(script.Parent.DataManager)
+local EconomyService = require(script.Parent.EconomyService)
+-- Init registers the pet catalog into these three (they are Needs).
+local ItemDefinitionService = require(script.Parent.ItemDefinitionService)
+local LootService           = require(script.Parent.LootService)
+local CodexService          = require(script.Parent.CodexService)
 
 -- ── Constants ──
 local PETS_KEY         : string = "Pets"       -- profile key (outside DEFAULT_PROFILE, like Inventory's "Inv")
@@ -48,10 +48,13 @@ local DEFAULT_EGG_COST : number = 100          -- ultimate fallback if Config ab
 local DEFAULT_SLOTS    : number = 3            -- ultimate fallback if Config absent
 local MAX_UID_LEN      : number = 64           -- reject client uid payloads longer than any legit "u_<n>"
 
--- Effective tunable: runtime Flag override <- Config.Pets default <- fallback.
-local function petGet(key: string, fallback: any): any
-	local s = server()
-	return s.EConfig.Get(`Pets.{key}`, (s.Config.Pets or {})[key] or fallback)
+-- Effective tunables: runtime Flag override <- Config.Pets default <- fallback.
+-- Read per call so an admin `/flag set Pets.X` applies live.
+local function configuredSlots(): any
+	return EConfig.Get("Pets.MaxEquipSlots", Config.Pets.MaxEquipSlots or DEFAULT_SLOTS)
+end
+local function configuredEggCost(): any
+	return EConfig.Get("Pets.EggCost", Config.Pets.EggCost or DEFAULT_EGG_COST)
 end
 
 -- ── Pet catalog (MVP roster) ──
@@ -60,9 +63,11 @@ end
 -- table. `icon` is PROVISIONAL ("" → the client renders a placeholder image plus
 -- the always-visible name label, so a slot is never blank). Swap in real
 -- rbxassetid pet art here once assets are sourced.
+export type PetRarity = "common" | "uncommon" | "rare" | "epic" | "legendary"
+
 export type PetDef = {
 	displayName: string,
-	rarity: string,
+	rarity: PetRarity,
 	coinBonus: number,
 	weight: number,
 	pity: number?,
@@ -88,15 +93,34 @@ local PET_ORDER: { string } = {
 
 export type PetInstance = { petId: string, uid: string }
 
+-- Client-visible slice of a PetDef (Snapshot.defs).
+export type PetPublicDef = { displayName: string, rarity: PetRarity, coinBonus: number, icon: string }
+
+-- What Snapshot returns and PetGetState / PetSync send to the client.
+export type PetSnapshot = {
+	owned: { PetInstance },
+	equipped: { string },      -- equipped uids, in equip order
+	multiplier: number,        -- GetCoinMultiplier for this state
+	slots: number,             -- max pets equipped at once
+	eggCost: number,           -- Coins per BasicEgg
+	defs: { [string]: PetPublicDef },
+	order: { string },         -- stable display order of pet ids
+}
+
+export type EquipResult = "equipped" | "bad uid" | "not owned" | "already equipped" | "all slots full"
+export type UnequipResult = "unequipped" | "bad uid" | "not equipped"
+
 local PetService = {}
 
-PetService.OnPetGranted   = Signal.new() -- (player, petId, uid)
-PetService.OnEquipChanged = Signal.new() -- (player, equipped: { string })
+-- (player, petId, uid) after GrantPet added a pet to the profile
+PetService.OnPetGranted   = Signal.new() :: Signal.Signal<Player, string, string>
+-- (player, equipped) after Equip / Unequip; equipped = a copy of the equipped uid list
+PetService.OnEquipChanged = Signal.new() :: Signal.Signal<Player, { string }>
 
 -- ── Persistence (one blob: owned map + equipped list + uid sequence) ──
 
 local function loadPets(player: Player): { [string]: any }
-	local v = server().Data.Get(player, PETS_KEY)
+	local v = DataManager.Get(player, PETS_KEY)
 	if typeof(v) ~= "table" then
 		v = {}
 	end
@@ -113,18 +137,18 @@ local function loadPets(player: Player): { [string]: any }
 end
 
 local function savePets(player: Player, pets: { [string]: any }): ()
-	server().Data.Set(player, PETS_KEY, pets)
+	DataManager.Set(player, PETS_KEY, pets)
 end
 
 -- ── Helpers ──
 
 local function maxSlots(): number
-	local n = tonumber(petGet("MaxEquipSlots", DEFAULT_SLOTS)) or DEFAULT_SLOTS
+	local n = tonumber(configuredSlots()) or DEFAULT_SLOTS
 	return math.max(1, math.floor(n))
 end
 
 local function eggCost(): number
-	local c = tonumber(petGet("EggCost", DEFAULT_EGG_COST)) or DEFAULT_EGG_COST
+	local c = tonumber(configuredEggCost()) or DEFAULT_EGG_COST
 	-- Floor at 1: Economy.Spend rejects amounts <= 0, so a 0 cost would make the
 	-- egg silently unpurchasable (looks identical to "not enough Coins").
 	return math.max(1, math.floor(c))
@@ -166,7 +190,7 @@ end
 -- Returns a neutral 1.0 until the profile has loaded (no pets equipped yet
 -- anyway), so a faucet calling this in the join window never errors.
 function PetService.GetCoinMultiplier(player: Player): number
-	if not server().Data.IsLoaded(player) then
+	if not DataManager.IsLoaded(player) then
 		return 1.0
 	end
 	return multiplierOf(loadPets(player))
@@ -216,18 +240,18 @@ function PetService.BuyEgg(player: Player, eggId: string?): (boolean, string)
 		return false, "unknown egg"
 	end
 	local cost = eggCost()
-	if not server().Economy.Spend(player, EGG_CURRENCY, cost) then
+	if not EconomyService.Spend(player, EGG_CURRENCY, cost) then
 		return false, "not enough Coins"
 	end
 	-- Refund helper: warn loudly if the refund itself fails (e.g. balance already
 	-- at the Economy cap) so the lost coins are never silent.
 	local function refund(reason: string): (boolean, string)
-		if not server().Economy.Add(player, EGG_CURRENCY, cost) then
+		if not EconomyService.Add(player, EGG_CURRENCY, cost) then
 			warn(`[PetService] refund of {cost} {EGG_CURRENCY} failed for {player.Name} ({reason})`)
 		end
 		return false, reason
 	end
-	local drop = server().Loot.Roll(player, eggTable)
+	local drop = LootService.Roll(player, eggTable)
 	if typeof(drop) ~= "table" or typeof(drop.Item) ~= "string" then
 		return refund("egg unavailable")
 	end
@@ -240,7 +264,7 @@ end
 
 -- ── Equip / Unequip (server-authoritative; bounded by maxSlots) ──
 
-function PetService.Equip(player: Player, uid: string): (boolean, string)
+function PetService.Equip(player: Player, uid: string): (boolean, EquipResult)
 	if #uid > MAX_UID_LEN then -- reject oversized attacker strings before the hash lookup
 		return false, "bad uid"
 	end
@@ -260,7 +284,7 @@ function PetService.Equip(player: Player, uid: string): (boolean, string)
 	return true, "equipped"
 end
 
-function PetService.Unequip(player: Player, uid: string): (boolean, string)
+function PetService.Unequip(player: Player, uid: string): (boolean, UnequipResult)
 	if #uid > MAX_UID_LEN then
 		return false, "bad uid"
 	end
@@ -283,15 +307,15 @@ end
 
 -- ── Client snapshot (owned + equipped + multiplier + read-only defs) ──
 
-local function defsPublic(): { [string]: any }
-	local out: { [string]: any } = {}
+local function defsPublic(): { [string]: PetPublicDef }
+	local out: { [string]: PetPublicDef } = {}
 	for id, d in pairs(PET_DEFS) do
 		out[id] = { displayName = d.displayName, rarity = d.rarity, coinBonus = d.coinBonus, icon = d.icon }
 	end
 	return out
 end
 
-function PetService.Snapshot(player: Player): { [string]: any }
+function PetService.Snapshot(player: Player): PetSnapshot
 	local pets = loadPets(player) -- single load; build owned/equipped/multiplier from it
 	local owned: { PetInstance } = {}
 	for _, inst in pairs(pets.owned) do
@@ -318,10 +342,10 @@ local function pushSnapshot(player: Player): ()
 	Net.FireClient(player, "PetSync", PetService.Snapshot(player))
 end
 
--- ── Boot: register catalog into ItemDef / Loot / Codex ──
+-- ── Init: register catalog into ItemDef / Loot / Codex ──
 
 local function registerContent(): ()
-	local itemDefs: { [string]: any } = {}
+	local itemDefs: { [string]: { [string]: any } } = {}
 	for id, d in pairs(PET_DEFS) do
 		itemDefs[id] = {
 			category = PET_CATEGORY,
@@ -330,31 +354,31 @@ local function registerContent(): ()
 			coinBonus = d.coinBonus,
 		}
 	end
-	server().ItemDef.RegisterMany(itemDefs)
+	ItemDefinitionService.RegisterMany(itemDefs)
 
-	local entries: { any } = {}
+	local entries: { LootService.LootEntry } = {}
 	for _, id in ipairs(PET_ORDER) do
 		local d = PET_DEFS[id]
 		table.insert(entries, { Item = id, Weight = d.weight, Pity = d.pity })
 	end
-	server().Loot.DefineTable(EGG_TABLE_ID, entries)
+	LootService.DefineTable(EGG_TABLE_ID, entries)
 
 	-- Codex accuracy (completion %): pre-register so the catalog size is correct.
 	-- pcall — Codex is optional; Loot.Roll auto-discovers on its own besides this.
 	pcall(function()
-		local codexDefs: { [string]: any } = {}
+		local codexDefs: { [string]: CodexService.EntryDef } = {}
 		for id, d in pairs(PET_DEFS) do
 			codexDefs[id] = { Rarity = d.rarity, Set = CODEX_SET }
 		end
-		server().Codex.RegisterMany(codexDefs)
+		CodexService.RegisterMany(codexDefs)
 	end)
 end
 
--- ── Boot: register client-facing remotes (anti-exploit via Net + Guard) ──
+-- ── Init: register client-facing remotes (anti-exploit via Net + Guard) ──
 
 local function registerRemotes(): ()
 	-- Initial state pull (RemoteFunction).
-	Net.OnInvoke("PetGetState", function(player: Player): any
+	Net.OnInvoke("PetGetState", function(player: Player): PetSnapshot
 		return PetService.Snapshot(player)
 	end, { rate = 10 })
 
@@ -388,15 +412,17 @@ local function registerRemotes(): ()
 	Net.FireAllClients("PetHatch")
 end
 
--- ── Boot init ──
--- Deferred so registration runs in a clean coroutine AFTER the loader's __index
--- has fully returned — NOT from inside the metamethod that required this module
--- (calling server().ItemDef/Loot/Codex + Net.* from there risks a
--- yield-across-metamethod error and re-entrant lazy loads). task.defer still
--- completes long before any player joins, so remotes + catalog are ready in time.
-task.defer(function()
-	registerContent()
-	registerRemotes()
-end)
+Lifecycle.Define(PetService, {
+	Name = "Pet",
+	-- Init registers the pet catalog into all three.
+	Needs = { ItemDefinitionService, LootService, CodexService },
+	Init = function()
+		-- Catalog first, then remotes (as before: a catalog error stops the remotes
+		-- from registering). Pet is listed in Features, so both are ready before any
+		-- player joins; nothing here yields.
+		registerContent()
+		registerRemotes()
+	end,
+})
 
 return PetService

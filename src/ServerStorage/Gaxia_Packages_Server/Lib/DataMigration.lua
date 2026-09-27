@@ -9,11 +9,10 @@
 --           saves to the current schema before gameplay starts.
 -- ─────────────────────────────────────────────────────────────
 
-local CollectionService = game:GetService("CollectionService")
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
+
+local Signal    = require(ReplicatedStorage.Gaxia_Packages.Shared.Signal)
+local Lifecycle = require(script.Parent.ServiceLifecycle)
 
 -- ── Types ──
 export type MigrationFn = (data: { [string]: any }) -> ()
@@ -31,7 +30,9 @@ local DataMigration = {}
 local migrations: { [number]: MigrationEntry } = {}
 local currentVersion: number = 1
 
-DataMigration.OnMigrated = Signal.new()
+-- (player — always nil: Migrate only sees the data table, fromVersion, toVersion)
+-- once per Migrate call that changed the data
+DataMigration.OnMigrated = Signal.new() :: Signal.Signal<Player?, number, number>
 
 -- ── Public API ──
 
@@ -89,5 +90,11 @@ function DataMigration.Migrate(data: { [string]: any }): boolean
 
 	return migrated
 end
+
+-- Pure registry: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(DataMigration, {
+	Name = "Migration",
+	Needs = {},
+})
 
 return DataMigration

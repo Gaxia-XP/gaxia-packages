@@ -9,9 +9,13 @@
 --           "friend"), PartyService (kind="party"), GuildService (kind="guild").
 -- Access  : Gaxia.InviteQueue  (server)
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local MemoryStoreService = game:GetService("MemoryStoreService")
+
+local Lifecycle = require(script.Parent.ServiceLifecycle)
+
+-- Each kind stores its own item shape (see FriendService / GuildService /
+-- PartyService for the per-kind invite types); the queue itself is untyped.
+export type InviteKind = "friend" | "party" | "guild"
 
 local MAP_PREFIX: string = "GaxiaInviteQueue_"
 local MAX_PER_USER: number = 50
@@ -21,11 +25,11 @@ local EMPTY_TTL: number = 60
 
 local InviteQueue = {}
 
-local function mapFor(kind: string): any
+local function mapFor(kind: string): MemoryStoreSortedMap
 	return MemoryStoreService:GetSortedMap(MAP_PREFIX .. kind)
 end
 
-function InviteQueue.Push(kind: string, toUserId: number, item: any, ttlSec: number): boolean
+function InviteQueue.Push(kind: InviteKind | string, toUserId: number, item: any, ttlSec: number): boolean
 	local pushed = false
 	local ok, err = pcall(function()
 		mapFor(kind):UpdateAsync(tostring(toUserId), function(current: any)
@@ -46,7 +50,7 @@ function InviteQueue.Push(kind: string, toUserId: number, item: any, ttlSec: num
 	return pushed
 end
 
-function InviteQueue.DrainFor(kind: string, userId: number): { any }
+function InviteQueue.DrainFor(kind: InviteKind | string, userId: number): { any }
 	local drained: { any } = {}
 	-- KNOWN MEMORYSTORE QUIRK: returning nil from the UpdateAsync transform
 	-- CANCELS the update (does not delete). To actually clear the slot we
@@ -66,5 +70,11 @@ function InviteQueue.DrainFor(kind: string, userId: number): { any }
 	end
 	return drained
 end
+
+-- Pure API: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(InviteQueue, {
+	Name = "InviteQueue",
+	Needs = {},
+})
 
 return InviteQueue

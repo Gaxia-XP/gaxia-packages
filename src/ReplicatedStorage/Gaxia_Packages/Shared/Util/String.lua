@@ -103,7 +103,7 @@ function String.FormatCommas(n: number): string
 	local sign: string = if n < 0 then "-" else ""
 	local digits: string = tostring(math.abs(n))
 	-- Split integer and decimal portions.
-	local intPart: string, decPart: string = digits:match("^(%d+)(%.?%d*)$")
+	local intPart: string?, decPart: string? = digits:match("^(%d+)(%.?%d*)$")
 	if not intPart then
 		return tostring(n)
 	end

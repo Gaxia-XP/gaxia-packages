@@ -15,46 +15,46 @@
 
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local StarterPack       = game:GetService("StarterPack")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Maid      = SharedPkg.Maid
+-- ── Dependencies ──
+-- ToolService is required directly (it never requires AntiCheat, so no cycle).
+local Trove       = require(ReplicatedStorage.Gaxia_Packages.Shared.Trove)
+local Types       = require(script.Parent.Parent.Types)
+local Config      = require(script.Parent.Parent.Config)
+local ToolService = require(script.Parent.Parent.Lib.ToolService)
 
--- ── Config (server-side, see ServerStorage/Gaxia_Packages_Server/Config) ──
--- FindFirstChild (not WaitForChild): detectors are required THROUGH the server
--- loader's no-yield __index metamethod; WaitForChild would yield across that
--- boundary. Config's body is a pure table (no yields), so require is safe.
-local Config = require(script.Parent.Parent:FindFirstChild("Config") :: ModuleScript) :: any
+-- ── Types ──
+type DetectorHost = Types.DetectorHost
 
 local UID_ATTR : string = "UID"
 
 local BackpackGuard = {}
 BackpackGuard.Name = "Backpack"
 
-local orchestratorRef : any = nil
-local playerMaids : { [Player]: any } = {}
-
--- Direct-path lazy require — same pattern ToolDuplicationGuard uses to avoid
--- recursion with GaxiaServer.init.
-local _toolServiceRef : any = nil
-local function getToolService(): any
-	if _toolServiceRef ~= nil then return _toolServiceRef end
-	local libFolder = (script.Parent :: any).Parent:FindFirstChild("Lib")
-	local toolMod = libFolder and libFolder:FindFirstChild("ToolService")
-	if toolMod and toolMod:IsA("ModuleScript") then
-		local ok, mod = pcall(require, toolMod)
-		if ok then _toolServiceRef = mod end
-	end
-	return _toolServiceRef
-end
+local orchestratorRef : DetectorHost? = nil
+local playerTroves : { [Player]: typeof(Trove.new()) } = {}
 
 -- A Tool is authorised iff it carries a UID attribute AND ToolService still
 -- has it in its registry. The registry uses weak values, so destroyed tools
 -- auto-evict — we don't have to worry about stale entries.
+-- Roblox itself copies StarterPack (and the player's StarterGear) into the
+-- Backpack on every spawn; those tools never pass through ToolService, so without
+-- this every player carrying a starter tool was flagged HARD — with three starter
+-- tools the same-frame strikes reached a permanent ban. Server-side inventory
+-- mutation is what this guard is for; a matching starter tool name is legitimate.
+local function isStarterTool(player: Player, tool: Tool): boolean
+	local packTool = StarterPack:FindFirstChild(tool.Name)
+	if packTool and packTool:IsA("Tool") then return true end
+	local gear = player:FindFirstChild("StarterGear")
+	local gearTool = gear and gear:FindFirstChild(tool.Name)
+	return gearTool ~= nil and gearTool:IsA("Tool")
+end
+
 local function isAuthorised(tool: Tool): boolean
 	local uid = tool:GetAttribute(UID_ATTR)
 	if typeof(uid) ~= "string" or uid == "" then return false end
-	local TS = getToolService()
-	return TS ~= nil and TS.IsTracked(tool) == true
+	return ToolService.IsTracked(tool) == true
 end
 
 local function inspectAddition(player: Player, child: Instance)
@@ -64,11 +64,14 @@ local function inspectAddition(player: Player, child: Instance)
 	-- tool would race the listener and look unauthorised.
 	task.defer(function()
 		if child.Parent == nil then return end       -- already cleaned up
-		if isAuthorised(child) then return end
+		if isAuthorised(child) or isStarterTool(player, child) then return end
 		-- Unauthorised — destroy and flag. We treat this as HARD because the
 		-- only way an unstamped Tool reaches a player's inventory is direct
-		-- mutation, never legitimate gameplay.
-		child:Destroy()
+		-- mutation, never legitimate gameplay. In observe mode (Enforce = false)
+		-- the tool is kept: only the flag is recorded.
+		if orchestratorRef and orchestratorRef.IsEnforcing() then
+			child:Destroy()
+		end
 		if orchestratorRef then
 			orchestratorRef.Flag(player, "Backpack", Config.AntiCheat.Backpack.Severity)
 		end
@@ -76,21 +79,21 @@ local function inspectAddition(player: Player, child: Instance)
 end
 
 local function attachContainer(player: Player, container: Instance)
-	local maid = playerMaids[player]
-	if not maid then return end
+	local trove = playerTroves[player]
+	if not trove then return end
 	-- Scan existing children once, then listen for future additions.
 	for _, child in ipairs(container:GetChildren()) do
 		inspectAddition(player, child)
 	end
-	maid:GiveTask(container.ChildAdded:Connect(function(child)
+	trove:Add(container.ChildAdded:Connect(function(child)
 		inspectAddition(player, child)
 	end))
 end
 
 local function attachPlayer(player: Player)
-	if playerMaids[player] then return end
-	local maid = Maid.new()
-	playerMaids[player] = maid
+	if playerTroves[player] then return end
+	local trove = Trove.new()
+	playerTroves[player] = trove
 
 	local function hookCharacter(character: Model)
 		attachContainer(player, character)
@@ -103,23 +106,23 @@ local function attachPlayer(player: Player)
 		if bp then attachContainer(player, bp) end
 	end
 	hookBackpack()
-	maid:GiveTask(player.ChildAdded:Connect(function(child)
+	trove:Add(player.ChildAdded:Connect(function(child)
 		if child:IsA("Backpack") then attachContainer(player, child) end
 	end))
 
 	if player.Character then hookCharacter(player.Character) end
-	maid:GiveTask(player.CharacterAdded:Connect(hookCharacter))
+	trove:Add(player.CharacterAdded:Connect(hookCharacter))
 end
 
 local function detachPlayer(player: Player)
-	local maid = playerMaids[player]
-	if maid then
-		maid:DoCleaning()
-		playerMaids[player] = nil
+	local trove = playerTroves[player]
+	if trove then
+		trove:Clean()
+		playerTroves[player] = nil
 	end
 end
 
-function BackpackGuard.Init(orchestrator: any): ()
+function BackpackGuard.Init(orchestrator: DetectorHost): ()
 	orchestratorRef = orchestrator
 	for _, p in ipairs(Players:GetPlayers()) do attachPlayer(p) end
 	Players.PlayerAdded:Connect(attachPlayer)

@@ -8,43 +8,24 @@
 
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
--- WHY this explicit type:
--- The early-return guard below needs to match the module's real return shape
--- so Luau collapses the (server-return | client-return) union into a single
--- typed value. Without this, `Gaxia.UI.MenuController.<method>` does not
--- autocomplete because the union resolves to `any`.
-export type MenuController = {
-	Open: (menuName: string, builder: ((content: ScrollingFrame) -> ())?) -> Frame?,
-	Close: (menuName: string) -> (),
-}
+local MenuController = {}
+-- The module's own type (Open / Close below), so the server stub and the client
+-- module share one type and `Gaxia.UI.MenuController.<method>` autocompletes.
+export type MenuController = typeof(MenuController)
 
--- Client-only module.
+-- Client-only module. The server gets an EMPTY table (calls error there); only
+-- its type is the client module's.
 if not RunService:IsClient() then
-	return ({} :: any) :: MenuController
+	return ({} :: any) :: typeof(MenuController)
 end
 
-local UIController = require(script.Parent:WaitForChild("UIController"))
+local UIController = require(script.Parent.UIController)
+local Constants = require(script.Parent.Parent.Parent.Shared.Constants)
 
 -- ── Constants ──
-local function getConstants(): { [string]: any }
-	local pkg = ReplicatedStorage:FindFirstChild("Gaxia_Packages")
-	if not pkg then return {} end
-	local shared = pkg:FindFirstChild("Shared")
-	if not shared then return {} end
-	local constMod = shared:FindFirstChild("Constants")
-	if not constMod or not constMod:IsA("ModuleScript") then return {} end
-	local ok, data = pcall(require, constMod)
-	if ok and typeof(data) == "table" then
-		return data
-	end
-	return {}
-end
-
-local CONST = getConstants()
-local ANIM_TIME: number = (CONST.UI_ANIMATION_TIME :: number?) or 0.25
-local TEMPLATE_NAME: string = "MenuTemplate"
+local ANIM_TIME: number = Constants.UI_ANIMATION_TIME
+local TEMPLATE_NAME: UIController.TemplateName = "MenuTemplate"
 
 -- ── State ──
 type OpenMenu = {
@@ -52,8 +33,6 @@ type OpenMenu = {
 	closeConn: RBXScriptConnection?,
 }
 local openMenus: { [string]: OpenMenu } = {}
-
-local MenuController = {}
 
 -- Forward declaration so Open() can reference Close().
 local Close: (menuName: string) -> ()
@@ -155,4 +134,4 @@ end
 
 MenuController.Close = Close
 
-return MenuController :: MenuController
+return MenuController

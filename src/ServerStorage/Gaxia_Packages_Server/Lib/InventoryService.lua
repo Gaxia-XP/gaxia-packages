@@ -17,24 +17,13 @@
 --   local uid = Gaxia.Inventory.Add(player, "Sword", { Props = { atk = 12 } })
 --   Gaxia.Inventory.Equip(player, uid)
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
-
-local GaxiaServer: any = nil
-local function getData(): any
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer.Data
-end
+-- ── Dependencies ──
+local Shared      = ReplicatedStorage.Gaxia_Packages.Shared
+local Signal      = require(Shared.Signal)
+local Lifecycle   = require(script.Parent.ServiceLifecycle)
+local DataManager = require(script.Parent.DataManager)
 
 local INV_KEY : string = "Inv"
 
@@ -44,9 +33,12 @@ export type AddOpts = { Count: number?, Props: any? }
 
 local InventoryService = {}
 
-InventoryService.OnAdd = Signal.new()    -- (player, instance)
-InventoryService.OnRemove = Signal.new() -- (player, instanceId, itemId)
-InventoryService.OnEquip = Signal.new()  -- (player, slot, instanceId?)
+-- (player, instance) after Add minted an instance or grew a stack (the stored instance)
+InventoryService.OnAdd = Signal.new() :: Signal.Signal<Player, Instance_>
+-- (player, instanceId, itemId) after Remove deleted a whole instance (not on a partial stack decrement)
+InventoryService.OnRemove = Signal.new() :: Signal.Signal<Player, string, string>
+-- (player, slot, instanceId) after an equip change; instanceId nil = the slot was emptied
+InventoryService.OnEquip = Signal.new() :: Signal.Signal<Player, string, string?>
 
 local defs: { [string]: ItemDef } = {}
 
@@ -61,7 +53,7 @@ end
 -- ── Persistence (one blob: seq + items + equipped) ──
 
 local function loadInv(player: Player): { [string]: any }
-	local v = getData().Get(player, INV_KEY)
+	local v = DataManager.Get(player, INV_KEY)
 	if typeof(v) ~= "table" then
 		v = {}
 	end
@@ -78,13 +70,13 @@ local function loadInv(player: Player): { [string]: any }
 end
 
 local function saveInv(player: Player, inv: { [string]: any }): ()
-	getData().Set(player, INV_KEY, inv)
+	DataManager.Set(player, INV_KEY, inv)
 end
 
 -- ── Add / Remove ──
 
 function InventoryService.Add(player: Player, itemId: string, opts: AddOpts?): string
-	local o = opts or {}
+	local o: AddOpts = opts or {}
 	local inv = loadInv(player)
 	local def = defOf(itemId)
 
@@ -215,5 +207,11 @@ function InventoryService.GetEquipment(player: Player): { [string]: string }
 	end
 	return out
 end
+
+-- Pure API: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(InventoryService, {
+	Name = "Inventory",
+	Needs = {},
+})
 
 return InventoryService
