@@ -216,7 +216,9 @@ function ServiceLifecycle.Define(module: {}, spec: Spec): ()
 	local rec: Record = { module = module :: any, spec = spec, state = "defined", originals = {} }
 	records[module] = rec
 	byName[spec.Name] = rec
-	if (spec.Init or spec.Start) and spec.AutoStart ~= false then
+	-- Pure services (no Init/Start) are wrapped too, so their first direct call
+	-- marks them started and IsEnabled / GaxiaServerFeatures count them.
+	if spec.AutoStart ~= false then
 		wrapFunctions(rec)
 	end
 end
