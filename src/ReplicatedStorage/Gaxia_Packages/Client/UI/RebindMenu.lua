@@ -31,7 +31,7 @@ local MOUSE_NAMES: { [string]: string } = {
 }
 
 -- PURE: friendly display name for a bound key (KeyCode or UserInputType).
-function RebindMenu.KeyName(key: RebindKey?): string
+function RebindMenu.KeyName(key: (RebindKey | EnumItem)?): string
 	if typeof(key) == "EnumItem" then
 		return MOUSE_NAMES[key.Name] or key.Name
 	end

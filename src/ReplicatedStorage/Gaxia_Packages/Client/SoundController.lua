@@ -25,7 +25,7 @@ export type Category = "music" | "sfx" | "ui"
 --   volume / Volume — intrinsic volume before the category mix (default 1)
 export type SoundProps = {
 	category: (Category | string)?,
-	volume: number?,
+	volume: (number | string)?, -- read with tonumber, so "0.5" works too
 	[string]: any,
 }
 

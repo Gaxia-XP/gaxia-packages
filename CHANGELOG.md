@@ -47,6 +47,11 @@ functions are annotated, and the stub-returning UI modules are typed.
   is defined once in `Types.lua` instead of copied into each detector.
 - New `Config/Player.lua` (`MaxWalkSpeed`, default 500 as before): the clamp in
   `Player.SetWalkSpeed` can now be configured.
+- Stricter on purpose (no runtime change): `Random.Choice/Weighted/Shuffle` are generic,
+  so `Random.Choice(spawnPoints)` returns a `BasePart?`; a literal mixing types
+  (`Random.Choice({ "Sword", 100 })`) is now a type error — annotate it
+  (`local pool: { any } = { "Sword", 100 }`). `Scheduler.Debounce/Throttle` return a
+  function with `fn`'s parameters, so calling it with extra arguments is flagged.
 
 ### Fixed — AntiCheat detectors never loaded (now in observe mode)
 Since e3b2e06 (2026-07-17) the orchestrator scanned the wrong parent, so none of the 15
@@ -66,6 +71,9 @@ Play-test with a non-creator account before setting `Enforce = true` (MANUAL §9
   `AntiCheat.Detector.Speed.Enabled`, …) threw "Attribute name is not valid", so
   `EConfig.Set`, `/flag`, `/ac` and `AntiCheat.SetEnabled/SetDetectorEnabled` failed.
   Flags now stores each name under a valid attribute name; callers keep the dotted names.
+- `Gaxia.State` (ReplicatedState) waited for `GaxiaState` while being required, which
+  fails inside the client loader when the folder has not replicated yet. The client now
+  waits in `State.Get` (documented to yield) instead.
 - DataManager kicked every player on a normal leave ("Profile released.").
 - Chat command replies were dropped when no command had run in the server's first 30 s:
   the reply remote was created lazily and the client stopped waiting for it.

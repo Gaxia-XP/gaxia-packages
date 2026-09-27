@@ -135,7 +135,11 @@ Monetization.HandleReceipt = handleReceipt
 -- Init installs the single allowed ProcessReceipt callback (last writer wins). List
 -- "Monetization" in Features when the game sells Developer Products so it is bound at
 -- boot; otherwise it binds the first time the game touches Gaxia.Monetization or calls
--- one of its functions (e.g. RegisterProduct), as the old load-time assignment did.
+-- one of its functions (e.g. RegisterProduct) — NOT when the module is merely
+-- required, as it used to be. A game that installs its own ProcessReceipt router
+-- (delegating to HandleReceipt) must start Monetization first (Features,
+-- GaxiaServer.Monetization, or GaxiaServer.Lifecycle.Ensure) and assign its router
+-- after, or Init overwrites it.
 Lifecycle.Define(Monetization, {
 	Name = "Monetization",
 	Needs = {},

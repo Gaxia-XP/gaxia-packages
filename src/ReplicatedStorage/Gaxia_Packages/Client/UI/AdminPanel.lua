@@ -22,7 +22,7 @@ local UserInputService = game:GetService("UserInputService")
 -- { type = "role" } and the { type = "role", ... } push on Events/Admin/Inbound.
 -- `role` is the AdminCommands role name (tiers are configurable, so a string).
 export type RoleHint = {
-	type: "role"?,
+	type: ("role" | string)?,
 	role: string?,
 	isModerator: boolean?,
 }

@@ -37,8 +37,13 @@ if not RunService:IsClient() then
 	} :: any) :: typeof(StateBinding)
 end
 
+-- `state`: a StateObject from Gaxia.State.Get / Create, or any object with the same
+-- :Get(key) / :OnChanged(key, fn) methods (kept `any` so Gaxia.State.Get's optional
+-- result and duck-typed stores are accepted as before; annotate your own locals
+-- with StateBinding.StateObject for autocomplete).
+
 -- Bind gui[property] to state:Get(key), updating on every OnChanged. Returns unbind().
-function StateBinding.Bind(gui: Instance, property: string, state: StateObject, key: string, transform: ((value: any) -> any)?): Unbind
+function StateBinding.Bind(gui: Instance, property: string, state: any, key: string, transform: ((value: any) -> any)?): Unbind
 	local function apply(value: any)
 		local v = if transform then transform(value) else value
 		local ok = pcall(function()
@@ -60,7 +65,7 @@ function StateBinding.Bind(gui: Instance, property: string, state: StateObject, 
 end
 
 -- Convenience: bind a TextLabel/TextButton .Text to a state key, with optional format.
-function StateBinding.BindText(label: Instance, state: StateObject, key: string, format: ((value: any) -> string)?): Unbind
+function StateBinding.BindText(label: Instance, state: any, key: string, format: ((value: any) -> string)?): Unbind
 	return StateBinding.Bind(label, "Text", state, key, function(value: any): string
 		if format then
 			return format(value)

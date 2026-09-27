@@ -1806,6 +1806,7 @@ Mon.OnPurchase:Connect(function(player, productId, receipt) end)
 - PurchaseId persist + `Data.Save` nudge ก่อน return — crash ก็ไม่หาย
 - `OwnsGamePass` cache per-player (weak table) — ไม่ yield ซ้ำบน server loop
 - `MarketplaceService.ProcessReceipt` ผูกตอน service **Init** → ต้องใส่ `"Monetization"` ใน Features (§4.1) หรือ touch `GaxiaServer.Monetization` ตอน boot — ไม่งั้น receipt แรกมาถึงก่อนผูก = ผู้เล่นไม่ได้ของ
+- เกมที่มี ProcessReceipt router ของตัวเอง (ส่งต่อให้ `Mon.HandleReceipt`): ต้องให้ Monetization เริ่มก่อน (Features / touch `GaxiaServer.Monetization`) **แล้วค่อย** assign router — ถ้า assign ก่อน Init ของ Monetization จะเขียนทับ router
 - Types: `Monetization.ReceiptInfo`, `Monetization.GrantFn` (callback ของ `RegisterProduct`)
 
 ---

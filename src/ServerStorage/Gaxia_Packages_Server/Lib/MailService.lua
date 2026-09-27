@@ -41,7 +41,8 @@ export type Mail = {
 local MailService = {}
 
 -- (player, mail) after Send stored the mail in the recipient's mailbox
-MailService.OnReceive = Signal.new() :: Signal.Signal<Player, Mail>
+-- (mail is nil when the inbox cap trimmed the new mail straight away)
+MailService.OnReceive = Signal.new() :: Signal.Signal<Player, Mail?>
 
 local function loadBox(player: Player): { [string]: any }
 	local b = DataManager.Get(player, MAILBOX_KEY)

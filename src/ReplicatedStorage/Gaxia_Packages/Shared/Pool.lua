@@ -27,7 +27,10 @@ local Pool = {}
 
 -- factory: builds a fresh object on a pool miss.
 -- reset:   (optional) called on Return() to scrub state before parking.
-function Pool.new<T>(factory: () -> T, reset: ((obj: T) -> ())?): PoolObject<T>
+-- Get() returns the factory's declared type: cast a template clone in the factory
+-- (`function(): BasePart return template:Clone() :: BasePart end`). `reset` takes
+-- `any` so a reset typed for the concrete class is accepted whatever the factory infers.
+function Pool.new<T>(factory: () -> T, reset: ((obj: any) -> ())?): PoolObject<T>
 	local available: { T } = {}
 	local p = {}
 
