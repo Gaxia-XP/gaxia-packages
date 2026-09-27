@@ -29,6 +29,7 @@
 -- ── Services ──
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService        = game:GetService("RunService")
 
 -- ── Dependencies ──
 -- Detectors are NOT required here: they load in Init (see DETECTORS), and they
@@ -483,28 +484,77 @@ end
 
 -- ── Sampler loop ──
 
+-- MicroProfiler labels (debug.profilebegin): "AntiCheat.Sampler" around each frame's
+-- batch of players, and "AntiCheat.<Name>" around each detector's Sample inside it.
+local SAMPLER_PROFILE_LABEL : string = "AntiCheat.Sampler"
+local detectorProfileLabels: { [string]: string } = {}
+local function detectorProfileLabel(name: string): string
+	local label = detectorProfileLabels[name]
+	if label == nil then
+		label = "AntiCheat." .. name
+		detectorProfileLabels[name] = label
+	end
+	return label
+end
+
+-- A pass spreads its players over this share of SAMPLER_INTERVAL (the rest is
+-- slack for slow frames), so no single frame samples every player.
+local SAMPLER_SPREAD : number = 0.8
+
+-- One snapshot per player per pass, shared across all detectors.
+local function samplePlayer(player: Player): ()
+	local snapshot = buildSnapshot(player)
+	for _, detector in ipairs(detectors) do
+		local sample = detector.Sample
+		if sample and isDetectorEnabled(detector.Name) then
+			debug.profilebegin(detectorProfileLabel(detector.Name))
+			local ok, flag = pcall(sample, player, snapshot)
+			debug.profileend()
+			if not ok then
+				warn(`[AntiCheat] {detector.Name}.Sample errored: {tostring(flag)}`)
+			elseif flag then
+				recordFlag(player, flag.reason, flag.severity or "soft")
+			end
+		end
+	end
+end
+
+-- Every player is sampled once per SAMPLER_INTERVAL, as before, but a pass is spread
+-- over frames: after the first player, players are taken in proportion to the time
+-- elapsed since the pass began, finishing within SAMPLER_SPREAD of the interval. A
+-- player keeps the same slot in each pass, so the time between two of their samples
+-- stays about SAMPLER_INTERVAL (it only shortens when players ahead of them leave).
+-- With one player the whole pass runs in one frame, as before.
 local function startSampler()
 	if samplerRunning then return end
 	samplerRunning = true
 	task.spawn(function()
 		while samplerRunning do
-			local snapshot
-			for _, player in ipairs(Players:GetPlayers()) do
-				-- One snapshot per player per tick — shared across all detectors.
-				snapshot = buildSnapshot(player)
-				for _, detector in ipairs(detectors) do
-					local sample = detector.Sample
-					if sample and isDetectorEnabled(detector.Name) then
-						local ok, flag = pcall(sample, player, snapshot)
-						if not ok then
-							warn(`[AntiCheat] {detector.Name}.Sample errored: {tostring(flag)}`)
-						elseif flag then
-							recordFlag(player, flag.reason, flag.severity or "soft")
-						end
+			local passStart = os.clock()
+			local players = Players:GetPlayers()
+			local total = #players
+			local window = SAMPLER_INTERVAL * SAMPLER_SPREAD
+			local done = 0
+			while done < total do
+				local elapsed = os.clock() - passStart
+				local due = if window > 0 then math.ceil(total * elapsed / window) else total
+				due = math.clamp(due, done + 1, total)
+				debug.profilebegin(SAMPLER_PROFILE_LABEL)
+				while done < due do
+					done += 1
+					local player = players[done]
+					-- Skip a player who left since the pass started: sampling them now
+					-- would recreate the per-player state their PlayerRemoving freed.
+					if player.Parent == Players then
+						samplePlayer(player)
 					end
 				end
+				debug.profileend()
+				if done < total then
+					RunService.Heartbeat:Wait()
+				end
 			end
-			task.wait(SAMPLER_INTERVAL)
+			task.wait(math.max(SAMPLER_INTERVAL - (os.clock() - passStart), 0))
 		end
 	end)
 end

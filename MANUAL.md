@@ -3105,7 +3105,8 @@ DataManager ของ Gaxia แก้ตอน v1 แล้ว — ใช้ `.G
 A: ได้ ต้องสร้าง `default.project.json` map paths ให้ตรง. Source code อยู่ใน `G:\My Drive\roblox-multi-ai\src\`
 
 **Q: Anti-Cheat กิน performance ไหม?**
-A: ใช้ shared sampler 0.5s loop ตัวเดียว iterate players → snapshot → dispatch. Event-driven detectors zero idle cost. ตามที่ทดสอบ — < 1% CPU
+A: ใช้ sampler ตัวเดียว: ผู้เล่นแต่ละคนถูกตรวจทุก `Config.AntiCheat.SamplerInterval` (0.5s) → snapshot → ส่งให้ detector ที่มี `Sample`. แต่ละรอบ **กระจายผู้เล่นไปหลายเฟรม** (ภายใน 80% ของ interval) ไม่ได้ตรวจทุกคนในเฟรมเดียว จึงไม่เกิด spike ตอนคนเยอะ; detector แบบ event ไม่กินอะไรตอนว่าง.
+วัดเองในเซิร์ฟเวอร์จริง: เปิด MicroProfiler (Studio: Ctrl+F6 · เกมจริง: F9 Developer Console → MicroProfiler) แล้วดู label `AntiCheat.Sampler` (งานของแต่ละเฟรม) และ `AntiCheat.<ชื่อ detector>` เช่น `AntiCheat.NoClip` (เวลาของ `Sample` แต่ละตัว)
 
 **Q: ใช้กับ DataStore ตัวอื่น (ไม่ใช่ ProfileService) ได้ไหม?**
 A: ได้ — เขียน wrapper module ของ Data ใหม่. Lib/DataManager.lua ใช้ ProfileService ของ existing user — แก้เป็น MockDataManager หรือ Suphi's DataStoreModule ได้

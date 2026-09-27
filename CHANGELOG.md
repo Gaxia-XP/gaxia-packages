@@ -66,6 +66,12 @@ false-positive causes found in simulation are fixed too:
 
 Play-test with a non-creator account before setting `Enforce = true` (MANUAL §9.0).
 
+### Changed — AntiCheat sampling is spread over frames
+Each 0.5 s pass used to sample every player in one frame. It now spreads the players
+over the pass (within 80% of the interval); each player is still sampled every 0.5 s,
+and a player who left mid-pass is skipped. MicroProfiler labels `AntiCheat.Sampler`
+and `AntiCheat.<Detector>` show the cost in a live server.
+
 ### Fixed
 - Runtime flags with dotted names (all of them: `AntiCheat.Enforce`,
   `AntiCheat.Detector.Speed.Enabled`, …) threw "Attribute name is not valid", so
