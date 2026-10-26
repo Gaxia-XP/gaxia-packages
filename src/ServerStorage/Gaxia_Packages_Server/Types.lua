@@ -37,6 +37,25 @@ export type FeaturesOverride = {
 	Services: { ServiceName }?,
 }
 
+-- Packages.lua: the package catalogue the Companion picker and
+-- tools/packages.mjs install from. Paths are module paths under the package roots.
+export type PackageSpec = {
+	Name: string,
+	Category: string,
+	Description: string,
+	-- Start at server boot when the package was picked.
+	Boot: boolean?,
+	Server: { string }?,
+	Replicated: { string }?,
+	-- Generated from the source by `node tools/packages.mjs fix`.
+	Requires: { string },
+}
+export type PackageManifest = {
+	Core: { Server: { string }, Replicated: { string } },
+	Presets: { [string]: { string } },
+	Packages: { PackageSpec },
+}
+
 -- AntiCheat
 export type Severity = "soft" | "hard"
 -- "observe" = would have been "hard" while Config.AntiCheat.Enforce is false.

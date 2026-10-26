@@ -1,5 +1,11 @@
 --!strict
--- Config/Features.lua — which services start when the server boots.
+-- Config/Features.lua — which services start when the server boots, for a FULL
+-- install (every package, as Rojo's default.project.json or an install from before
+-- packages could be picked).
+--
+-- When packages were picked (Gaxia Companion → Install, or tools/packages.mjs
+-- build), this list is not used: the picked packages with Boot = true in
+-- Packages.lua start at boot, and only those are installed.
 --
 -- Services listed here start at boot, in this order (anything they Need starts
 -- first). A service that is NOT listed is never loaded unless the game uses it:
@@ -10,7 +16,7 @@
 -- package (Config included), so do not customise this file in your place. Instead
 -- create a ModuleScript ServerStorage.GaxiaFeatures that returns
 --     { Services = { "Data", "Player", ... } }
--- and it replaces the list below.
+-- and it replaces both this list and the picked packages' boot list.
 --
 -- Worth listing when your game uses them (they have work to do before first use):
 --   "Monetization"   binds MarketplaceService.ProcessReceipt — REQUIRED if you sell

@@ -120,11 +120,15 @@ export type GaxiaServerPackage = {
 	EConfig : typeof(require(script.Lib.EffectiveConfig)),
 
 	-- ── Boot / status ──
-	-- Start the Features services (idempotent; also runs on first service access).
+	-- Start the boot services (idempotent; also runs on first service access):
+	-- ServerStorage.GaxiaFeatures if present, else the picked packages that have
+	-- Boot = true (Packages.lua), else Config/Features.
 	Boot : () -> (),
-	-- True once the service has started (a listed Features service after Boot, or
-	-- any service after first use). Never loads anything.
+	-- True once the service has started (a boot service after Boot, or any
+	-- service after first use). Never loads anything.
 	IsEnabled : (name: Types.ServiceName | string) -> boolean,
+	-- True when the service's package is installed in this place. Never loads anything.
+	IsInstalled : (name: Types.ServiceName | string) -> boolean,
 }
 
 -- ── Guards ───────────────────────────────────────────────────
@@ -143,6 +147,10 @@ local TAG_NAME : string = "Gaxia_Packages"
 -- Attribute on ReplicatedStorage.Gaxia_Packages listing started services (comma
 -- separated) so the client bootstrap only pre-warms modules whose server side runs.
 local FEATURES_ATTRIBUTE : string = "GaxiaServerFeatures"
+-- Attribute the installer (Companion picker or tools/packages.mjs) sets on both
+-- package roots: the packages that were picked, comma separated. Absent = a full
+-- install from before packages could be picked (Config/Features decides).
+local PACKAGES_ATTRIBUTE : string = "GaxiaPackages"
 
 -- Maps short server-side keys to their full ModuleScript names under Lib/
 local LIB_KEY_MAP : { [string]: string } = {
@@ -376,23 +384,81 @@ local function buildGaxiaServer(): { [string]: any }
 		sharedRoot:SetAttribute(FEATURES_ATTRIBUTE, table.concat(names, ","))
 	end
 
-	local function readFeatures(): { string }
-		local services: { string } = {}
+	local function isInstalled(key: string): boolean
+		local rootName = ROOT_KEY_MAP[key]
+		if rootName then
+			return resolveChild(packageRoot, rootName) ~= nil
+		end
+		local libName = LIB_KEY_MAP[key]
+		return libName ~= nil and resolveChild(libFolder, libName) ~= nil
+	end
+
+	-- The picked packages that start at boot, or nil when nothing was picked (a full
+	-- install). Config/Features order first (the order boot used before packages
+	-- could be picked), then Packages.lua order.
+	local function pickedBootServices(): { string }?
+		local picked = packageRoot:GetAttribute(PACKAGES_ATTRIBUTE)
+		if type(picked) ~= "string" then
+			return nil
+		end
+		local manifestInst = packageRoot:FindFirstChild("Packages")
+		local manifest = if manifestInst and manifestInst:IsA("ModuleScript")
+			then safeRequire(manifestInst, "Packages")
+			else nil
+		if type(manifest) ~= "table" then
+			return nil
+		end
+		local wanted: { [string]: boolean } = {}
+		for name in string.gmatch(picked, "[^,]+") do
+			wanted[name] = true
+		end
+		local boot: { [string]: boolean } = {}
+		for _, spec in ipairs((manifest :: Types.PackageManifest).Packages) do
+			if spec.Boot and wanted[spec.Name] then
+				boot[spec.Name] = true
+			end
+		end
+		local ordered: { string } = {}
 		local defaults = configModule.Features
 		if type(defaults) == "table" and type(defaults.Services) == "table" then
-			services = defaults.Services
+			for _, name in ipairs(defaults.Services :: { string }) do
+				if boot[name] then
+					table.insert(ordered, name)
+					boot[name] = nil
+				end
+			end
 		end
+		for _, spec in ipairs((manifest :: Types.PackageManifest).Packages) do
+			if boot[spec.Name] then
+				table.insert(ordered, spec.Name)
+			end
+		end
+		return ordered
+	end
+
+	-- Which services start at boot: the game-owned override, else the picked
+	-- packages, else Config/Features. The second result is true when the list was
+	-- written by hand (a listed service that is not installed is then warned).
+	local function readFeatures(): ({ string }, boolean)
 		-- Game-owned override survives Companion reinstalls (outside this package).
 		local overrideInst = ServerStorage:FindFirstChild("GaxiaFeatures")
 		if overrideInst and overrideInst:IsA("ModuleScript") then
 			local override = safeRequire(overrideInst, "ServerStorage.GaxiaFeatures")
 			if type(override) == "table" and type(override.Services) == "table" then
-				services = override.Services
+				return override.Services, true
 			elseif override ~= nil then
 				warn("[Gaxia_Packages_Server] ServerStorage.GaxiaFeatures must return { Services = { ... } } — ignored")
 			end
 		end
-		return services
+		local picked = pickedBootServices()
+		if picked then
+			return picked, false
+		end
+		local defaults = configModule.Features
+		if type(defaults) == "table" and type(defaults.Services) == "table" then
+			return defaults.Services, true
+		end
+		return {}, false
 	end
 
 	function GaxiaServer.Boot(): ()
@@ -401,9 +467,16 @@ local function buildGaxiaServer(): { [string]: any }
 		end
 		bootStarted = true
 		local modules: { any } = {}
-		for _, name in ipairs(readFeatures()) do
+		local services, handWritten = readFeatures()
+		for _, name in ipairs(services) do
 			if LIB_KEY_MAP[name] == nil and ROOT_KEY_MAP[name] == nil then
 				warn(`[Gaxia_Packages_Server] Features: unknown service "{name}" — ignored`)
+				continue
+			end
+			if not isInstalled(name) then
+				if handWritten then
+					warn(`[Gaxia_Packages_Server] Features: "{name}" is not installed — install its package (Gaxia Companion → Install) or remove it from the list`)
+				end
 				continue
 			end
 			-- A module whose body errors is warned and skipped; Boot carries on.
@@ -429,6 +502,20 @@ local function buildGaxiaServer(): { [string]: any }
 
 	function GaxiaServer.IsEnabled(name: string): boolean
 		return isStarted(name)
+	end
+
+	function GaxiaServer.IsInstalled(name: string): boolean
+		return isInstalled(name)
+	end
+
+	-- Lifecycle.Find (soft dependencies between services) loads through the loader.
+	if Lifecycle then
+		Lifecycle.SetResolver(function(name: string): {}?
+			if UTILITY_KEYS[name] or not isInstalled(name) then
+				return nil
+			end
+			return loadKey(name)
+		end)
 	end
 
 	-- ── Root __index: lazy load + start on first access ──────

@@ -41,7 +41,11 @@ if not GaxiaServer.IsEnabled("AntiCheat") then
 	print("[Gaxia_ServerBootstrap] complete — AntiCheat not enabled in Features")
 	return
 end
-local AntiCheat = GaxiaServer.AntiCheat
+-- GaxiaServer's type lists only the installed packages, and AntiCheat / Ban may
+-- not be installed: read them untyped.
+local optional: any = GaxiaServer
+local AntiCheat = optional.AntiCheat
+type BanApi = { IsEscalationExempt: (userId: number) -> boolean }
 
 -- ── Default OnAction handler ──────────────────────────────────
 -- Soft action  → warn the player via output + game console.
@@ -55,8 +59,8 @@ AntiCheat.OnAction:Connect(function(player: Player, reason: string, kind: string
 		-- Same exemption as BanService.escalate — OnAction has two enforcing
 		-- consumers and both must skip the creator/high roles, or this one
 		-- still kicks the very user the escalation exemption protects.
-		local Ban = GaxiaServer.Ban
-		if Ban and Ban.IsEscalationExempt and Ban.IsEscalationExempt(uid) then
+		local Ban: BanApi? = optional.Ban
+		if Ban and Ban.IsEscalationExempt(uid) then
 			warn(`[Gaxia_AntiCheat] HARD action against {player.Name}: {reason} — exempt (high role), not kicking`)
 			return
 		end

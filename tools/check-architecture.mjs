@@ -21,11 +21,13 @@
 //   R9  Types.ServiceName = Define names; ModuleKey = loader keys = GaxiaServerPackage fields
 //   R10 Define Needs are top-level required module locals
 //   R11 (--complete) every Lib service module calls Lifecycle.Define
+//   R12 the Packages.lua catalogue matches the source (tools/packages.mjs check)
 
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { readManifest, readGraph, ownership, computeRequires } from './packages.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const AST_BIN = process.env.LUAU_AST || 'luau-ast'
@@ -263,7 +265,7 @@ function checkSync(ctx) {
   const loaderKeys = new Set([...mapKeys('LIB_KEY_MAP'), ...mapKeys('ROOT_KEY_MAP')])
   const typeBlock = loader.match(/export type GaxiaServerPackage = \{([\s\S]*?)\n\}/)
   const typeFields = new Set(typeBlock ? [...typeBlock[1].matchAll(/^\s*([A-Za-z0-9]+)\s*:/gm)].map((x) => x[1]) : [])
-  for (const f of ['Shared', 'Config', 'VERSION', 'Boot', 'IsEnabled']) typeFields.delete(f)
+  for (const f of ['Shared', 'Config', 'VERSION', 'Boot', 'IsEnabled', 'IsInstalled']) typeFields.delete(f)
   const diff = (a, b) => [...a].filter((x) => !b.has(x))
   const file = `${SERVER}/Types.lua`
   for (const k of diff(moduleKeys, loaderKeys)) report(file, null, 'R9', `ModuleKey "${k}" has no loader key (LIB_KEY_MAP/ROOT_KEY_MAP)`)
@@ -272,6 +274,24 @@ function checkSync(ctx) {
   for (const k of diff(typeFields, loaderKeys)) report(`${SERVER}/init.lua`, null, 'R9', `GaxiaServerPackage field "${k}" has no loader key`)
   for (const [name, f] of ctx.defineNames) if (!serviceNames.has(name)) report(f, null, 'R9', `Define Name "${name}" is not in Types.ServiceName`)
   if (ctx.complete) for (const k of serviceNames) if (!ctx.defineNames.has(k)) report(file, null, 'R9', `ServiceName "${k}" has no module that Defines it`)
+}
+
+// R12: every module belongs to Core or one package, and each package's Requires
+// is what its modules require (`node tools/packages.mjs fix` regenerates them).
+function checkPackages() {
+  const file = `${SERVER}/Packages.lua`
+  const manifest = readManifest()
+  const graph = readGraph()
+  const { owners, problems } = ownership(manifest, graph)
+  for (const p of problems) report(file, null, 'R12', p)
+  for (const u of graph.unresolved) report(file, null, 'R12', `cannot resolve ${u}`)
+  const { requires, coreLeaks } = computeRequires(manifest, graph, owners)
+  for (const l of coreLeaks) report(file, null, 'R12', l)
+  for (const p of manifest.Packages) {
+    const want = requires[p.Name].join(', ')
+    const got = [...p.Requires].sort().join(', ')
+    if (want !== got) report(file, null, 'R12', `${p.Name}.Requires is { ${got} }, the source needs { ${want} } — run: node tools/packages.mjs fix`)
+  }
 }
 
 const args = process.argv.slice(2)
@@ -284,6 +304,7 @@ const files = explicit.length ? explicit : [
 ]
 for (const f of files) if (!EXEMPT.some((re) => re.test(f))) checkFile(f, ctx)
 if (!explicit.length) checkSync(ctx)
+if (!explicit.length) checkPackages()
 
 for (const v of violations) console.log(v)
 console.log(`check-architecture: ${files.length} files, ${violations.length} violation(s)`)

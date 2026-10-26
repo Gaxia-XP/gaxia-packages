@@ -117,6 +117,9 @@ export type GaxiaPackage = {
 
 	-- ── Convenience helpers ──
 	Tween : (instance: Instance, info: TweenInfo, props: { [string]: any }) -> Tween,
+	-- True when the module behind a key is installed ("Signal", "Camera",
+	-- "UI.Toast", "Util.Table"). Client keys are false on the server. Never loads anything.
+	IsInstalled : (key: string) -> boolean,
 }
 
 -- ── Constants ────────────────────────────────────────────────
@@ -317,6 +320,23 @@ local function buildGaxia(): { [string]: any }
 		for k, v in clientProxies do
 			Gaxia[k] = v
 		end
+	end
+
+	function Gaxia.IsInstalled(key: string): boolean
+		local namespace, name = string.match(key, "^(%w+)%.(%w+)$")
+		if namespace == "Util" and utilFolder then
+			return resolveChild(utilFolder, name :: string) ~= nil
+		elseif namespace == "UI" then
+			local uiFolder = if clientFolder then clientFolder:FindFirstChild("UI") else nil
+			return uiFolder ~= nil and resolveChild(uiFolder, name :: string) ~= nil
+		elseif namespace ~= nil then
+			return false
+		end
+		if resolveChild(sharedFolder, SHARED_KEY_MAP[key] or key) ~= nil then
+			return true
+		end
+		local clientName = CLIENT_KEY_MAP[key]
+		return clientFolder ~= nil and clientName ~= nil and resolveChild(clientFolder, clientName) ~= nil
 	end
 
 	-- ── Root __index for flat Shared/ + Client/ modules ──────

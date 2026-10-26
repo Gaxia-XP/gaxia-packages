@@ -1,7 +1,8 @@
 --!strict
 -- Features.lua (client) — which client modules Gaxia_ClientBootstrap loads at spawn.
 --
--- Everything else in Gaxia.* still loads on first use. An entry with
+-- Everything else in Gaxia.* still loads on first use. An entry whose package is
+-- not installed in the place is skipped. An entry with
 -- RequiresServer is skipped when that service is not running on the server (the
 -- server publishes its started services on this ModuleScript's
 -- "GaxiaServerFeatures" attribute), so the client never waits for remotes that
