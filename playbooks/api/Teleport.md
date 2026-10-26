@@ -7,7 +7,7 @@
 - Package: `Teleport` · Category: Data & players
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Teleport")` (server) / `Gaxia.IsInstalled("Teleport")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Teleport")` on the server
 
 ## `GaxiaServer.Teleport`
 
@@ -25,7 +25,6 @@ local Teleport = GaxiaServer.Teleport
 
 - `Teleport.Configure(partial: { [string]: any }): ()`
 - `Teleport.ComputeBackoff(attempt: number, base: number, maxDelay: number): number`
-  ── PURE: exponential backoff for attempt N (1-based), capped ──
 - `Teleport.To(players: Player | { Player }, placeId: number, opts: TeleportOpts?): (boolean, any)`
 - `Teleport.ReserveServer(placeId: number): (string?, string?, string?)`
 - `Teleport.ToPrivate(players: Player | { Player }, placeId: number, accessCode: string, opts: TeleportOpts?): (boolean, any)`

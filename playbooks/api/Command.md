@@ -7,7 +7,7 @@
 - Package: `Command` · Category: Shared utilities
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Command")` (server) / `Gaxia.IsInstalled("Command")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Command")` on the server; `Gaxia.IsInstalled("Command")` on the client
 
 ## `Gaxia.Command`
 

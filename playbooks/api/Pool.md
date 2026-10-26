@@ -7,7 +7,7 @@
 - Package: `Pool` · Category: Shared utilities
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Pool")` (server) / `Gaxia.IsInstalled("Pool")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Pool")` on the server; `Gaxia.IsInstalled("Pool")` on the client
 
 ## `Gaxia.Pool`
 

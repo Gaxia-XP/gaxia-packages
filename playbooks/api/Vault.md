@@ -7,7 +7,7 @@
 - Package: `Vault` · Category: Economy & items
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [Data](Data.md), [Item](Item.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Vault")` (server) / `Gaxia.IsInstalled("Vault")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Vault")` on the server
 
 ## `GaxiaServer.Vault`
 

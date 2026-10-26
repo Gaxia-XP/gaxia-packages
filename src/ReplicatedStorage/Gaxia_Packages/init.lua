@@ -117,8 +117,9 @@ export type GaxiaPackage = {
 
 	-- ── Convenience helpers ──
 	Tween : (instance: Instance, info: TweenInfo, props: { [string]: any }) -> Tween,
-	-- True when the module behind a key is installed ("Signal", "Camera",
-	-- "UI.Toast", "Util.Table"). Client keys are false on the server. Never loads anything.
+	-- True when the module behind a key is installed ("Signal", "Camera", "Util",
+	-- "UI.Toast", "Util.Table"). Client keys are false on the server; server
+	-- packages are not visible here (use GaxiaServer.IsInstalled). Never loads anything.
 	IsInstalled : (key: string) -> boolean,
 }
 
@@ -331,6 +332,9 @@ local function buildGaxia(): { [string]: any }
 			return uiFolder ~= nil and resolveChild(uiFolder, name :: string) ~= nil
 		elseif namespace ~= nil then
 			return false
+		end
+		if key == "Util" then
+			return utilFolder ~= nil and utilFolder:FindFirstChildWhichIsA("ModuleScript") ~= nil
 		end
 		if resolveChild(sharedFolder, SHARED_KEY_MAP[key] or key) ~= nil then
 			return true

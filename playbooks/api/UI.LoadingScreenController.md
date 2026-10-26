@@ -7,7 +7,7 @@
 - Package: `UI.LoadingScreenController` · Category: Client UI
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [UI.UIController](UI.UIController.md)
-- Check it is installed: `GaxiaServer.IsInstalled("UI.LoadingScreenController")` (server) / `Gaxia.IsInstalled("UI.LoadingScreenController")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("UI.LoadingScreenController")` on the server; `Gaxia.IsInstalled("UI.LoadingScreenController")` on the client
 
 ## `Gaxia.UI.LoadingScreenController`
 
@@ -24,13 +24,13 @@ local LoadingScreenController = Gaxia.UI.LoadingScreenController
 ### Functions
 
 - `LoadingScreenController.Show(): ()`
-  ── Show ── Build/reuse the overlay, reset it to a clean opaque 0% state, reveal it.
+  Build/reuse the overlay, reset it to a clean opaque 0% state, reveal it.
 - `LoadingScreenController.Hide(): ()`
-  ── Hide ── Fade the root frame out, then disable the ScreenGui. The overlay is kept (not Destroyed) so a later Show() reuses it instantly.
+  Fade the root frame out, then disable the ScreenGui. The overlay is kept (not Destroyed) so a later Show() reuses it instantly.
 - `LoadingScreenController.SetProgress(alpha: number): ()`
-  ── SetProgress ── alpha clamped to 0..1; drives ProgressBar.Fill X-scale via a short tween (mirrors HealthBarController). No-op if the overlay/Fill is absent.
+  alpha clamped to 0..1; drives ProgressBar.Fill X-scale via a short tween (mirrors HealthBarController). No-op if the overlay/Fill is absent.
 - `LoadingScreenController.SetStatus(text: string): ()`
-  ── SetStatus ── Update the Status TextLabel. No-op if the overlay/label is absent.
+  Update the Status TextLabel. No-op if the overlay/label is absent.
 
 ### Types
 

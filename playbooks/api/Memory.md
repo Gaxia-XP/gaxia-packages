@@ -7,7 +7,7 @@
 - Package: `Memory` · Category: Data & players
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Memory")` (server) / `Gaxia.IsInstalled("Memory")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Memory")` on the server
 
 ## `GaxiaServer.Memory`
 

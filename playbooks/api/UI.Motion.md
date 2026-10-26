@@ -7,7 +7,7 @@
 - Package: `UI.Motion` · Category: Client UI
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("UI.Motion")` (server) / `Gaxia.IsInstalled("UI.Motion")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("UI.Motion")` on the server; `Gaxia.IsInstalled("UI.Motion")` on the client
 
 ## `Gaxia.UI.Motion`
 
@@ -29,9 +29,8 @@ local Motion = Gaxia.UI.Motion
 - `Motion.Pop(gui: GuiObject, dur: number?): Tween`
 - `Motion.Shake(gui: GuiObject, intensity: number?, dur: number?): Tween`
 - `Motion.Sequence(steps: { () -> any }, onComplete: (() -> ())?): ()`
-  ── Sequence (timeline of tweens + delays) ── steps: each is a function returning a Tween (awaited) | a number (delay) | nil.
+  steps: each is a function returning a Tween (awaited) | a number (delay) | nil.
 - `Motion.Stagger(guis: { GuiObject }, presetFn: (gui: GuiObject) -> any, gap: number?): ()`
-  ── Stagger (cascade a preset down a list) ──
 
 ### Types
 

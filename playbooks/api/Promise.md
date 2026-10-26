@@ -7,7 +7,7 @@
 - Package: `Promise` · Category: Shared utilities
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Promise")` (server) / `Gaxia.IsInstalled("Promise")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Promise")` on the server; `Gaxia.IsInstalled("Promise")` on the client
 
 ## `Gaxia.Promise`
 
@@ -19,7 +19,7 @@ Get it:
 ```lua
 local Gaxia = require(game:GetService("ReplicatedStorage").Gaxia_Packages)
 local Promise = Gaxia.Promise
--- or, to get its types in your own ModuleScript: local Promise = require(game:GetService("ReplicatedStorage").Gaxia_Packages.Shared.Promise)
+-- Promise itself is untyped: annotate values with PromiseTypes (see below)
 ```
 
 ### Functions

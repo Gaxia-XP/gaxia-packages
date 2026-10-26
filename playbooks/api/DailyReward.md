@@ -7,7 +7,7 @@
 - Package: `DailyReward` · Category: Economy & items
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [Data](Data.md)
-- Check it is installed: `GaxiaServer.IsInstalled("DailyReward")` (server) / `Gaxia.IsInstalled("DailyReward")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("DailyReward")` on the server
 
 ## `GaxiaServer.DailyReward`
 
@@ -24,7 +24,7 @@ local DailyReward = GaxiaServer.DailyReward
 ### Functions
 
 - `DailyReward.ComputeClaim(lastClaim: number, now: number, currentStreak: number, dayLen: number, resetWindow: number?): (boolean, number)`
-  ── PURE: claim eligibility + next streak value (unit-testable) ── canClaim = first claim or ≥ a day since last. newStreak: continue if claimed inside the 24–48h window, else reset to 1.
+  canClaim = first claim or ≥ a day since last. newStreak: continue if claimed inside the 24–48h window, else reset to 1.
 - `DailyReward.DefineLadder(rewards: { any }, opts: { Cycle: boolean? }?): ()`
 - `DailyReward.LadderDay(streak: number): number`
   Map a streak number to a ladder day index (1-based).

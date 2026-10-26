@@ -7,7 +7,7 @@
 - Package: `Janitor` · Category: Deprecated
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [Promise](Promise.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Janitor")` (server) / `Gaxia.IsInstalled("Janitor")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Janitor")` on the server; `Gaxia.IsInstalled("Janitor")` on the client
 
 ## `Gaxia.Janitor`
 

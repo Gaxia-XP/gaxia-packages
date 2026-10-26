@@ -7,7 +7,7 @@
 - Package: `Webhook` · Category: Moderation & safety
 - Starts at server boot: **yes, whenever installed** (it has work to do before its first call)
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Webhook")` (server) / `Gaxia.IsInstalled("Webhook")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Webhook")` on the server
 
 ## `GaxiaServer.Webhook`
 

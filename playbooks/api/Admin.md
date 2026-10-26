@@ -7,7 +7,7 @@
 - Package: `Admin` · Category: Moderation & safety
 - Starts at server boot: **yes, whenever installed** (it has work to do before its first call)
 - Installing it also installs: [Ban](Ban.md), [Chat](Chat.md), [Player](Player.md), [Theme](Theme.md), [UI.Components](UI.Components.md), [UI.Toast](UI.Toast.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Admin")` (server) / `Gaxia.IsInstalled("Admin")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Admin")` on the server; `Gaxia.IsInstalled("UI.AdminPanel")` on the client
 
 ## `GaxiaServer.Admin`
 
@@ -24,16 +24,15 @@ local Admin = GaxiaServer.Admin
 ### Functions
 
 - `Admin.GetRole(player: Player): string`
-  ── Role API ──
 - `Admin.SetRole(userId: number, role: string): ()`
 - `Admin.IsAtLeast(player: Player, role: string): boolean`
 - `Admin.GetRoleForUserId(userId: number): string`
   userId-keyed variants: the escalation exemption needs role answers without a Player instance in hand. These read the IN-MEMORY registry only — a userId that is offline, just-evicted, or whose async DataStore role row hasn't landed yet resolves to "default". Callers must treat a non-staff answer as best-effort, never as proof the user holds no persisted role.
 - `Admin.IsUserIdAtLeast(userId: number, role: string): boolean`
 - `Admin.Register(name: string, opts: CommandOpts, handler: CommandHandler): ()`
-  ── Register ── WHY this also forwards into ChatCommandSystem: Every admin command must be reachable from in-game chat (`/speed Player 100`). The chat bridge registers a thin pass-through that lets ChatCommandSystem gate by role + split args, then re-enters AdminCommands.Run with the raw string list (so AdminCommands' own player-name resolution still applies).
+  WHY this also forwards into ChatCommandSystem: Every admin command must be reachable from in-game chat (`/speed Player 100`). The chat bridge registers a thin pass-through that lets ChatCommandSystem gate by role + split args, then re-enters AdminCommands.Run with the raw string list (so AdminCommands' own player-name resolution still applies).
 - `Admin.Run(caller: Player, name: string, argList: { string }): (boolean, string?)`
-  ── Run ── Returns (ok, message?). `ok` is true only when the command actually did its job: handler errors AND explicit rejections (handlers returning a second value of true via fail()) both yield false. `message` is the descriptive result string — a success line like "Banned X", or a rejection like "You can't target yourself" — surfaced so the Admin Panel toast and chat reply show the real outcome with the right styling.
+  Returns (ok, message?). `ok` is true only when the command actually did its job: handler errors AND explicit rejections (handlers returning a second value of true via fail()) both yield false. `message` is the descriptive result string — a success line like "Banned X", or a rejection like "You can't target yourself" — surfaced so the Admin Panel toast and chat reply show the real outcome with the right styling.
 - `Admin.ProtectTarget(caller: Player, target: Player): string?`
   Public wrapper: extension command packs (e.g. AntiCheatAdmin's /acban) register their own destructive commands and must apply the SAME target protection — a second ban entry point without this guard is how a delegated admin bans the owner.
 
@@ -72,7 +71,6 @@ local AdminPanel = Gaxia.UI.AdminPanel
 ### Functions
 
 - `AdminPanel.Open(): ()`
-  ── Public API ──
 - `AdminPanel.Close(): ()`
 - `AdminPanel.Toggle(): ()`
 - `AdminPanel.SetRole(roleHint: RoleHint?): ()`

@@ -7,7 +7,7 @@
 - Package: `Maid` · Category: Deprecated
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Maid")` (server) / `Gaxia.IsInstalled("Maid")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Maid")` on the server; `Gaxia.IsInstalled("Maid")` on the client
 
 ## `Gaxia.Maid`
 

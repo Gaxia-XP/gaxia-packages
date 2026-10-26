@@ -7,7 +7,7 @@
 - Package: `GuiCodec` · Category: Shared utilities
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("GuiCodec")` (server) / `Gaxia.IsInstalled("GuiCodec")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("GuiCodec")` on the server; `Gaxia.IsInstalled("GuiCodec")` on the client
 
 ## `Gaxia.GuiCodec`
 

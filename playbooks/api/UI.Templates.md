@@ -7,7 +7,7 @@
 - Package: `UI.Templates` · Category: Client UI
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("UI.Templates")` (server) / `Gaxia.IsInstalled("UI.Templates")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("UI.Templates")` on the server; `Gaxia.IsInstalled("UI.Templates")` on the client
 
 ## `Gaxia.UI.Templates`
 
@@ -24,25 +24,15 @@ local Templates = Gaxia.UI.Templates
 ### Functions
 
 - `Templates.ButtonTemplate(parent: Instance?): TextButton`
-  ── 1. ButtonTemplate (TextButton) ──
 - `Templates.FrameTemplate(parent: Instance?): Frame`
-  ── 2. FrameTemplate (Frame) ──
 - `Templates.HealthBarTemplate(parent: Instance?): Frame`
-  ── 3. HealthBarTemplate (Frame) ──
 - `Templates.NotificationTemplate(parent: Instance?): Frame`
-  ── 4. NotificationTemplate (Frame) ──
 - `Templates.MenuTemplate(parent: Instance?): Frame`
-  ── 5. MenuTemplate (Frame) ──
 - `Templates.InventoryTemplate(parent: Instance?): Frame`
-  ── 6. InventoryTemplate (Frame) ──
 - `Templates.DialogTemplate(parent: Instance?): Frame`
-  ── 7. DialogTemplate (Frame) ──
 - `Templates.TooltipTemplate(parent: Instance?): Frame`
-  ── 8. TooltipTemplate (Frame) ──
 - `Templates.LoadingScreenTemplate(parent: Instance?): Frame`
-  ── 9. LoadingScreenTemplate (Frame) ──
 - `Templates.ConfirmDialogTemplate(parent: Instance?): Frame`
-  ── 10. ConfirmDialogTemplate (Frame) ──
 
 ### Types
 

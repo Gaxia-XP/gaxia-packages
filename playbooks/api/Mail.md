@@ -7,7 +7,7 @@
 - Package: `Mail` · Category: Economy & items
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [Data](Data.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Mail")` (server) / `Gaxia.IsInstalled("Mail")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Mail")` on the server
 
 ## `GaxiaServer.Mail`
 

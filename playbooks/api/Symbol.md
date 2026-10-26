@@ -7,7 +7,7 @@
 - Package: `Symbol` · Category: Shared utilities
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Symbol")` (server) / `Gaxia.IsInstalled("Symbol")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Symbol")` on the server; `Gaxia.IsInstalled("Symbol")` on the client
 
 ## `Gaxia.Symbol`
 

@@ -7,7 +7,7 @@
 - Package: `UI.InventoryController` · Category: Client UI
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [UI.UIController](UI.UIController.md)
-- Check it is installed: `GaxiaServer.IsInstalled("UI.InventoryController")` (server) / `Gaxia.IsInstalled("UI.InventoryController")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("UI.InventoryController")` on the server; `Gaxia.IsInstalled("UI.InventoryController")` on the client
 
 ## `Gaxia.UI.InventoryController`
 
@@ -24,9 +24,7 @@ local InventoryController = Gaxia.UI.InventoryController
 ### Functions
 
 - `InventoryController.Close(): ()`
-  ── Close ──
 - `InventoryController.Open(items: { InventoryItem }): Frame?`
-  ── Open ──
 
 ### Types
 

@@ -7,7 +7,7 @@
 - Package: `Protection` · Category: Gameplay & world
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [Data](Data.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Protection")` (server) / `Gaxia.IsInstalled("Protection")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Protection")` on the server
 
 ## `GaxiaServer.Protection`
 

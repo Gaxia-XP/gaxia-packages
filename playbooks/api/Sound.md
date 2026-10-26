@@ -7,7 +7,7 @@
 - Package: `Sound` · Category: Client systems
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Sound")` (server) / `Gaxia.IsInstalled("Sound")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Sound")` on the server; `Gaxia.IsInstalled("Sound")` on the client
 
 ## `Gaxia.Sound`
 
@@ -24,20 +24,18 @@ local Sound = Gaxia.Sound
 ### Functions
 
 - `Sound.Preload(soundIds: { string }): ()`
-  ── Preload ── Wrap ContentProvider:PreloadAsync in pcall — it yields and can fail on bad asset IDs; we don't want bad IDs to take down the calling thread.
+  Wrap ContentProvider:PreloadAsync in pcall — it yields and can fail on bad asset IDs; we don't want bad IDs to take down the calling thread.
 - `Sound.Play(soundId: string, props: SoundProps?): Sound`
-  ── Play ── Pool-backed playback; returns the Sound so callers can stop / inspect it. Caller is responsible for calling :Stop or letting it finish (PlayOnce handles auto-release).
+  Pool-backed playback; returns the Sound so callers can stop / inspect it. Caller is responsible for calling :Stop or letting it finish (PlayOnce handles auto-release).
 - `Sound.PlayOnce(soundId: string, props: SoundProps?): ()`
-  ── PlayOnce ── Fire-and-forget convenience. Sound auto-releases back to pool on Ended. WHY a separate API: callers that don't need the Sound handle shouldn't have to manage release themselves — easy to leak otherwise.
+  Fire-and-forget convenience. Sound auto-releases back to pool on Ended. WHY a separate API: callers that don't need the Sound handle shouldn't have to manage release themselves — easy to leak otherwise.
 - `Sound.SetCategoryVolume(category: Category, volume: number): ()`
-  ── Category volume ──
 - `Sound.GetCategoryVolume(category: Category): number`
 - `Sound.StopAll(category: Category?): ()`
-  ── StopAll ── Stop+release everything in a category, or all categories if nil.
+  Stop+release everything in a category, or all categories if nil.
 - `Sound.PlayMusic(soundId: string, fadeIn: number?): Sound`
-  ── PlayMusic ── Crossfades old track out while new track fades in. Returns the new music Sound so callers can hook .Ended for chaining.
+  Crossfades old track out while new track fades in. Returns the new music Sound so callers can hook .Ended for chaining.
 - `Sound.StopMusic(fadeOut: number?): ()`
-  ── StopMusic ──
 
 ### Types
 

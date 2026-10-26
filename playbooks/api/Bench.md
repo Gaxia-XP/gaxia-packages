@@ -7,7 +7,7 @@
 - Package: `Bench` · Category: Shared utilities
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Bench")` (server) / `Gaxia.IsInstalled("Bench")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Bench")` on the server; `Gaxia.IsInstalled("Bench")` on the client
 
 ## `Gaxia.Bench`
 
@@ -25,9 +25,8 @@ local Bench = Gaxia.Bench
 ### Functions
 
 - `Bench.Measure(label: string, fn: () -> (), iterations: number?): BenchResult`
-  ── Measure ── WHY os.clock() not tick(): os.clock is monotonic and CPU-time based with much higher resolution — essential for sub-millisecond measurements.
+  WHY os.clock() not tick(): os.clock is monotonic and CPU-time based with much higher resolution — essential for sub-millisecond measurements.
 - `Bench.Compare(a: { label: string, fn: () -> () }, b: { label: string, fn: () -> () }, iterations: number?): CompareResult`
-  ── Compare ──
 
 ### Types
 

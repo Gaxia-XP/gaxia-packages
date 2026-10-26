@@ -7,7 +7,7 @@
 - Package: `UI.HealthBarController` · Category: Client UI
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [UI.UIController](UI.UIController.md)
-- Check it is installed: `GaxiaServer.IsInstalled("UI.HealthBarController")` (server) / `Gaxia.IsInstalled("UI.HealthBarController")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("UI.HealthBarController")` on the server; `Gaxia.IsInstalled("UI.HealthBarController")` on the client
 
 ## `Gaxia.UI.HealthBarController`
 
@@ -24,7 +24,6 @@ local HealthBarController = Gaxia.UI.HealthBarController
 ### Functions
 
 - `HealthBarController.Attach(humanoid: Humanoid, parent: GuiBase2d?): HealthBarHandle`
-  ── Attach ──
 
 ### Types
 

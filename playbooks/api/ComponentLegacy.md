@@ -7,7 +7,7 @@
 - Package: `ComponentLegacy` · Category: Deprecated
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("ComponentLegacy")` (server) / `Gaxia.IsInstalled("ComponentLegacy")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("ComponentLegacy")` on the server; `Gaxia.IsInstalled("ComponentLegacy")` on the client
 
 ## `Gaxia.ComponentLegacy`
 

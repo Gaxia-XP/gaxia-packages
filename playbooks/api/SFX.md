@@ -7,7 +7,7 @@
 - Package: `SFX` · Category: Effects
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("SFX")` (server) / `Gaxia.IsInstalled("SFX")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("SFX")` on the server
 
 ## `GaxiaServer.SFX`
 
@@ -24,7 +24,6 @@ local SFX = GaxiaServer.SFX
 ### Functions
 
 - `SFX.ComputePitch(base: number, variation: number, roll01: number): number`
-  ── PURE: randomized playback speed (unit-testable) ──
 - `SFX.Register(name: string, def: SoundDef): ()`
 - `SFX.SetCategoryVolume(category: SoundCategory | string, volume: number): ()`
 - `SFX.GetCategoryVolume(category: SoundCategory | string): number`

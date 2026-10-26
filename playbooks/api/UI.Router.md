@@ -7,7 +7,7 @@
 - Package: `UI.Router` · Category: Client UI
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("UI.Router")` (server) / `Gaxia.IsInstalled("UI.Router")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("UI.Router")` on the server; `Gaxia.IsInstalled("UI.Router")` on the client
 
 ## `Gaxia.UI.Router`
 

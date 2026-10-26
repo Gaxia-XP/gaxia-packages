@@ -7,7 +7,7 @@
 - Package: `Motion3D` · Category: Effects
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Motion3D")` (server) / `Gaxia.IsInstalled("Motion3D")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Motion3D")` on the server
 
 ## `GaxiaServer.Motion3D`
 

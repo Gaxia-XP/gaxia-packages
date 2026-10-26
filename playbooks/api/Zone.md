@@ -7,7 +7,7 @@
 - Package: `Zone` · Category: Gameplay & world
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Zone")` (server) / `Gaxia.IsInstalled("Zone")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Zone")` on the server
 
 ## `GaxiaServer.Zone`
 

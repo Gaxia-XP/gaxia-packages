@@ -7,7 +7,7 @@
 - Package: `AI` · Category: Gameplay & world
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("AI")` (server) / `Gaxia.IsInstalled("AI")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("AI")` on the server
 
 ## `GaxiaServer.AI`
 
@@ -31,9 +31,7 @@ local AI = GaxiaServer.AI
   Halt the model's current movement.
 - `AI.IsMoving(model: Model): boolean`
 - `AI.Roam(model: Model, center: Vector3, radius: number): () -> ()`
-  ── Roam: wander within `radius` of `center` ──
 - `AI.Follow(model: Model, target: Instance, opts: { Interval: number?, StopDistance: number? }?): () -> ()`
-  ── Follow: chase a moving target part/model, repathing on an interval ──
 
 ### Signals
 

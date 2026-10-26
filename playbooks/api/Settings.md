@@ -7,7 +7,7 @@
 - Package: `Settings` · Category: Data & players
 - Starts at server boot: **yes, whenever installed** (it has work to do before its first call)
 - Installing it also installs: [Data](Data.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Settings")` (server) / `Gaxia.IsInstalled("Settings")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Settings")` on the server
 
 ## `GaxiaServer.Settings`
 

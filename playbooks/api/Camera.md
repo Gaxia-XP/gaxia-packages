@@ -7,7 +7,7 @@
 - Package: `Camera` · Category: Client systems
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Camera")` (server) / `Gaxia.IsInstalled("Camera")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Camera")` on the server; `Gaxia.IsInstalled("Camera")` on the client
 
 ## `Gaxia.Camera`
 
@@ -24,13 +24,12 @@ local Camera = Gaxia.Camera
 ### Functions
 
 - `Camera.GetCamera(): Camera`
-  ── GetCamera ──
 - `Camera.Shake(intensity: number, duration: number): ()`
-  ── Shake ── intensity is in studs (XY rotational offset); duration in seconds. Shake decays LINEARLY toward zero — most action games use linear or quadratic falloff, linear gives the cleanest "punch then settle" feel.
+  intensity is in studs (XY rotational offset); duration in seconds. Shake decays LINEARLY toward zero — most action games use linear or quadratic falloff, linear gives the cleanest "punch then settle" feel.
 - `Camera.SetFOV(fov: number, duration: number?): ()`
-  ── SetFOV ── Tween-based FOV change. Cancels any prior in-flight tween so a fast pair of calls (e.g. ADS in → ADS out) doesn't blend at half-way and look mushy.
+  Tween-based FOV change. Cancels any prior in-flight tween so a fast pair of calls (e.g. ADS in → ADS out) doesn't blend at half-way and look mushy.
 - `Camera.ResetFOV(duration: number?): ()`
-  ── ResetFOV ── Convenience wrapper; same tween path so it cancels in-flight changes cleanly.
+  Convenience wrapper; same tween path so it cancels in-flight changes cleanly.
 
 ### Fields
 

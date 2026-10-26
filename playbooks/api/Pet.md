@@ -7,7 +7,7 @@
 - Package: `Pet` · Category: Gameplay & world
 - Starts at server boot: **yes, whenever installed** (it has work to do before its first call)
 - Installing it also installs: [Codex](Codex.md), [Data](Data.md), [Economy](Economy.md), [Guard](Guard.md), [ItemDef](ItemDef.md), [Loot](Loot.md), [UI.Toast](UI.Toast.md), [UI.UIController](UI.UIController.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Pet")` (server) / `Gaxia.IsInstalled("Pet")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Pet")` on the server; `Gaxia.IsInstalled("UI.PetController")` on the client
 
 ## `GaxiaServer.Pet`
 
@@ -24,7 +24,7 @@ local Pet = GaxiaServer.Pet
 ### Functions
 
 - `Pet.GetCoinMultiplier(player: Player): number`
-  ── Public: Coins multiplier (THE core API the scope specifies) ── Returns 1 + Σ coinBonus of every currently-equipped pet. A game multiplies its own coin grants by this (the faucet is the game's; this service never grants). Returns a neutral 1.0 until the profile has loaded (no pets equipped yet anyway), so a faucet calling this in the join window never errors.
+  Returns 1 + Σ coinBonus of every currently-equipped pet. A game multiplies its own coin grants by this (the faucet is the game's; this service never grants). Returns a neutral 1.0 until the profile has loaded (no pets equipped yet anyway), so a faucet calling this in the join window never errors.
 - `Pet.GetOwned(player: Player): { PetInstance }`
 - `Pet.GetEquipped(player: Player): { string }`
 - `Pet.GrantPet(player: Player, petId: string): string?`

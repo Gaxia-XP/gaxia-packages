@@ -22,7 +22,7 @@ local State = Gaxia.State
 - `StateClass:Get(key: string): any`
 - `StateClass:Set(key: string, value: any): ()`
 - `StateClass:SetTable(key: string, value: { [any]: any }): ()`
-  ── Nested-table values (Phase 19.2) ── Roblox attributes only hold scalars, so a nested table is serialized to a JSON string (round-tripping Vector3/Vector2/CFrame/Color3 via Serializer) and stored under `key`. Use SetTable/GetTable consistently for table keys.
+  Roblox attributes only hold scalars, so a nested table is serialized to a JSON string (round-tripping Vector3/Vector2/CFrame/Color3 via Serializer) and stored under `key`. Use SetTable/GetTable consistently for table keys.
 - `StateClass:GetTable(key: string): any`
 - `StateClass:OnTableChanged(key: string, fn: (new: any, old: any) -> ()): RBXScriptConnection`
   Like OnChanged but decodes the JSON string back to a table for new/old.

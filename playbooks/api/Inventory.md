@@ -7,7 +7,7 @@
 - Package: `Inventory` · Category: Economy & items
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [Data](Data.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Inventory")` (server) / `Gaxia.IsInstalled("Inventory")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Inventory")` on the server
 
 ## `GaxiaServer.Inventory`
 

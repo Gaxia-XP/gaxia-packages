@@ -7,7 +7,7 @@
 - Package: `Tool` · Category: Gameplay & world
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Tool")` (server) / `Gaxia.IsInstalled("Tool")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Tool")` on the server
 
 ## `GaxiaServer.Tool`
 

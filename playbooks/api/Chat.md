@@ -7,7 +7,7 @@
 - Package: `Chat` · Category: Moderation & safety
 - Starts at server boot: **yes, whenever installed** (it has work to do before its first call)
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Chat")` (server) / `Gaxia.IsInstalled("Chat")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Chat")` on the server; `Gaxia.IsInstalled("ChatFeedback")` on the client
 
 ## `GaxiaServer.Chat`
 
@@ -25,7 +25,6 @@ local Chat = GaxiaServer.Chat
 
 - `Chat.ParseArgs(typeList: { string }, argList: { string }): { any }?`
 - `Chat.Register(name: string, opts: CmdOpts, handler: CommandHandler): ()`
-  ── Register / Run ──
 - `Chat.SetRoleResolver(fn: Types.PlayerRoleResolver): ()`
   Install the (player, role) -> boolean lookup used to gate commands that have roles. AdminCommands does this in its Init; game code does not need to call it.
 - `Chat.Run(caller: Player, raw: string): boolean`

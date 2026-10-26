@@ -7,7 +7,7 @@
 - Package: `InviteQueue` · Category: Social
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("InviteQueue")` (server) / `Gaxia.IsInstalled("InviteQueue")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("InviteQueue")` on the server
 
 ## `GaxiaServer.InviteQueue`
 

@@ -7,7 +7,7 @@
 - Package: `UI.Responsive` · Category: Client UI
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("UI.Responsive")` (server) / `Gaxia.IsInstalled("UI.Responsive")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("UI.Responsive")` on the server; `Gaxia.IsInstalled("UI.Responsive")` on the client
 
 ## `Gaxia.UI.Responsive`
 

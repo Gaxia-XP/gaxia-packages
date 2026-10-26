@@ -7,7 +7,7 @@
 - Package: `Player` · Category: Data & players
 - Starts at server boot: **yes, whenever installed** (it has work to do before its first call)
 - Installing it also installs: [Util](Util.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Player")` (server) / `Gaxia.IsInstalled("Player")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Player")` on the server
 
 ## `GaxiaServer.Player`
 
@@ -39,7 +39,7 @@ local Player = GaxiaServer.Player
 Connect with `:Connect(function(...) end)`; the parameters are the payload types, in order.
 
 - `Player.OnPlayerJoined` — `Signal<Player>`
-  ── Signals ── (player) when a player joins (or is already in the game when the service starts), before their character spawns
+  (player) when a player joins (or is already in the game when the service starts), before their character spawns
 - `Player.OnPlayerLeft` — `Signal<Player>`
   (player) when a player is leaving the game
 - `Player.OnCharacterAdded` — `Signal<Player, Model>`

@@ -7,7 +7,7 @@
 - Package: `Scheduler` · Category: Shared utilities
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Scheduler")` (server) / `Gaxia.IsInstalled("Scheduler")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Scheduler")` on the server; `Gaxia.IsInstalled("Scheduler")` on the client
 
 ## `Gaxia.Scheduler`
 

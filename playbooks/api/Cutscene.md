@@ -7,7 +7,7 @@
 - Package: `Cutscene` · Category: Client systems
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [Dialog](Dialog.md), [Promise](Promise.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Cutscene")` (server) / `Gaxia.IsInstalled("Cutscene")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Cutscene")` on the server; `Gaxia.IsInstalled("Cutscene")` on the client
 
 ## `Gaxia.Cutscene`
 

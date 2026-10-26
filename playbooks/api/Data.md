@@ -7,7 +7,7 @@
 - Package: `Data` · Category: Data & players
 - Starts at server boot: **yes, whenever installed** (it has work to do before its first call)
 - Installing it also installs: [Migration](Migration.md), [Util](Util.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Data")` (server) / `Gaxia.IsInstalled("Data")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Data")` on the server
 
 ## `GaxiaServer.Data`
 
@@ -38,7 +38,7 @@ local Data = GaxiaServer.Data
 Connect with `:Connect(function(...) end)`; the parameters are the payload types, in order.
 
 - `Data.OnLoaded` — `Signal<Player, PlayerData>`
-  ── Signals ── (player, data) once the player's profile is loaded, reconciled and migrated
+  (player, data) once the player's profile is loaded, reconciled and migrated
 - `Data.OnReleased` — `Signal<Player>`
   (player) after the player's profile is released (leave or shutdown)
 - `Data.OnDataChanged` — `Signal<Player, string, any>`

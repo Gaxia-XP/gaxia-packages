@@ -7,7 +7,7 @@
 - Package: `TweenUtil` · Category: Shared utilities
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [Promise](Promise.md)
-- Check it is installed: `GaxiaServer.IsInstalled("TweenUtil")` (server) / `Gaxia.IsInstalled("TweenUtil")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("TweenUtil")` on the server; `Gaxia.IsInstalled("TweenUtil")` on the client
 
 ## `Gaxia.TweenUtil`
 
@@ -34,7 +34,7 @@ local TweenUtil = Gaxia.TweenUtil
 ### Fields
 
 - `TweenUtil.Presets = { … } (multi-line: see the source)`
-  ── Presets ── Common-case TweenInfos so callers don't reinvent timing constants per file.
+  Common-case TweenInfos so callers don't reinvent timing constants per file.
 
 ### Types
 

@@ -7,7 +7,7 @@
 - Package: `Leaderboard` · Category: Progression & live ops
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Leaderboard")` (server) / `Gaxia.IsInstalled("Leaderboard")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Leaderboard")` on the server
 
 ## `GaxiaServer.Leaderboard`
 

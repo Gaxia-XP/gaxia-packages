@@ -127,7 +127,8 @@ export type GaxiaServerPackage = {
 	-- True once the service has started (a boot service after Boot, or any
 	-- service after first use). Never loads anything.
 	IsEnabled : (name: Types.ServiceName | string) -> boolean,
-	-- True when the service's package is installed in this place. Never loads anything.
+	-- True when the package is installed in this place: any package name from
+	-- Packages.lua ("Economy", "UI.Toast", "Util", "Promise", …). Never loads a service.
 	IsInstalled : (name: Types.ServiceName | string) -> boolean,
 }
 
@@ -384,6 +385,7 @@ local function buildGaxiaServer(): { [string]: any }
 		sharedRoot:SetAttribute(FEATURES_ATTRIBUTE, table.concat(names, ","))
 	end
 
+	-- Is the service behind a loader key installed (its module is present)?
 	local function isInstalled(key: string): boolean
 		local rootName = ROOT_KEY_MAP[key]
 		if rootName then
@@ -391,6 +393,57 @@ local function buildGaxiaServer(): { [string]: any }
 		end
 		local libName = LIB_KEY_MAP[key]
 		return libName ~= nil and resolveChild(libFolder, libName) ~= nil
+	end
+
+	-- The package catalogue (Packages.lua), loaded once on first need.
+	local manifestCache: Types.PackageManifest? = nil
+	local function loadManifest(): Types.PackageManifest?
+		if manifestCache == nil then
+			local inst = packageRoot:FindFirstChild("Packages")
+			local loaded = if inst and inst:IsA("ModuleScript") then safeRequire(inst, "Packages") else nil
+			if type(loaded) == "table" then
+				manifestCache = loaded :: Types.PackageManifest
+			end
+		end
+		return manifestCache
+	end
+
+	-- A module path ("Lib/DataManager", "Shared/Util") is present: a module, or a
+	-- folder that still holds modules (an install keeps empty folders).
+	local function hasPath(root: Instance?, path: string): boolean
+		local node: Instance? = root
+		for _, part in ipairs(string.split(path, "/")) do
+			node = if node then node:FindFirstChild(part) else nil
+		end
+		return node ~= nil and (node:IsA("ModuleScript") or node:FindFirstChildWhichIsA("ModuleScript", true) ~= nil)
+	end
+
+	-- Any package name from Packages.lua (server, shared or client package), or a
+	-- service loader key: are all of its modules in this place?
+	local function isPackageInstalled(name: string): boolean
+		if LIB_KEY_MAP[name] or ROOT_KEY_MAP[name] then
+			return isInstalled(name)
+		end
+		local manifest = loadManifest()
+		if manifest == nil then
+			return false
+		end
+		for _, spec in ipairs(manifest.Packages) do
+			if spec.Name == name then
+				for _, p in ipairs(spec.Server or {}) do
+					if not hasPath(packageRoot, p) then
+						return false
+					end
+				end
+				for _, p in ipairs(spec.Replicated or {}) do
+					if not hasPath(sharedRoot, p) then
+						return false
+					end
+				end
+				return true
+			end
+		end
+		return false
 	end
 
 	-- When packages were picked, the services that start at boot: every picked
@@ -404,11 +457,8 @@ local function buildGaxiaServer(): { [string]: any }
 		if type(picked) ~= "string" then
 			return nil
 		end
-		local manifestInst = packageRoot:FindFirstChild("Packages")
-		local manifest = if manifestInst and manifestInst:IsA("ModuleScript")
-			then safeRequire(manifestInst, "Packages")
-			else nil
-		if type(manifest) ~= "table" then
+		local manifest = loadManifest()
+		if manifest == nil then
 			warn("[Gaxia_Packages_Server] packages were picked but the Packages catalogue is missing — reinstall Gaxia; booting Config/Features")
 			return nil
 		end
@@ -515,7 +565,7 @@ local function buildGaxiaServer(): { [string]: any }
 	end
 
 	function GaxiaServer.IsInstalled(name: string): boolean
-		return isInstalled(name)
+		return isPackageInstalled(name)
 	end
 
 	-- Lifecycle.Find (soft dependencies between services) loads through the loader.

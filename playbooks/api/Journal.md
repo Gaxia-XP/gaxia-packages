@@ -7,7 +7,7 @@
 - Package: `Journal` · Category: Moderation & safety
 - Starts at server boot: **yes, whenever installed** (it has work to do before its first call)
 - Installing it also installs: [AntiCheat](AntiCheat.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Journal")` (server) / `Gaxia.IsInstalled("Journal")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Journal")` on the server
 
 ## `GaxiaServer.Journal`
 

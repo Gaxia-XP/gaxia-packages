@@ -7,7 +7,7 @@
 - Package: `VFX` · Category: Effects
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [Pool](Pool.md)
-- Check it is installed: `GaxiaServer.IsInstalled("VFX")` (server) / `Gaxia.IsInstalled("VFX")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("VFX")` on the server
 
 ## `GaxiaServer.VFX`
 

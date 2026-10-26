@@ -7,7 +7,7 @@
 - Package: `Placement` · Category: Gameplay & world
 - Starts at server boot: **yes, whenever installed** (it has work to do before its first call)
 - Installing it also installs: [Data](Data.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Placement")` (server) / `Gaxia.IsInstalled("Placement")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Placement")` on the server
 
 ## `GaxiaServer.Placement`
 

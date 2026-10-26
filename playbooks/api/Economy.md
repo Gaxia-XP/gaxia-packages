@@ -7,7 +7,7 @@
 - Package: `Economy` · Category: Economy & items
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [Data](Data.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Economy")` (server) / `Gaxia.IsInstalled("Economy")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Economy")` on the server
 
 ## `GaxiaServer.Economy`
 

@@ -7,7 +7,7 @@
 - Package: `Raid` · Category: Gameplay & world
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [Cooldown](Cooldown.md), [Data](Data.md), [Economy](Economy.md), [Protection](Protection.md), [Vault](Vault.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Raid")` (server) / `Gaxia.IsInstalled("Raid")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Raid")` on the server
 
 ## `GaxiaServer.Raid`
 
@@ -24,7 +24,6 @@ local Raid = GaxiaServer.Raid
 ### Functions
 
 - `Raid.ComputeLoot(vaultValue: number, defenderBalance: number, fraction: number, maxLoot: number): number`
-  ── PURE: how much can actually be stolen this raid ──
 - `Raid.Configure(partial: RaidOverrides): ()`
 - `Raid.GetRevengeTargets(player: Player): { number }`
 - `Raid.IsRaiding(player: Player): boolean`

@@ -7,7 +7,7 @@
 - Package: `Dialog` · Category: Client systems
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [Promise](Promise.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Dialog")` (server) / `Gaxia.IsInstalled("Dialog")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Dialog")` on the server; `Gaxia.IsInstalled("Dialog")` on the client
 
 ## `Gaxia.Dialog`
 

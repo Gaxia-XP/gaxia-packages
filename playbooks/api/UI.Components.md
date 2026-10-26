@@ -7,7 +7,7 @@
 - Package: `UI.Components` · Category: Client UI
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [Theme](Theme.md)
-- Check it is installed: `GaxiaServer.IsInstalled("UI.Components")` (server) / `Gaxia.IsInstalled("UI.Components")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("UI.Components")` on the server; `Gaxia.IsInstalled("UI.Components")` on the client
 
 ## `Gaxia.UI.Components`
 

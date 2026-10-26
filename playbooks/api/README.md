@@ -13,6 +13,7 @@ If something is not on these pages, it does not exist — do not guess names.
 
 | Page | Gives you |
 |---|---|
+| [Loaders — GaxiaServer and Gaxia themselves](Core.Loaders.md) | GaxiaServer.Boot, GaxiaServer.IsInstalled, GaxiaServer.IsEnabled, Gaxia.IsInstalled, … |
 | [Types — shared type definitions (server)](Core.Types.md) | Types |
 | [Config — every config section (server)](Core.Config.md) | GaxiaServer.Config.Admin, GaxiaServer.Config.AntiCheat, GaxiaServer.Config.Cooldown, GaxiaServer.Config.CrossServer, GaxiaServer.Config.Daily, GaxiaServer.Config.Data, GaxiaServer.Config.Economy, GaxiaServer.Config.Event, GaxiaServer.Config.Features, GaxiaServer.Config.Idle, GaxiaServer.Config.Interaction, GaxiaServer.Config.Inventory, GaxiaServer.Config.Leaderboard, GaxiaServer.Config.Level, GaxiaServer.Config.Mail, GaxiaServer.Config.Party, GaxiaServer.Config.Pets, GaxiaServer.Config.Player, GaxiaServer.Config.Raid, GaxiaServer.Config.Runtime, GaxiaServer.Config.Social, GaxiaServer.Config.Teleport, GaxiaServer.Config.Vault, GaxiaServer.Config.Webhook |
 | [Lifecycle — service start-up and soft dependencies (server)](Core.ServiceLifecycle.md) | GaxiaServer.Lifecycle |

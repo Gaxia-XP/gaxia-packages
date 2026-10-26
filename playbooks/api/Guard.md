@@ -7,7 +7,7 @@
 - Package: `Guard` · Category: Shared utilities
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Guard")` (server) / `Gaxia.IsInstalled("Guard")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Guard")` on the server; `Gaxia.IsInstalled("Guard")` on the client
 
 ## `Gaxia.Guard`
 

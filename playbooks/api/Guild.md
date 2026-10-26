@@ -7,7 +7,7 @@
 - Package: `Guild` · Category: Social
 - Starts at server boot: **yes, whenever installed** (it has work to do before its first call)
 - Installing it also installs: [Data](Data.md), [Friend](Friend.md), [GuildLock](GuildLock.md), [InviteQueue](InviteQueue.md), [Messages](Messages.md), [Theme](Theme.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Guild")` (server) / `Gaxia.IsInstalled("Guild")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Guild")` on the server; `Gaxia.IsInstalled("UI.GuildPanel")` on the client
 
 ## `GaxiaServer.Guild`
 
@@ -24,20 +24,16 @@ local Guild = GaxiaServer.Guild
 ### Functions
 
 - `Guild.Create(leader: any, name: string, tag: string): (boolean, string)`
-  ── Public: Create ──
 - `Guild.GetGuild(player: any): GuildData?`
-  ── Public: lookups ──
 - `Guild.GetById(guildId: string): GuildData?`
 - `Guild.GetMembers(guildId: string): { GuildMemberEntry }`
 - `Guild.IsMember(player: any, guildId: string?): boolean`
 - `Guild.RoleOf(player: any): GuildRole?`
 - `Guild.Invite(officer: any, targetUserId: number): (boolean, string?)`
-  ── Public: Invite / Accept / Decline ──
 - `Guild.GetPendingInvites(player: any): { GuildPendingInvite }`
 - `Guild.AcceptInvite(player: any, guildId: string): (boolean, string?)`
 - `Guild.DeclineInvite(player: any, guildId: string): (boolean, string?)`
 - `Guild.Kick(actor: any, targetUserId: number): (boolean, string?)`
-  ── Public: Kick / Promote / Demote / Transfer / Leave / Disband ──
 - `Guild.Promote(owner: any, userId: number): (boolean, string?)`
 - `Guild.Demote(owner: any, userId: number): (boolean, string?)`
 - `Guild.Transfer(owner: any, newOwnerUserId: number): (boolean, string?)`

@@ -7,7 +7,7 @@
 - Package: `Refine` · Category: Economy & items
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [Data](Data.md), [Item](Item.md), [Level](Level.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Refine")` (server) / `Gaxia.IsInstalled("Refine")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Refine")` on the server
 
 ## `GaxiaServer.Refine`
 

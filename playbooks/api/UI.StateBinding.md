@@ -7,7 +7,7 @@
 - Package: `UI.StateBinding` · Category: Client UI
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("UI.StateBinding")` (server) / `Gaxia.IsInstalled("UI.StateBinding")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("UI.StateBinding")` on the server; `Gaxia.IsInstalled("UI.StateBinding")` on the client
 
 ## `Gaxia.UI.StateBinding`
 

@@ -7,7 +7,7 @@
 - Package: `Event` · Category: Progression & live ops
 - Starts at server boot: **yes, whenever installed** (it has work to do before its first call)
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Event")` (server) / `Gaxia.IsInstalled("Event")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Event")` on the server
 
 ## `GaxiaServer.Event`
 
@@ -30,7 +30,7 @@ local Event = GaxiaServer.Event
 - `Event.GetTimeRemaining(eventId: string): number`
 - `Event.GetTimeUntilStart(eventId: string): number`
 - `Event.PollTransitions(): ()`
-  ── Transition detection (fire start/end once) ── Exposed so it's directly testable; the ticker (lifecycle Start) calls it on a loop.
+  Exposed so it's directly testable; the ticker (lifecycle Start) calls it on a loop.
 
 ### Signals
 

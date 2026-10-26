@@ -7,7 +7,7 @@
 - Package: `GuildLock` · Category: Social
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("GuildLock")` (server) / `Gaxia.IsInstalled("GuildLock")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("GuildLock")` on the server
 
 ## `GaxiaServer.GuildLock`
 

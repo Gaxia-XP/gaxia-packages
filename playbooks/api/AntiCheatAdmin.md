@@ -7,7 +7,7 @@
 - Package: `AntiCheatAdmin` · Category: Moderation & safety
 - Starts at server boot: **yes, whenever installed** (it has work to do before its first call)
 - Installing it also installs: [Admin](Admin.md), [AntiCheat](AntiCheat.md), [Ban](Ban.md), [Journal](Journal.md)
-- Check it is installed: `GaxiaServer.IsInstalled("AntiCheatAdmin")` (server) / `Gaxia.IsInstalled("AntiCheatAdmin")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("AntiCheatAdmin")` on the server
 
 ## `GaxiaServer.AntiCheatAdmin`
 

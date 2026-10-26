@@ -5,6 +5,13 @@
 One line each: `Access.Name(params): returns   → page`. Search this file for a word (e.g. `Spend`, `OnLevelUp`).
 
 ```text
+GaxiaServer.VERSION : string   → Core.Loaders.md
+GaxiaServer.Boot(): ()   → Core.Loaders.md
+GaxiaServer.IsEnabled(name: Types.ServiceName | string): boolean   → Core.Loaders.md
+GaxiaServer.IsInstalled(name: Types.ServiceName | string): boolean   → Core.Loaders.md
+Gaxia.VERSION : string   → Core.Loaders.md
+Gaxia.Tween(instance: Instance, info: TweenInfo, props: { [string]: any }): Tween   → Core.Loaders.md
+Gaxia.IsInstalled(key: string): boolean   → Core.Loaders.md
 GaxiaServer.Lifecycle.Define(module: {}, spec: Spec): ()   → Core.ServiceLifecycle.md
 GaxiaServer.Lifecycle.Ensure(module: {}): boolean   → Core.ServiceLifecycle.md
 GaxiaServer.Lifecycle.EnsureAuto(module: {}): boolean   → Core.ServiceLifecycle.md
@@ -508,6 +515,10 @@ GaxiaServer.AntiCheat.RegisterDetector(detector: Detector)   → AntiCheat.md
 GaxiaServer.AntiCheat.GetDetector(name: string): any?   → AntiCheat.md
 GaxiaServer.AntiCheat.OnFlag : Signal<Player, string, Types.Severity | string, number>   → AntiCheat.md
 GaxiaServer.AntiCheat.OnAction : Signal<Player, string, Types.ActionKind>   → AntiCheat.md
+GaxiaServer.AntiCheat.Animation.Allow(id: string)   → AntiCheat.md
+GaxiaServer.AntiCheat.Combat.RegisterDamage(victim: Player | Humanoid, amount: number): ()   → AntiCheat.md
+GaxiaServer.AntiCheat.RemoteRate.Wrap(remote: RemoteEvent): RemoteEvent   → AntiCheat.md
+GaxiaServer.AntiCheat.Stat.Expect(player: Player, statName: string, newValue: number)   → AntiCheat.md
 GaxiaServer.Journal.SetSink(fn: (entry: Entry) -> ()): ()   → Journal.md
 GaxiaServer.Journal.GetRecent(n: number?): { Entry }   → Journal.md
 GaxiaServer.Journal.GetForPlayer(player: Player): { Entry }   → Journal.md

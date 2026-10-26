@@ -7,7 +7,7 @@
 - Package: `UI.Toast` · Category: Client UI
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [Theme](Theme.md)
-- Check it is installed: `GaxiaServer.IsInstalled("UI.Toast")` (server) / `Gaxia.IsInstalled("UI.Toast")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("UI.Toast")` on the server; `Gaxia.IsInstalled("UI.Toast")` on the client
 
 ## `Gaxia.UI.Toast`
 

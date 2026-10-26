@@ -7,7 +7,7 @@
 - Package: `Item` · Category: Economy & items
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [Data](Data.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Item")` (server) / `Gaxia.IsInstalled("Item")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Item")` on the server
 
 ## `GaxiaServer.Item`
 

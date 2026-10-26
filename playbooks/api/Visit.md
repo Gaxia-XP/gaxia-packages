@@ -7,7 +7,7 @@
 - Package: `Visit` · Category: Gameplay & world
 - Starts at server boot: **yes, whenever installed** (it has work to do before its first call)
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Visit")` (server) / `Gaxia.IsInstalled("Visit")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Visit")` on the server
 
 ## `GaxiaServer.Visit`
 

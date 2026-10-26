@@ -7,7 +7,7 @@
 - Package: `UI.UIController` · Category: Client UI
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [UI.Templates](UI.Templates.md)
-- Check it is installed: `GaxiaServer.IsInstalled("UI.UIController")` (server) / `Gaxia.IsInstalled("UI.UIController")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("UI.UIController")` on the server; `Gaxia.IsInstalled("UI.UIController")` on the client
 
 ## `Gaxia.UI.UIController`
 
@@ -24,13 +24,13 @@ local UIController = Gaxia.UI.UIController
 ### Functions
 
 - `UIController.GetActiveScreen(): ScreenGui?`
-  ── GetActiveScreen ── Returns the cloned ScreenGui in PlayerGui (Roblox auto-clones from StarterGui).
+  Returns the cloned ScreenGui in PlayerGui (Roblox auto-clones from StarterGui).
 - `UIController.HUD(): Folder?`
-  ── HUD ── Container for persistent on-screen elements (health bars, text labels).
+  Container for persistent on-screen elements (health bars, text labels).
 - `UIController.Overlays(): Folder?`
-  ── Overlays ── Container for modal / temporary UI (menus, dialogs, inventory).
+  Container for modal / temporary UI (menus, dialogs, inventory).
 - `UIController.CloneTemplate(templateName: TemplateName | string, parent: Instance?): GuiObject?`
-  ── CloneTemplate ── Builds a fresh instance of the named template via the code-first Templates module, parents it (default = active ScreenGui), and flips Visible=true so callers can stage further without an extra step. The legacy name "CloneTemplate" is preserved so existing call sites (NotificationService / HealthBarController / MenuController / InventoryController) keep working — semantics are identical from their perspective.
+  Builds a fresh instance of the named template via the code-first Templates module, parents it (default = active ScreenGui), and flips Visible=true so callers can stage further without an extra step. The legacy name "CloneTemplate" is preserved so existing call sites (NotificationService / HealthBarController / MenuController / InventoryController) keep working — semantics are identical from their perspective.
 
 ### Types
 

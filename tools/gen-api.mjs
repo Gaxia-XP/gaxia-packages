@@ -50,6 +50,13 @@ function moduleFile(dir, p) {
 function expand(side, p) {
   const dir = side === 'Server' ? SERVER_DIR : REPLICATED_DIR
   const file = moduleFile(dir, p)
+  if (side === 'Server' && p === 'AntiCheat' && file) {
+    // The orchestrator, then each built-in detector (reached as GaxiaServer.AntiCheat.<Name>).
+    const abs = path.join(ROOT, dir, p)
+    const detectors = fs.readdirSync(abs).filter((f) => /\.luau?$/.test(f) && !/^init\./.test(f) && !IGNORED.test(f)).sort()
+      .map((f) => ({ side, path: `${p}/${f.replace(/\.luau?$/, '')}`, file: path.join(abs, f) }))
+    return [{ side, path: p, file }, ...detectors]
+  }
   if (file) return [{ side, path: p, file }]
   const abs = path.join(ROOT, dir, p)
   return fs.readdirSync(abs)
@@ -63,6 +70,11 @@ function access(side, p) {
   const leaf = p.split('/').pop()
   if (side === 'Server' && p.startsWith('Config/')) {
     return { context: 'server only (Script / server ModuleScript)', name: `GaxiaServer.Config.${leaf}`, how: [SERVER_REQUIRE, `local ${leaf}Config = GaxiaServer.Config.${leaf}`] }
+  }
+  if (side === 'Server' && p.startsWith('AntiCheat/')) {
+    const src = fs.readFileSync(moduleFile(SERVER_DIR, p), 'utf8')
+    const name = (/^\w+\.Name\s*=\s*"(\w+)"/m.exec(src) ?? [])[1] ?? leaf
+    return { context: 'server only (Script / server ModuleScript); an AntiCheat detector', name: `GaxiaServer.AntiCheat.${name}`, how: [SERVER_REQUIRE, `local ${name} = GaxiaServer.AntiCheat.${name}   -- nil if this detector is not loaded`] }
   }
   if (side === 'Server') {
     const key = p === 'AntiCheat' ? 'AntiCheat' : p === 'Config' ? 'Config' : LIB_KEYS[leaf]
@@ -83,6 +95,7 @@ function access(side, p) {
   }
   if (p.startsWith('Shared/')) {
     const key = SHARED_KEYS[leaf] ?? leaf
+    if (leaf === 'Promise') return { context: 'server and client', name: 'Gaxia.Promise', how: [SHARED_REQUIRE, 'local Promise = Gaxia.Promise', '-- Promise itself is untyped: annotate values with PromiseTypes (see below)'] }
     if (leaf === 'PromiseTypes') return { context: 'types only (server and client)', name: leaf, how: [`local PromiseTypes = require(${instPath})`, '-- then: PromiseTypes.Promise<T>'] }
     return { context: 'server and client', name: `Gaxia.${key}`, how: [SHARED_REQUIRE, `local ${key} = Gaxia.${key}`, `-- or, to get its types in your own ModuleScript: local ${leaf} = require(${instPath})`] }
   }
@@ -98,7 +111,7 @@ function docAbove(lines, i) {
     if (!t.startsWith('--') || /^--\s*[─═━-]{3,}/.test(t) || /^--\[\[|^--\]\]/.test(t)) break
     out.unshift(t.replace(/^--\s?/, ''))
   }
-  return out.filter((l) => !/^[─═━\s]*$/.test(l)).join(' ').replace(/\s+/g, ' ').trim()
+  return out.filter((l) => !/^[─═━\s]*$/.test(l)).join(' ').replace(/──[^─]*──/g, '').replace(/\s+/g, ' ').trim()
 }
 
 // Text from `start` through the parenthesis that closes the first `(`, plus a
@@ -171,6 +184,10 @@ const code = (lang, body) => `\`\`\`${lang}\n${body}\n\`\`\``
 
 function renderModule(mod, acc, rel) {
   const parsed = parseModule(mod.file)
+  if (mod.path.startsWith('AntiCheat/')) {
+    // Init / Sample are the detector contract, called by the orchestrator — never by game code.
+    parsed.functions = parsed.functions.filter((f) => f.name !== 'Init' && f.name !== 'Sample')
+  }
   const out = []
   out.push(`## \`${acc.name}\``, '')
   out.push(`- Runs: **${acc.context}**`)
@@ -210,13 +227,29 @@ function renderModule(mod, acc, rel) {
     out.push('### Types', '', 'Exported types (use them in annotations: `local x: Module.TypeName`).', '')
     out.push(code('lua', parsed.types.map((t) => t.text).join('\n')), '')
   }
-  if (!parsed.functions.length && !parsed.signals.length) {
+  if (mod.path.startsWith('AntiCheat/') && !parsed.functions.length) {
+    out.push(`_Game code does not call this detector: the AntiCheat orchestrator runs it. Tune it in \`GaxiaServer.Config.AntiCheat\` (its section has Enabled, Severity and thresholds) and turn it on or off with \`GaxiaServer.AntiCheat.SetDetectorEnabled\`._`, '')
+  } else if (!parsed.functions.length && !parsed.signals.length) {
     // A data module (config section, constants, ...): show its values.
     const body = fs.readFileSync(mod.file, 'utf8').replace(/^--!\w+\n/, '').replace(/^(--[^\n]*\n|\s*\n)+/, '').trimEnd()
     const lines = body.split('\n')
     out.push('### Values', '', code('lua', lines.length > 160 ? lines.slice(0, 160).join('\n') + '\n-- … (truncated: read the source file)' : body), '')
   }
   return { text: out.join('\n'), parsed }
+}
+
+// How game code checks a package is installed (server: any package name;
+// client/shared: the key of one of its modules).
+function installCheck(pkg) {
+  const server = `\`GaxiaServer.IsInstalled("${pkg.Name}")\` on the server`
+  const rep = (pkg.Replicated ?? [])[0]
+  if (!rep) return server
+  const leaf = rep.split('/').pop()
+  const key = rep === 'Shared/Util' ? 'Util'
+    : rep.startsWith('Client/UI/') ? `UI.${leaf}`
+    : rep.startsWith('Client/') ? (CLIENT_KEYS[leaf] ?? leaf)
+    : (SHARED_KEYS[leaf] ?? leaf)
+  return `${server}; \`Gaxia.IsInstalled("${key}")\` on the client`
 }
 
 const HEADER = '<!-- GENERATED by tools/gen-api.mjs from the source. Do not edit by hand: run `node tools/gen-api.mjs`. -->'
@@ -256,11 +289,41 @@ const CORE_TITLES = {
   'Shared/Trove': 'Trove — cleanup',
 }
 
+// GaxiaServer / Gaxia members that are not modules (Boot, IsInstalled, ...), read
+// from the loaders' exported types.
+function loaderMembers(file, typeName, root) {
+  const src = fs.readFileSync(path.join(ROOT, file), 'utf8')
+  const block = new RegExp(`export type ${typeName} = \\{([\\s\\S]*?)\\n\\}`).exec(src)?.[1] ?? ''
+  const lines = block.split('\n')
+  const out = []
+  lines.forEach((line, i) => {
+    const m = /^\t(\w+)\s*:\s*(.+?),?\s*(?:--.*)?$/.exec(line)
+    if (!m || /typeof\(require/.test(m[2]) || m[2].trim() === '{') return
+    const fn = /^\((.*)\)\s*->\s*(.+)$/.exec(m[2].trim())
+    const doc = docAbove(lines, i)
+    out.push(fn ? { kind: 'fn', text: `${root}.${m[1]}(${fn[1]}): ${fn[2]}`, doc } : { kind: 'field', text: `${root}.${m[1]} : ${m[2].trim()}`, doc })
+  })
+  return out
+}
+
 export function generate() {
   const manifest = readManifest()
   const files = {}
   const indexLines = []
   const coreRows = []
+  {
+    const server = loaderMembers(`${SERVER_DIR}/init.lua`, 'GaxiaServerPackage', 'GaxiaServer')
+    const shared = loaderMembers(`${REPLICATED_DIR}/init.lua`, 'GaxiaPackage', 'Gaxia')
+    const render = (list) => list.flatMap((m) => [`- \`${m.text}\``, ...(m.doc ? [`  ${m.doc}`] : [])])
+    const page = [HEADER, '', '# Loaders — `GaxiaServer` and `Gaxia` themselves', '',
+      '**Core** (always installed). Besides the packages (`GaxiaServer.Economy`, `Gaxia.UI.Toast`, …), the two loaders have these members.', '',
+      '## `GaxiaServer` (server only)', '', code('lua', SERVER_REQUIRE), '', ...render(server), '',
+      '## `Gaxia` (server and client)', '', code('lua', SHARED_REQUIRE), '', ...render(shared), '',
+      'Server Scripts may require `Gaxia` too, for the shared modules (`Gaxia.Net`, `Gaxia.Signal`, `Gaxia.Trove`, `Gaxia.State`, `Gaxia.Flags`, …). Client modules (`Gaxia.UI`, `Gaxia.Input`, …) are nil on the server.', '']
+    files['Core.Loaders.md'] = page.join('\n')
+    for (const m of [...server, ...shared]) indexLines.push(`${m.text}   → Core.Loaders.md`)
+    coreRows.push('| [Loaders — GaxiaServer and Gaxia themselves](Core.Loaders.md) | GaxiaServer.Boot, GaxiaServer.IsInstalled, GaxiaServer.IsEnabled, Gaxia.IsInstalled, … |')
+  }
   // Core: one page per module (Config gets all its sections on one page).
   for (const side of ['Server', 'Replicated']) {
     for (const p of manifest.Core[side]) {
@@ -289,7 +352,7 @@ export function generate() {
       `- Package: \`${pkg.Name}\` · Category: ${pkg.Category}`,
       `- Starts at server boot: ${pkg.Boot ? '**yes, whenever installed** (it has work to do before its first call)' : 'only when picked; otherwise the first time game code uses it'}`,
       `- Installing it also installs: ${pkg.Requires.length ? pkg.Requires.map((r) => `[${r}](${r}.md)`).join(', ') : 'nothing else (only Core)'}`,
-      `- Check it is installed: \`GaxiaServer.IsInstalled("${pkg.Name}")\` (server) / \`Gaxia.IsInstalled("${pkg.Name}")\` (shared/client keys)`,
+      `- Check it is installed: ${installCheck(pkg)}`,
     ]
     const page = pageFor(`${pkg.Name}`, facts, mods)
     files[`${pkg.Name}.md`] = page.text

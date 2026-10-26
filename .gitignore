@@ -10,3 +10,6 @@
 /*.rbxl.lock
 
 sourcemap.json
+
+# luau-lsp / Roblox type definitions downloaded for the checkers
+/globalTypes.d.luau

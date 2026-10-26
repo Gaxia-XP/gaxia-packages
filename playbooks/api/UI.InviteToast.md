@@ -7,7 +7,7 @@
 - Package: `UI.InviteToast` · Category: Client UI
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [UI.Toast](UI.Toast.md)
-- Check it is installed: `GaxiaServer.IsInstalled("UI.InviteToast")` (server) / `Gaxia.IsInstalled("UI.InviteToast")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("UI.InviteToast")` on the server; `Gaxia.IsInstalled("UI.InviteToast")` on the client
 
 ## `Gaxia.UI.InviteToast`
 

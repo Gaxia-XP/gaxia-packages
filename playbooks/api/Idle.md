@@ -7,7 +7,7 @@
 - Package: `Idle` · Category: Progression & live ops
 - Starts at server boot: **yes, whenever installed** (it has work to do before its first call)
 - Installing it also installs: [Data](Data.md), [Economy](Economy.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Idle")` (server) / `Gaxia.IsInstalled("Idle")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Idle")` on the server
 
 ## `GaxiaServer.Idle`
 
@@ -24,7 +24,6 @@ local Idle = GaxiaServer.Idle
 ### Functions
 
 - `Idle.ComputeOffline(lastSeen: number, now: number, rate: number, maxOffline: number, cap: number): (number, number)`
-  ── PURE: clamp elapsed then apply rate + cap (unit-testable) ──
 - `Idle.Configure(player: Player, cfg: IdleConfig): ()`
 - `Idle.SetRate(player: Player, rate: number): ()`
 - `Idle.GetRate(player: Player): number`

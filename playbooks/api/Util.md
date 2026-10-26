@@ -7,7 +7,7 @@
 - Package: `Util` · Category: Shared utilities
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Util")` (server) / `Gaxia.IsInstalled("Util")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Util")` on the server; `Gaxia.IsInstalled("Util")` on the client
 
 ## `Gaxia.Util.Debug`
 

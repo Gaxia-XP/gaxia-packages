@@ -7,7 +7,7 @@
 - Package: `Analytics` · Category: Progression & live ops
 - Starts at server boot: **yes, whenever installed** (it has work to do before its first call)
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Analytics")` (server) / `Gaxia.IsInstalled("Analytics")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Analytics")` on the server
 
 ## `GaxiaServer.Analytics`
 

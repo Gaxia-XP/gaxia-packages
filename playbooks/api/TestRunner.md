@@ -7,7 +7,7 @@
 - Package: `TestRunner` · Category: Shared utilities
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("TestRunner")` (server) / `Gaxia.IsInstalled("TestRunner")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("TestRunner")` on the server; `Gaxia.IsInstalled("TestRunner")` on the client
 
 ## `Gaxia.TestRunner`
 
@@ -25,11 +25,8 @@ local TestRunner = Gaxia.TestRunner
 ### Functions
 
 - `TestRunner.Expect(actual: any): Expectation`
-  ── Expect ──
 - `TestRunner.Suite(name: string, build: (suite: Suite) -> ()): Result`
-  ── Suite runner ──
 - `TestRunner.RunAll(suites: { (suite: Suite) -> () }): { Result }`
-  ── RunAll ──
 
 ### Types
 

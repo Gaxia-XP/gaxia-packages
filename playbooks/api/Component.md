@@ -7,7 +7,7 @@
 - Package: `Component` · Category: Shared utilities
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [Promise](Promise.md), [Symbol](Symbol.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Component")` (server) / `Gaxia.IsInstalled("Component")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Component")` on the server; `Gaxia.IsInstalled("Component")` on the client
 
 ## `Gaxia.Component`
 

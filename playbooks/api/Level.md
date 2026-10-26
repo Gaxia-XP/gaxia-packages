@@ -7,7 +7,7 @@
 - Package: `Level` · Category: Progression & live ops
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [Data](Data.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Level")` (server) / `Gaxia.IsInstalled("Level")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Level")` on the server
 
 ## `GaxiaServer.Level`
 

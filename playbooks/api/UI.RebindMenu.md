@@ -7,7 +7,7 @@
 - Package: `UI.RebindMenu` · Category: Client UI
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [Input](Input.md), [Theme](Theme.md), [UI.Components](UI.Components.md)
-- Check it is installed: `GaxiaServer.IsInstalled("UI.RebindMenu")` (server) / `Gaxia.IsInstalled("UI.RebindMenu")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("UI.RebindMenu")` on the server; `Gaxia.IsInstalled("UI.RebindMenu")` on the client
 
 ## `Gaxia.UI.RebindMenu`
 

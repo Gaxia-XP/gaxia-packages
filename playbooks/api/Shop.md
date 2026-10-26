@@ -7,7 +7,7 @@
 - Package: `Shop` · Category: Economy & items
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [Economy](Economy.md), [Level](Level.md), [Monetization](Monetization.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Shop")` (server) / `Gaxia.IsInstalled("Shop")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Shop")` on the server
 
 ## `GaxiaServer.Shop`
 

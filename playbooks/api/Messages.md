@@ -7,7 +7,7 @@
 - Package: `Messages` · Category: Data & players
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Messages")` (server) / `Gaxia.IsInstalled("Messages")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Messages")` on the server
 
 ## `GaxiaServer.Messages`
 

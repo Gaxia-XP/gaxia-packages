@@ -7,7 +7,7 @@
 - Package: `Input` · Category: Client systems
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Input")` (server) / `Gaxia.IsInstalled("Input")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Input")` on the server; `Gaxia.IsInstalled("Input")` on the client
 
 ## `Gaxia.Input`
 
@@ -24,15 +24,15 @@ local Input = Gaxia.Input
 ### Functions
 
 - `Input.Bind(name : string, keys : { InputKey }, callback : (name: string, state: ActionState) -> ()): ()`
-  ── Bind ── Registers a named action with one or more keys. Re-binding the same name replaces the prior registration cleanly.
+  Registers a named action with one or more keys. Re-binding the same name replaces the prior registration cleanly.
 - `Input.Unbind(name: string): ()`
-  ── Unbind ── Removes the action entirely. Safe to call for unknown names.
+  Removes the action entirely. Safe to call for unknown names.
 - `Input.Rebind(name: string, newKeys: { InputKey }): boolean`
-  ── Rebind ── Swap keys for an existing action without losing the callback. Returns false if the name was never bound (caller can decide whether to Bind fresh).
+  Swap keys for an existing action without losing the callback. Returns false if the name was never bound (caller can decide whether to Bind fresh).
 - `Input.IsHeld(name: string): boolean`
-  ── IsHeld ── True while the action's primary state is Begin. Useful for per-frame movement code that doesn't want to maintain its own UserInputService listener.
+  True while the action's primary state is Begin. Useful for per-frame movement code that doesn't want to maintain its own UserInputService listener.
 - `Input.GetBindings(): { [string]: { InputKey } }`
-  ── GetBindings ── Shallow-clone the keys per action so the caller (settings UI, rebind menu) can iterate without mutating our internal state.
+  Shallow-clone the keys per action so the caller (settings UI, rebind menu) can iterate without mutating our internal state.
 
 ### Fields
 

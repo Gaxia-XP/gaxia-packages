@@ -7,7 +7,7 @@
 - Package: `AntiCheat` · Category: Moderation & safety
 - Starts at server boot: **yes, whenever installed** (it has work to do before its first call)
 - Installing it also installs: [Tool](Tool.md)
-- Check it is installed: `GaxiaServer.IsInstalled("AntiCheat")` (server) / `Gaxia.IsInstalled("AntiCheat")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("AntiCheat")` on the server; `Gaxia.IsInstalled("AntiCheat")` on the client
 
 ## `GaxiaServer.AntiCheat`
 
@@ -100,6 +100,287 @@ export type DetectorAccess = {
     WorldBounds: typeof(require(script.WorldBoundsDetector))?,
 }
 ```
+
+## `GaxiaServer.AntiCheat.Animation`
+
+- Runs: **server only (Script / server ModuleScript); an AntiCheat detector**
+- Source: `src/ServerStorage/Gaxia_Packages_Server/AntiCheat/AnimationGuard.lua`
+
+Get it:
+
+```lua
+local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
+local Animation = GaxiaServer.AntiCheat.Animation   -- nil if this detector is not loaded
+```
+
+### Functions
+
+- `Animation.Allow(id: string)`
+
+### Fields
+
+- `Animation.Name = "Animation"`
+
+## `GaxiaServer.AntiCheat.Backpack`
+
+- Runs: **server only (Script / server ModuleScript); an AntiCheat detector**
+- Source: `src/ServerStorage/Gaxia_Packages_Server/AntiCheat/BackpackGuard.lua`
+
+Get it:
+
+```lua
+local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
+local Backpack = GaxiaServer.AntiCheat.Backpack   -- nil if this detector is not loaded
+```
+
+### Fields
+
+- `Backpack.Name = "Backpack"`
+
+_Game code does not call this detector: the AntiCheat orchestrator runs it. Tune it in `GaxiaServer.Config.AntiCheat` (its section has Enabled, Severity and thresholds) and turn it on or off with `GaxiaServer.AntiCheat.SetDetectorEnabled`._
+
+## `GaxiaServer.AntiCheat.Combat`
+
+- Runs: **server only (Script / server ModuleScript); an AntiCheat detector**
+- Source: `src/ServerStorage/Gaxia_Packages_Server/AntiCheat/CombatGuard.lua`
+
+Get it:
+
+```lua
+local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
+local Combat = GaxiaServer.AntiCheat.Combat   -- nil if this detector is not loaded
+```
+
+### Functions
+
+- `Combat.RegisterDamage(victim: Player | Humanoid, amount: number): ()`
+  Public: declare an authorised incoming damage tick. The next health drop on `victim` within AUTH_WINDOW will be considered legitimate up to `amount`.
+
+### Fields
+
+- `Combat.Name = "Combat"`
+
+## `GaxiaServer.AntiCheat.ExploitSig`
+
+- Runs: **server only (Script / server ModuleScript); an AntiCheat detector**
+- Source: `src/ServerStorage/Gaxia_Packages_Server/AntiCheat/ExploitSignatureScanner.lua`
+
+Get it:
+
+```lua
+local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
+local ExploitSig = GaxiaServer.AntiCheat.ExploitSig   -- nil if this detector is not loaded
+```
+
+### Fields
+
+- `ExploitSig.Name = "ExploitSig"`
+
+_Game code does not call this detector: the AntiCheat orchestrator runs it. Tune it in `GaxiaServer.Config.AntiCheat` (its section has Enabled, Severity and thresholds) and turn it on or off with `GaxiaServer.AntiCheat.SetDetectorEnabled`._
+
+## `GaxiaServer.AntiCheat.Fly`
+
+- Runs: **server only (Script / server ModuleScript); an AntiCheat detector**
+- Source: `src/ServerStorage/Gaxia_Packages_Server/AntiCheat/FlyDetector.lua`
+
+Get it:
+
+```lua
+local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
+local Fly = GaxiaServer.AntiCheat.Fly   -- nil if this detector is not loaded
+```
+
+### Fields
+
+- `Fly.Name = "Fly"`
+
+_Game code does not call this detector: the AntiCheat orchestrator runs it. Tune it in `GaxiaServer.Config.AntiCheat` (its section has Enabled, Severity and thresholds) and turn it on or off with `GaxiaServer.AntiCheat.SetDetectorEnabled`._
+
+## `GaxiaServer.AntiCheat.Heartbeat`
+
+- Runs: **server only (Script / server ModuleScript); an AntiCheat detector**
+- Source: `src/ServerStorage/Gaxia_Packages_Server/AntiCheat/HeartbeatGuard.lua`
+
+Get it:
+
+```lua
+local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
+local Heartbeat = GaxiaServer.AntiCheat.Heartbeat   -- nil if this detector is not loaded
+```
+
+### Fields
+
+- `Heartbeat.Name = "Heartbeat"`
+
+_Game code does not call this detector: the AntiCheat orchestrator runs it. Tune it in `GaxiaServer.Config.AntiCheat` (its section has Enabled, Severity and thresholds) and turn it on or off with `GaxiaServer.AntiCheat.SetDetectorEnabled`._
+
+## `GaxiaServer.AntiCheat.Heuristic`
+
+- Runs: **server only (Script / server ModuleScript); an AntiCheat detector**
+- Source: `src/ServerStorage/Gaxia_Packages_Server/AntiCheat/HeuristicDetector.lua`
+
+Get it:
+
+```lua
+local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
+local Heuristic = GaxiaServer.AntiCheat.Heuristic   -- nil if this detector is not loaded
+```
+
+### Fields
+
+- `Heuristic.Name = "Heuristic"`
+
+_Game code does not call this detector: the AntiCheat orchestrator runs it. Tune it in `GaxiaServer.Config.AntiCheat` (its section has Enabled, Severity and thresholds) and turn it on or off with `GaxiaServer.AntiCheat.SetDetectorEnabled`._
+
+## `GaxiaServer.AntiCheat.HumanoidState`
+
+- Runs: **server only (Script / server ModuleScript); an AntiCheat detector**
+- Source: `src/ServerStorage/Gaxia_Packages_Server/AntiCheat/HumanoidStateGuard.lua`
+
+Get it:
+
+```lua
+local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
+local HumanoidState = GaxiaServer.AntiCheat.HumanoidState   -- nil if this detector is not loaded
+```
+
+### Fields
+
+- `HumanoidState.Name = "HumanoidState"`
+
+_Game code does not call this detector: the AntiCheat orchestrator runs it. Tune it in `GaxiaServer.Config.AntiCheat` (its section has Enabled, Severity and thresholds) and turn it on or off with `GaxiaServer.AntiCheat.SetDetectorEnabled`._
+
+## `GaxiaServer.AntiCheat.NoClip`
+
+- Runs: **server only (Script / server ModuleScript); an AntiCheat detector**
+- Source: `src/ServerStorage/Gaxia_Packages_Server/AntiCheat/NoClipDetector.lua`
+
+Get it:
+
+```lua
+local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
+local NoClip = GaxiaServer.AntiCheat.NoClip   -- nil if this detector is not loaded
+```
+
+### Fields
+
+- `NoClip.Name = "NoClip"`
+
+_Game code does not call this detector: the AntiCheat orchestrator runs it. Tune it in `GaxiaServer.Config.AntiCheat` (its section has Enabled, Severity and thresholds) and turn it on or off with `GaxiaServer.AntiCheat.SetDetectorEnabled`._
+
+## `GaxiaServer.AntiCheat.RemoteRate`
+
+- Runs: **server only (Script / server ModuleScript); an AntiCheat detector**
+- Source: `src/ServerStorage/Gaxia_Packages_Server/AntiCheat/RemoteRateLimiter.lua`
+
+Get it:
+
+```lua
+local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
+local RemoteRate = GaxiaServer.AntiCheat.RemoteRate   -- nil if this detector is not loaded
+```
+
+### Functions
+
+- `RemoteRate.Wrap(remote: RemoteEvent): RemoteEvent`
+  Wrap a single RemoteEvent: every server-side OnServerEvent handler is now gated by token availability. Returns the same RemoteEvent for chaining.
+
+### Fields
+
+- `RemoteRate.Name = "RemoteRate"`
+
+## `GaxiaServer.AntiCheat.Speed`
+
+- Runs: **server only (Script / server ModuleScript); an AntiCheat detector**
+- Source: `src/ServerStorage/Gaxia_Packages_Server/AntiCheat/SpeedDetector.lua`
+
+Get it:
+
+```lua
+local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
+local Speed = GaxiaServer.AntiCheat.Speed   -- nil if this detector is not loaded
+```
+
+### Fields
+
+- `Speed.Name = "Speed"`
+
+_Game code does not call this detector: the AntiCheat orchestrator runs it. Tune it in `GaxiaServer.Config.AntiCheat` (its section has Enabled, Severity and thresholds) and turn it on or off with `GaxiaServer.AntiCheat.SetDetectorEnabled`._
+
+## `GaxiaServer.AntiCheat.Stat`
+
+- Runs: **server only (Script / server ModuleScript); an AntiCheat detector**
+- Source: `src/ServerStorage/Gaxia_Packages_Server/AntiCheat/StatGuard.lua`
+
+Get it:
+
+```lua
+local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
+local Stat = GaxiaServer.AntiCheat.Stat   -- nil if this detector is not loaded
+```
+
+### Functions
+
+- `Stat.Expect(player: Player, statName: string, newValue: number)`
+  Public helper for EconomyService to "announce" a legitimate write so the guard does not flag the same change as foreign.
+
+### Fields
+
+- `Stat.Name = "Stat"`
+
+## `GaxiaServer.AntiCheat.Teleport`
+
+- Runs: **server only (Script / server ModuleScript); an AntiCheat detector**
+- Source: `src/ServerStorage/Gaxia_Packages_Server/AntiCheat/TeleportDetector.lua`
+
+Get it:
+
+```lua
+local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
+local Teleport = GaxiaServer.AntiCheat.Teleport   -- nil if this detector is not loaded
+```
+
+### Fields
+
+- `Teleport.Name = "Teleport"`
+
+_Game code does not call this detector: the AntiCheat orchestrator runs it. Tune it in `GaxiaServer.Config.AntiCheat` (its section has Enabled, Severity and thresholds) and turn it on or off with `GaxiaServer.AntiCheat.SetDetectorEnabled`._
+
+## `GaxiaServer.AntiCheat.ToolDupe`
+
+- Runs: **server only (Script / server ModuleScript); an AntiCheat detector**
+- Source: `src/ServerStorage/Gaxia_Packages_Server/AntiCheat/ToolDuplicationGuard.lua`
+
+Get it:
+
+```lua
+local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
+local ToolDupe = GaxiaServer.AntiCheat.ToolDupe   -- nil if this detector is not loaded
+```
+
+### Fields
+
+- `ToolDupe.Name = "ToolDupe"`
+
+_Game code does not call this detector: the AntiCheat orchestrator runs it. Tune it in `GaxiaServer.Config.AntiCheat` (its section has Enabled, Severity and thresholds) and turn it on or off with `GaxiaServer.AntiCheat.SetDetectorEnabled`._
+
+## `GaxiaServer.AntiCheat.WorldBounds`
+
+- Runs: **server only (Script / server ModuleScript); an AntiCheat detector**
+- Source: `src/ServerStorage/Gaxia_Packages_Server/AntiCheat/WorldBoundsDetector.lua`
+
+Get it:
+
+```lua
+local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
+local WorldBounds = GaxiaServer.AntiCheat.WorldBounds   -- nil if this detector is not loaded
+```
+
+### Fields
+
+- `WorldBounds.Name = "WorldBounds"`
+
+_Game code does not call this detector: the AntiCheat orchestrator runs it. Tune it in `GaxiaServer.Config.AntiCheat` (its section has Enabled, Severity and thresholds) and turn it on or off with `GaxiaServer.AntiCheat.SetDetectorEnabled`._
 
 ## `Gaxia.AntiCheat`
 

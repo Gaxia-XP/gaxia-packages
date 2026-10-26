@@ -7,7 +7,7 @@
 - Package: `Effects` · Category: Client systems
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Effects")` (server) / `Gaxia.IsInstalled("Effects")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Effects")` on the server; `Gaxia.IsInstalled("Effects")` on the client
 
 ## `Gaxia.Effects`
 
@@ -24,13 +24,13 @@ local Effects = Gaxia.Effects
 ### Functions
 
 - `Effects.EmitParticle(template: ParticleEmitter, atCFrame: CFrame, count: number?): ()`
-  ── EmitParticle ── Clones the emitter template to a tiny anchored Part at the target CFrame, calls :Emit(count), then schedules destruction once the longest-lived particle has had time to die. Anchored = no physics jitter; CanCollide off so it doesn't push players. Size near-zero so the Part itself is invisible.
+  Clones the emitter template to a tiny anchored Part at the target CFrame, calls :Emit(count), then schedules destruction once the longest-lived particle has had time to die. Anchored = no physics jitter; CanCollide off so it doesn't push players. Size near-zero so the Part itself is invisible.
 - `Effects.SpawnBeam(template : Beam, fromAttachment : Attachment, toAttachment : Attachment, lifetime : number?): Beam`
-  ── SpawnBeam ── Clone a beam template between two attachments. We re-parent the clone to the FROM attachment's parent so the Beam shows under a sensible owner; the Attachment0/1 properties point at the user-supplied endpoints. Returns the live Beam so callers can tween or mutate it before it auto-destroys.
+  Clone a beam template between two attachments. We re-parent the clone to the FROM attachment's parent so the Beam shows under a sensible owner; the Attachment0/1 properties point at the user-supplied endpoints. Returns the live Beam so callers can tween or mutate it before it auto-destroys.
 - `Effects.SpawnTrail(template : Trail, parent : BasePart, lifetime : number?): Trail`
-  ── SpawnTrail ── Trails need two attachments on a part to render. We assume the template already has them as children (typical authoring); we just parent the clone to the requested host part. If the template has no attachments the trail silently won't render — that's a template config issue, not our problem.
+  Trails need two attachments on a part to render. We assume the template already has them as children (typical authoring); we just parent the clone to the requested host part. If the template has no attachments the trail silently won't render — that's a template config issue, not our problem.
 - `Effects.ClearAll(): ()`
-  ── ClearAll ── Wipe every effect we've spawned. We swap the Trove before calling Clean so new spawns triggered from within cleanup callbacks attach to the FRESH trove instead of erroring on the one being cleaned.
+  Wipe every effect we've spawned. We swap the Trove before calling Clean so new spawns triggered from within cleanup callbacks attach to the FRESH trove instead of erroring on the one being cleaned.
 
 ### Types
 

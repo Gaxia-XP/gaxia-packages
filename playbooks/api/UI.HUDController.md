@@ -7,7 +7,7 @@
 - Package: `UI.HUDController` · Category: Client UI
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [UI.UIController](UI.UIController.md)
-- Check it is installed: `GaxiaServer.IsInstalled("UI.HUDController")` (server) / `Gaxia.IsInstalled("UI.HUDController")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("UI.HUDController")` on the server; `Gaxia.IsInstalled("UI.HUDController")` on the client
 
 ## `Gaxia.UI.HUDController`
 
@@ -24,11 +24,8 @@ local HUDController = Gaxia.UI.HUDController
 ### Functions
 
 - `HUDController.AddText(name: string, getValue: () -> string, position: UDim2): TextLabel?`
-  ── AddText ──
 - `HUDController.Remove(name: string): ()`
-  ── Remove ──
 - `HUDController.SetVisible(visible: boolean): ()`
-  ── SetVisible ──
 
 ### Types
 

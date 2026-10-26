@@ -7,7 +7,7 @@
 - Package: `UI.NotificationService` · Category: Client UI
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [UI.UIController](UI.UIController.md)
-- Check it is installed: `GaxiaServer.IsInstalled("UI.NotificationService")` (server) / `Gaxia.IsInstalled("UI.NotificationService")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("UI.NotificationService")` on the server; `Gaxia.IsInstalled("UI.NotificationService")` on the client
 
 ## `Gaxia.UI.NotificationService`
 
@@ -24,7 +24,6 @@ local NotificationService = Gaxia.UI.NotificationService
 ### Functions
 
 - `NotificationService.Notify(title: string, message: string, duration: number?, notifType: (NotificationType | string)?): ()`
-  ── Notify ──
 
 ### Types
 

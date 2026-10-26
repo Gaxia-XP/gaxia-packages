@@ -7,7 +7,7 @@
 - Package: `Random` · Category: Shared utilities
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Random")` (server) / `Gaxia.IsInstalled("Random")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Random")` on the server; `Gaxia.IsInstalled("Random")` on the client
 
 ## `Gaxia.Random`
 

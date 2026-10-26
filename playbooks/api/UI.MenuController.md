@@ -7,7 +7,7 @@
 - Package: `UI.MenuController` · Category: Client UI
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [UI.UIController](UI.UIController.md)
-- Check it is installed: `GaxiaServer.IsInstalled("UI.MenuController")` (server) / `Gaxia.IsInstalled("UI.MenuController")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("UI.MenuController")` on the server; `Gaxia.IsInstalled("UI.MenuController")` on the client
 
 ## `Gaxia.UI.MenuController`
 
@@ -24,7 +24,6 @@ local MenuController = Gaxia.UI.MenuController
 ### Functions
 
 - `MenuController.Open(menuName: string, builder: ((content: ScrollingFrame) -> ())?): Frame?`
-  ── Open ──
 
 ### Fields
 

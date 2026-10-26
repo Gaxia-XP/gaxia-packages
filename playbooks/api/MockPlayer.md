@@ -7,7 +7,7 @@
 - Package: `MockPlayer` · Category: Shared utilities
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("MockPlayer")` (server) / `Gaxia.IsInstalled("MockPlayer")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("MockPlayer")` on the server; `Gaxia.IsInstalled("MockPlayer")` on the client
 
 ## `Gaxia.MockPlayer`
 
@@ -25,7 +25,6 @@ local MockPlayer = Gaxia.MockPlayer
 ### Functions
 
 - `MockPlayer.new(opts: MockPlayerOpts?): MockPlayerObj`
-  ── Constructor ──
 
 ### Types
 

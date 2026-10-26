@@ -7,7 +7,7 @@
 - Package: `Party` · Category: Social
 - Starts at server boot: **yes, whenever installed** (it has work to do before its first call)
 - Installing it also installs: [Friend](Friend.md), [InviteQueue](InviteQueue.md), [Memory](Memory.md), [Teleport](Teleport.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Party")` (server) / `Gaxia.IsInstalled("Party")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Party")` on the server
 
 ## `GaxiaServer.Party`
 
@@ -38,7 +38,6 @@ local Party = GaxiaServer.Party
 - `Party.PollMatch(matchType: string, neededPlayers: number): MatchResult?`
   Pull oldest queued parties until `neededPlayers` is reached; if a full match forms, remove those parties from the pool, reserve a server, and return it.
 - `Party.StartMatch(partyId: string, placeId: number): (boolean, any)`
-  ── Start a match: reserve a server + teleport every member ──
 - `Party.Invite(leader: any, targetUserId: number): (boolean, string?)`
 - `Party.GetPendingInvites(player: any): { PendingInvite }`
 - `Party.CancelInvite(leader: any, targetUserId: number): ()`

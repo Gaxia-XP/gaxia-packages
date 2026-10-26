@@ -7,7 +7,7 @@
 - Package: `Spring` · Category: Shared utilities
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Spring")` (server) / `Gaxia.IsInstalled("Spring")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Spring")` on the server; `Gaxia.IsInstalled("Spring")` on the client
 
 ## `Gaxia.Spring`
 

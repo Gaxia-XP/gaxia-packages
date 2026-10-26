@@ -7,7 +7,7 @@
 - Package: `UI.Accessibility` · Category: Client UI
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [Theme](Theme.md)
-- Check it is installed: `GaxiaServer.IsInstalled("UI.Accessibility")` (server) / `Gaxia.IsInstalled("UI.Accessibility")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("UI.Accessibility")` on the server; `Gaxia.IsInstalled("UI.Accessibility")` on the client
 
 ## `Gaxia.UI.Accessibility`
 

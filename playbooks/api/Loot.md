@@ -7,7 +7,7 @@
 - Package: `Loot` · Category: Economy & items
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [Codex](Codex.md), [Data](Data.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Loot")` (server) / `Gaxia.IsInstalled("Loot")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Loot")` on the server
 
 ## `GaxiaServer.Loot`
 
@@ -24,7 +24,6 @@ local Loot = GaxiaServer.Loot
 ### Functions
 
 - `Loot.PickWeighted(weights: { number }, roll01: number): number`
-  ── PURE: pick an index from weights given a roll in [0,1) (seed-testable) ──
 - `Loot.DefineTable(tableId: string, entries: { LootEntry }): ()`
 - `Loot.GetTable(tableId: string): { LootEntry }?`
 - `Loot.GetDropRates(tableId: string): { [string]: number }`

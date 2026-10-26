@@ -7,7 +7,7 @@
 - Package: `Localization` · Category: Shared utilities
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Localization")` (server) / `Gaxia.IsInstalled("Localization")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Localization")` on the server; `Gaxia.IsInstalled("Localization")` on the client
 
 ## `Gaxia.Localization`
 

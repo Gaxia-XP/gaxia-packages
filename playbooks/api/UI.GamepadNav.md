@@ -7,7 +7,7 @@
 - Package: `UI.GamepadNav` · Category: Client UI
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("UI.GamepadNav")` (server) / `Gaxia.IsInstalled("UI.GamepadNav")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("UI.GamepadNav")` on the server; `Gaxia.IsInstalled("UI.GamepadNav")` on the client
 
 ## `Gaxia.UI.GamepadNav`
 
@@ -24,7 +24,7 @@ local GamepadNav = Gaxia.UI.GamepadNav
 ### Functions
 
 - `GamepadNav.SolveLinks(centers: { Vector2 }): { Links }`
-  ── PURE solver (available on every context, so it's unit-testable) ── Given element centers, return for each index the index to move to in each direction: nearest candidate strictly in that direction, off-axis distance weighted so a same-row/column neighbour beats a diagonal one.
+  Given element centers, return for each index the index to move to in each direction: nearest candidate strictly in that direction, off-axis distance weighted so a same-row/column neighbour beats a diagonal one.
 - `GamepadNav.AutoLink(elements: { GuiObject }): ()`
   Mark elements Selectable + wire NextSelection* from their on-screen positions.
 - `GamepadNav.Focus(e: GuiObject): ()`

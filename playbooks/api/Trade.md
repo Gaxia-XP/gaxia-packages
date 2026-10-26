@@ -7,7 +7,7 @@
 - Package: `Trade` · Category: Economy & items
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: [Economy](Economy.md), [Item](Item.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Trade")` (server) / `Gaxia.IsInstalled("Trade")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Trade")` on the server
 
 ## `GaxiaServer.Trade`
 

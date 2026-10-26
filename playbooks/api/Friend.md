@@ -7,7 +7,7 @@
 - Package: `Friend` · Category: Social
 - Starts at server boot: **yes, whenever installed** (it has work to do before its first call)
 - Installing it also installs: [Cooldown](Cooldown.md), [Data](Data.md), [InviteQueue](InviteQueue.md), [Theme](Theme.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Friend")` (server) / `Gaxia.IsInstalled("Friend")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Friend")` on the server; `Gaxia.IsInstalled("UI.FriendListPanel")` on the client
 
 ## `GaxiaServer.Friend`
 
@@ -24,11 +24,9 @@ local Friend = GaxiaServer.Friend
 ### Functions
 
 - `Friend.IsBlocked(player: any, otherUserId: number): boolean`
-  ── Public: IsBlocked / IsBlockedByUserId ──
 - `Friend.IsBlockedByUserId(blockerUserId: number, otherUserId: number): boolean`
   Used by PartyService.Invite without needing the blocker to be in-server. If the blocker is in this server, check; otherwise return false (best-effort across servers).
 - `Friend.SendRequest(from: any, toUserId: number): (boolean, string?)`
-  ── Public: SendRequest ──
 - `Friend.AcceptRequest(player: any, fromUserId: number): (boolean, string?)`
 - `Friend.DeclineRequest(player: any, fromUserId: number): (boolean, string?)`
 - `Friend.Remove(player: any, otherUserId: number): (boolean, string?)`

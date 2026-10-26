@@ -7,7 +7,7 @@
 - Package: `DebugConsole` · Category: Client systems
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("DebugConsole")` (server) / `Gaxia.IsInstalled("DebugConsole")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("DebugConsole")` on the server; `Gaxia.IsInstalled("DebugConsole")` on the client
 
 ## `Gaxia.DebugConsole`
 

@@ -7,7 +7,7 @@
 - Package: `Theme` · Category: Shared utilities
 - Starts at server boot: only when picked; otherwise the first time game code uses it
 - Installing it also installs: nothing else (only Core)
-- Check it is installed: `GaxiaServer.IsInstalled("Theme")` (server) / `Gaxia.IsInstalled("Theme")` (shared/client keys)
+- Check it is installed: `GaxiaServer.IsInstalled("Theme")` on the server; `Gaxia.IsInstalled("Theme")` on the client
 
 ## `Gaxia.Theme`
 

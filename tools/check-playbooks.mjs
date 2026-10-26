@@ -141,6 +141,9 @@ for (const file of files) {
     for (const m of line.matchAll(/`([^`]+)`/g)) {
       for (const ref of m[1].matchAll(/\b((?:GaxiaServer|Gaxia)(?:\.[A-Za-z_]\w*)+)/g)) {
         const name = ref[1]
+        // GaxiaServer.Config.<Section>.<field…>: the section must exist; fields are data.
+        const cfg = /^GaxiaServer\.Config\.(\w+)/.exec(name)
+        if (cfg && names.has(`GaxiaServer.Config.${cfg[1]}`)) continue
         if (!names.has(name)) report(file, i + 1, `unknown API name \`${name}\` (not in playbooks/api — check the spelling in playbooks/api/INDEX.md)`)
       }
     }
@@ -193,16 +196,23 @@ function typeCheck(file, placed, dir, v2) {
   } catch (e) {
     out = (e.stdout?.toString() ?? '') + (e.stderr?.toString() ?? '')
   }
+  // A diagnostic's message can span several lines: join the continuation lines.
+  const entries = []
   for (const line of out.split('\n')) {
+    if (/^(.+?\.lua)(?: \[[^\]]*\])?\((\d+),(\d+)\): (\w+): /.test(line.trim())) entries.push(line.trim())
+    else if (entries.length && line.trim() && !/^\[(INFO|WARN)\]/.test(line)) entries[entries.length - 1] += ' ' + line.trim()
+  }
+  for (const line of entries) {
     // errors: <abs> [game/...](l,c): TypeError: msg     lints: <rel>(l,c): Lint: msg
-    const m = /^(.+?\.lua)(?: \[[^\]]*\])?\((\d+),(\d+)\): (\w+): (.*)$/.exec(line.trim())
+    const m = /^(.+?\.lua)(?: \[[^\]]*\])?\((\d+),(\d+)\): (\w+): (.*)$/.exec(line)
     if (!m) continue
     const target = path.resolve(dir, m[1])
     const b = placed.find((x) => x.abs === target)
     if (!b) continue
     const mdLine = b.start + 1 + Number(m[2]) - 1 - b.offset
     const tag = v2 ? ' [LuauSolverV2]' : ''
-    if (m[4] === 'TypeError' || m[4] === 'SyntaxError') report(file, mdLine, `${m[4]}${tag}: ${m[5]}`)
+    const msg = m[5].length > 400 ? m[5].slice(0, 397) + '...' : m[5]
+    if (m[4] === 'TypeError' || m[4] === 'SyntaxError') report(file, mdLine, `${m[4]}${tag}: ${msg}`)
     else warnings.push(`${path.relative(ROOT, file)}:${mdLine}: ${m[4]}: ${m[5]}`)
   }
 }
@@ -233,7 +243,8 @@ for (const file of files) {
   }
   checkedBlocks += typed.length
   if (!typed.length) continue
-  const name = path.relative(ROOT, file).replace(/[\\/]/g, '_').replace(/\.md$/, '')
+  const rel = path.relative(ROOT, file)
+  const name = (rel.startsWith('..') ? path.basename(file) : rel).replace(/[\\/]/g, '_').replace(/\.md$/, '')
   if (!flag('--no-types') || emitDir) {
     const dir = emitDir ? path.join(path.resolve(emitDir), name) : fs.mkdtempSync(path.join(os.tmpdir(), 'gaxia-playbook-'))
     const placed = buildTree(file, typed, dir)
