@@ -380,7 +380,7 @@ export function generate() {
     '',
     '## Packages',
     '',
-    '"Boot" = starts at server boot whenever it is installed.',
+    '"Boot" = starts at server boot whenever it is installed (when packages were picked; a full install with nothing picked boots `Config/Features` instead).',
     '',
   ]
   for (const [cat, rows] of byCategory) readme.push(`### ${cat}`, '', '| Package | Boot | What it is |', '|---|---|---|', ...rows, '')
