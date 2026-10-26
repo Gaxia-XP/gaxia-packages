@@ -4,19 +4,17 @@
 
 **Use this when** the user asks for: "add an anti-cheat detector", "a new cheat check in Gaxia", "detect hover / float exploits", "extend AntiCheat" (ไทย: "เพิ่มตัวตรวจโกง", "เพิ่ม detector ใน AntiCheat", "ตรวจจับคนลอยตัว").
 **Job:** B (you change the Gaxia repo). A game that only needs its own check calls `GaxiaServer.AntiCheat.Flag` or `GaxiaServer.AntiCheat.RegisterDetector` from its own Script ([anti-cheat and bans](../game/anticheat-and-bans.md)).
-**Tools:** as in [change the framework](change-the-framework.md), Step 1.
-**You will create:** `src/ServerStorage/Gaxia_Packages_Server/AntiCheat/HoverDetector.lua`, edit `AntiCheat/init.lua` and `Config/AntiCheat.lua`, and add a test Script `ServerScriptService/AntiCheatFlagLog` in Studio.
+**Before you start:** do [change the framework](change-the-framework.md), Step 1 (tools and the type-error baseline `lsp-before.txt`, `lsp-v2-before.txt`).
+**You will create:** `src/ServerStorage/Gaxia_Packages_Server/AntiCheat/HoverDetector.lua`. You will edit `AntiCheat/init.lua`, `Config/AntiCheat.lua`, `CHANGELOG.md`, `MANUAL.md` and `playbooks/game/anticheat-and-bans.md`, and add a test Script `ServerScriptService/AntiCheatFlagLog` in Studio.
 
 **Code blocks marked `-- fragment: <file>` are repo files.** Do not paste that first line. Run every command from the repo root.
 
 ## How a detector works (read once)
 
-- A detector is a ModuleScript in `AntiCheat/` that returns `{ Name, Init?, Sample? }`. The types are in `Types.lua`: `AntiCheatSnapshot`, `AntiCheatFlag`, `DetectorHost`. A detector never requires the orchestrator (the orchestrator requires it).
-- When AntiCheat starts, it requires every module listed in `DETECTORS` (in `AntiCheat/init.lua`), then calls each `Init(host)` once, on its own thread.
-- Every `Config.AntiCheat.SamplerInterval` (0.5 s) it builds **one snapshot per player** and passes it to every detector's `Sample(player, snapshot)`. The pass is spread over several frames. Each `Sample` runs in a `pcall`, inside a MicroProfiler label `AntiCheat.<Name>`.
-- `Sample` returns `nil` or `{ reason = "Hover", severity = "soft" }`. The orchestrator counts flags per player and reason: 3 → a "soft" action, 5 (or one `"hard"` flag) → a "hard" action (kick). Counts drop by 1 every 60 s.
-- **Observe mode:** while `Config.AntiCheat.Enforce = false` (the default), a hard action is published as `"observe"`: nobody is kicked.
-- A detector is skipped while `Config.AntiCheat.<Name>.Enabled = false` or after `/ac off <Name>`. `AntiCheat.Whitelist(player, "<reason>", seconds)` skips that reason, and also every `<reason>:<kind>`.
+- A detector is a ModuleScript in `AntiCheat/` that returns `{ Name, Init?, Sample? }` (types in `Types.lua`: `AntiCheatSnapshot`, `AntiCheatFlag`, `DetectorHost`). It never requires the orchestrator.
+- When AntiCheat starts, it loads every module in `DETECTORS` (`AntiCheat/init.lua`) and calls each `Init(host)` once, on its own thread.
+- Every 0.5 s (`Config.AntiCheat.SamplerInterval`) it builds **one snapshot per player** and calls every enabled detector's `Sample(player, snapshot)` in a `pcall`, inside a MicroProfiler label `AntiCheat.<Name>`.
+- `Sample` returns `nil` or `{ reason = "Hover", severity = "soft" }`. Per player and reason: flag 3 and 4 → a "soft" action (a warning), flag 5 or one `"hard"` flag → a "hard" action (kick). While `Config.AntiCheat.Enforce = false` (the default), a hard action becomes `"observe"`: nobody is kicked.
 
 ## Step 1 — Create the detector module
 
@@ -52,6 +50,7 @@ local MAX_VERTICAL_SPEED : number = if Cfg then Cfg.MaxVerticalSpeed else 2 -- |
 local STREAK_REQUIRED    : number = if Cfg then Cfg.StreakRequired else 6 -- samples in a row (6 x 0.5 s = 3 s)
 local SPAWN_GRACE        : number = if Cfg then Cfg.SpawnGraceSeconds else 5 -- ignore a new character this long
 local SEVERITY           : string = if Cfg then Cfg.Severity else "soft"
+local GROUND_CHECK       : number = 6 -- studs below the root part; a part there = resting on something
 
 local HoverDetector = {}
 HoverDetector.Name = "Hover"
@@ -60,6 +59,14 @@ HoverDetector.Name = "Hover"
 local streaks: { [number]: number } = {}
 -- userId -> the character last seen and when it was first seen (grace period)
 local spawned: { [number]: { character: Model, clock: number } } = {}
+
+-- True when a part is just below the character (a ledge, a head, a wedge).
+local function standingOnSomething(hrp: BasePart, character: Model): boolean
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { character }
+	return workspace:Raycast(hrp.Position, Vector3.new(0, -GROUND_CHECK, 0), params) ~= nil
+end
 
 -- Called once when AntiCheat starts (on its own thread). Connect events here,
 -- never in the module body.
@@ -96,6 +103,11 @@ function HoverDetector.Sample(player: Player, snapshot: Snapshot): Flag?
 		local streak = (streaks[uid] or 0) + 1
 		if streak >= STREAK_REQUIRED then
 			streaks[uid] = 0 -- one flag per streak, not one per sample
+			-- One raycast, only when a streak completes: stuck on a ledge is not hovering.
+			local hrp = snapshot.hrp
+			if hrp and standingOnSomething(hrp, character) then
+				return nil
+			end
 			return { reason = "Hover", severity = SEVERITY }
 		end
 		streaks[uid] = streak
@@ -108,13 +120,13 @@ end
 return HoverDetector
 ```
 
-Rules it follows: the body only defines things (R4), requires are static and at the top (R3, R6), no `Lifecycle.Define` (R5: the orchestrator registers detectors), per-player state is freed on leave, and one flag needs several bad samples in a row.
+It follows the rules: the body only defines things (R4), requires are static and at the top (R3, R6), no `Lifecycle.Define` (R5), per-player state is freed on leave, and one flag needs 6 bad samples in a row and no ground below.
 
 ## Step 2 — Register it in AntiCheat/init.lua
 
 Open `src/ServerStorage/Gaxia_Packages_Server/AntiCheat/init.lua`.
 
-1. In the `DETECTORS` table, add this line in A→Z order (after `HeuristicDetector`):
+1. In the `DETECTORS` table, add this line in A→Z order (after `HeuristicDetector`). Copy it exactly. The `require` inside `Load` is allowed (R6 allow-list): detectors must not load when AntiCheat is required, so never move it to the top.
 
 ```lua
 -- fragment: add to DETECTORS in src/ServerStorage/Gaxia_Packages_Server/AntiCheat/init.lua
@@ -128,7 +140,7 @@ Open `src/ServerStorage/Gaxia_Packages_Server/AntiCheat/init.lua`.
 	Hover: typeof(require(script.HoverDetector))?,
 ```
 
-The `DETECTORS` entry loads it when AntiCheat starts. The `DetectorAccess` line types **GaxiaServer.AntiCheat.Hover** (the detector's own functions, if it has any). Without the entry the module would still load as an unknown extra child, after every built-in one: always add it.
+The `DETECTORS` entry loads it when AntiCheat starts. The `DetectorAccess` line types **GaxiaServer.AntiCheat.Hover** (the detector's own functions, if it has any).
 
 ## Step 3 — Add its Config section
 
@@ -151,19 +163,29 @@ Open `src/ServerStorage/Gaxia_Packages_Server/Config/AntiCheat.lua`.
 
 Every detector section has `Severity` and may have `Enabled = false`. The `?` makes the section optional, so the detector's fallbacks are used when a config has no `Hover`.
 
-## Step 4 — Run the checks
+## Step 4 — Run the checks and update the docs
 
 ```sh
+node tools/packages.mjs fix
 node tools/packages.mjs check
 node tools/gen-api.mjs
 node tools/gen-api.mjs --check
 node tools/check-architecture.mjs --complete
 rojo sourcemap default.project.json -o sourcemap.json
-luau-lsp analyze --platform=roblox --sourcemap=sourcemap.json --definitions=@roblox=globalTypes.d.luau --ignore="**/ProfileService.lua" src 2>&1 | grep -E "AntiCheat/(HoverDetector|init)|Config/AntiCheat"
-luau-lsp analyze --flag:LuauSolverV2=true --platform=roblox --sourcemap=sourcemap.json --definitions=@roblox=globalTypes.d.luau --ignore="**/ProfileService.lua" src 2>&1 | grep -E "AntiCheat/(HoverDetector|init)|Config/AntiCheat"
+luau-lsp analyze --platform=roblox --sourcemap=sourcemap.json --definitions=@roblox=globalTypes.d.luau --ignore="**/ProfileService.lua" src > lsp-after.txt 2>&1
+luau-lsp analyze --flag:LuauSolverV2=true --platform=roblox --sourcemap=sourcemap.json --definitions=@roblox=globalTypes.d.luau --ignore="**/ProfileService.lua" src > lsp-v2-after.txt 2>&1
+grep -c "HoverDetector.lua.*TypeError" lsp-after.txt lsp-v2-after.txt
+grep -c "AntiCheat/init.lua.*TypeError" lsp-before.txt lsp-after.txt lsp-v2-before.txt lsp-v2-after.txt
+grep -c "Config/AntiCheat.lua.*TypeError" lsp-before.txt lsp-after.txt lsp-v2-before.txt lsp-v2-after.txt
 ```
 
-The new module is already part of the `AntiCheat` package (its `Server` list is the whole `AntiCheat` folder), so `packages.mjs check` passes without a change. The two `grep` commands must print nothing.
+`packages.mjs fix` changes nothing here: the `AntiCheat` package already holds the whole folder. The first `grep` must print `:0` twice. In the other two, each `after` count must not be higher than its `before` count.
+
+Then update the docs:
+
+1. `CHANGELOG.md`, under `## Unreleased`: `### Added — Hover anti-cheat detector`, then one bullet on what it flags.
+2. `MANUAL.md` §9.2: add `Hover` to the list, and change the count in the heading `### 9.2 Detectors (15 ตัว …` to 16.
+3. `playbooks/game/anticheat-and-bans.md`: add a row for the `Hover` reason to its detector table.
 
 ## Step 5 — Test it in Studio
 
@@ -171,6 +193,7 @@ The new module is already part of the `AntiCheat` package (its `Server` list is 
 
 ```lua
 -- Script: ServerScriptService/AntiCheatFlagLog
+local Players = game:GetService("Players")
 local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
 
 assert(GaxiaServer.IsInstalled("AntiCheat"), "AntiCheatFlagLog needs the AntiCheat package: install it (playbooks/start/01-install-packages.md)")
@@ -185,15 +208,25 @@ AntiCheat.OnAction:Connect(function(player: Player, reason: string, kind: string
 	print(`[AntiCheatFlagLog] action {player.Name}: {reason} -> {kind}`)
 end)
 
--- The detectors register when AntiCheat starts at boot: list them a moment later.
-task.delay(3, function()
+-- 5 s after the first player joins: list the detectors, test the switch, send 5 test flags.
+Players.PlayerAdded:Once(function(player: Player)
+	task.wait(5)
 	print(`[AntiCheatFlagLog] detectors: {table.concat(AntiCheat.GetDetectorNames(), ", ")}`)
+	AntiCheat.SetDetectorEnabled("Hover", false)
+	print(`[AntiCheatFlagLog] Hover enabled after off: {AntiCheat.IsDetectorEnabled("Hover")}`)
+	AntiCheat.ClearOverrides() -- back to the Config value
+	print(`[AntiCheatFlagLog] enforcing = {AntiCheat.IsEnforcing()}`)
+	for _ = 1, 5 do
+		AntiCheat.Flag(player, "Hover", "soft")
+	end
+	AntiCheat.ClearFlags(player, "Hover")
+	print("[AntiCheatFlagLog] test flags done")
 end)
 
 print("[AntiCheatFlagLog] ready")
 ```
 
-2. Press **Play**. Output shows `[AntiCheatFlagLog] ready`, then `[AntiCheatFlagLog] detectors: …` with `Hover` in the list, and no red errors.
+2. Press **Play**. Output shows, in order: `[AntiCheatFlagLog] ready`; `detectors: …` with `Hover` in the list; `Hover enabled after off: false`; `enforcing = false`; `flag <YourName>: Hover (soft) x1` up to `x5`; `action <YourName>: Hover -> soft` after x3 and x4; `-> observe` after x5; `test flags done`. No red errors. The yellow warnings `soft action against …` and `observe mode — would take HARD action …` come from the test flags: they are expected.
 3. Check the logic. While playing, switch to the **Server** view and run this in the command bar:
 
 ```lua
@@ -201,40 +234,40 @@ print("[AntiCheatFlagLog] ready")
 local Hover = require(game.ServerStorage.Gaxia_Packages_Server.AntiCheat.HoverDetector) local p = game.Players:GetPlayers()[1] local m = Instance.new("Model") for i = 1, 20 do local f = Hover.Sample(p, { clock = i * 0.5, character = m, velocity = Vector3.zero, state = Enum.HumanoidStateType.Freefall }) if f then print("sample", i, f.reason, f.severity) end end
 ```
 
-   Output shows `sample 16 Hover soft` (1 sample to see the character, 10 samples of grace, 6 in a row).
-4. Check for false positives: play normally for 5 minutes. Jump a lot, fall from a high place, climb, swim, sit, respawn. Output must show no `[AntiCheatFlagLog] flag … Hover` line.
-5. Check enforcement as a player who is not the place creator (the creator is never kicked or banned): **Test → Clients and Servers** with 1 player, or a published test place with a second account.
+   Output shows `sample 16 Hover soft`: sample 1 sees the character, samples 2 to 10 are grace (9 samples), samples 11 to 16 are the streak (6 in a row).
+4. Check enforcement. In `Config/AntiCheat.lua` set `Enforce = true`. Start **Test → Clients and Servers** with 1 player (that player is not the place creator). In the Server Output, after the 5 test flags: `-> hard`, and the player window shows a kick message. Set `Enforce = false` again.
+5. Check for false positives. Ask the user to play normally for 5 minutes: jump a lot, fall from a high place, climb, swim, sit, stand on ledges, respawn. Wait for their report. After `test flags done`, Output must show no `flag … Hover` line.
 6. Check the cost: in the server MicroProfiler (Developer Console → MicroProfiler) the label `AntiCheat.Hover` must stay tiny next to `AntiCheat.Sampler`.
+
+No Studio? Run Step 4, report items 2 to 6 as NOT RUN, and tell the user before you say done.
 
 ## Check that it works
 
-1. Step 4: `0 violation(s)`, `✓ playbooks/api is up to date`, and both `grep` commands print nothing.
-2. Step 5: the `detectors:` line contains `Hover`, the command bar prints `sample 16 Hover soft`, and normal play shows no `Hover` flag.
-3. `Config.AntiCheat.Hover.Enabled = false` (or `/ac off Hover` with AntiCheatAdmin) stops all `Hover` flags.
-4. `CHANGELOG.md` lists the new detector ([change the framework](change-the-framework.md), Step 8).
+1. Step 4: `0 violation(s)`, `✓ playbooks/api is up to date`, and the `grep` counts are as Step 4 says.
+2. Step 5: the lines of item 2, `sample 16 Hover soft`, a kick with `Enforce = true`, and no `Hover` flag in the user's normal play.
+3. `CHANGELOG.md`, `MANUAL.md` §9.2 (count 16) and `anticheat-and-bans.md` list `Hover`.
 
 ## Common mistakes
 
 | Wrong | Right | Why |
 |---|---|---|
 | `Players.PlayerRemoving:Connect(...)` at the top of the module | Inside `Init` | R4: requiring a detector must not connect anything. |
-| `require(script.Parent)` (the orchestrator) in a detector | Use the `host` passed to `Init` | The orchestrator requires the detectors: a cycle. |
-| `Lifecycle.Define(...)` in a detector | No Define | R5: the orchestrator registers detectors. |
+| `require(script.Parent)` (the orchestrator) or `Lifecycle.Define(...)` in a detector | Use the `host` passed to `Init`; no Define | The orchestrator requires and registers detectors (R5). |
 | Flagging on one bad sample | A streak of several samples, then reset the streak | Lag, knockback and jump apexes look bad for one sample. |
-| `severity = "hard"` for something a normal player can cause | `"soft"` (3 flags → soft action, 5 → hard) | One hard flag is a hard action. Use hard only when no honest player can trigger it. |
-| `snapshot.character:FindFirstChild(...)` or a raycast every sample | Use the snapshot fields; do slow work every few samples | `Sample` runs for every player twice a second. |
+| Flagging Freefall without checking for ground below | One raycast when the streak completes | Players get stuck in Freefall on ledges and heads. |
+| `severity = "hard"` for something a normal player can cause | `"soft"` (flags 3 and 4 → soft action, 5 → hard) | One hard flag is a hard action. |
+| A raycast or `FindFirstChild` on every sample | Use the snapshot fields; do slow work only when needed | `Sample` runs for every player twice a second. |
 | Changing the snapshot table | Read it only | All detectors share the same snapshot. |
-| An event-based detector calls `host.Flag(...)` directly | First check `host.IsDetectorEnabled("Hover")` | `Enabled = false` and `/ac off` only skip `Sample`, not your own events. |
+| An event-based detector calls `host.Flag(...)` directly | First check `host.IsDetectorEnabled("Hover")` | `Enabled = false` only skips `Sample`, not your own events. |
 | Destroying or moving things when cheating is detected | Only when `host.IsEnforcing()` is true | Observe mode must not change the game. |
 | A reason that differs from `Name` | `reason = "Hover"` or `"Hover:<kind>"` | `Whitelist(player, "Hover")` then covers every Hover reason. |
-| Testing kicks as the place creator | A non-creator player (Step 5) | The creator is never kicked or banned. |
+| Testing kicks as the place creator, or with `Enforce = false` | `Enforce = true` and a **Clients and Servers** player | With Ban installed, the creator is never kicked. Nothing is kicked while `Enforce = false`. |
 
 ## Change it
 
-- A game feature that moves or launches players (jetpack, glider, cutscene): the game calls `GaxiaServer.AntiCheat.Whitelist(player, "Hover", seconds)` first. Say so in the detector's playbook docs.
+- A game feature that moves or launches players (jetpack, glider) calls `GaxiaServer.AntiCheat.Whitelist(player, "Hover", seconds)` first. Add that tip to the `Hover` row in [anti-cheat and bans](../game/anticheat-and-bans.md).
 - A detector driven by events instead of samples: leave out `Sample`; in `Init` keep `host` in a local, connect the events, and call `host.Flag(player, "Hover", SEVERITY)` after the `IsDetectorEnabled` check.
 - Helper functions for games (like `AntiCheat.Combat.RegisterDamage`): add them to the detector table. The `DetectorAccess` line from Step 2 types them.
-- To update the docs for games, add the name to the detector list in [anti-cheat and bans](../game/anticheat-and-bans.md) and to `MANUAL.md` §9.2.
 
 ## See also
 

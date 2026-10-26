@@ -50,8 +50,8 @@ local function tryClaim(player: Player)
 end
 
 local function onPlayerAdded(player: Player)
-	if Data.WaitFor(player) == nil then
-		return -- the player left, or the data did not load in 30 seconds
+	if Data.WaitFor(player, 120) == nil then
+		return -- the player left, or the data did not load in 120 seconds
 	end
 	tryClaim(player)
 end
@@ -156,8 +156,8 @@ end, { rate = 1, burst = 2 })
 
 -- A welcome gift, sent once per player (remembered in the saved field GotWelcomeMail).
 local function onPlayerAdded(player: Player)
-	if Data.WaitFor(player) == nil then
-		return -- the player left, or the data did not load in 30 seconds
+	if Data.WaitFor(player, 120) == nil then
+		return -- the player left, or the data did not load in 120 seconds
 	end
 	if Data.Get(player, "GotWelcomeMail") ~= true then
 		-- Send takes capitalized keys: Subject, Body, From, Attachments.
@@ -266,8 +266,8 @@ Before you press Play: in **Game Settings → Security**, turn on **Enable Studi
 
 | Wrong | Right | Why |
 |---|---|---|
-| `DailyReward.Claim(player)` in `PlayerAdded` right away | `Data.WaitFor(player)`, then check `Data.IsLoaded` | Before data loads, `Claim` returns a reward but saves nothing, so it can be claimed again. |
-| `Mail.Send` to a player whose data is not loaded, or who is in another server | Send after `Data.WaitFor(player)`, to players in this server | `Send` returns an id but the mail is lost. There is no offline delivery. |
+| `DailyReward.Claim(player)` in `PlayerAdded` right away | `Data.WaitFor(player, 120)`, then check `Data.IsLoaded` | Before data loads, `Claim` returns a reward but saves nothing, so it can be claimed again. |
+| `Mail.Send` to a player whose data is not loaded, or who is in another server | Send after `Data.WaitFor(player, 120)`, to players in this server | `Send` returns an id but the mail is lost. There is no offline delivery. |
 | The client sends the reward amount to claim | The client sends nothing; the server gives `Mail.Claim`'s attachments (Step 3) | A cheater can send any amount. |
 | Midnight Dec 24 in Thailand as `DateTime.fromUniversalTime(2026, 12, 24, 0, 0, 0)` | `DateTime.fromUniversalTime(2026, 12, 23, 17, 0, 0).UnixTimestamp` | Event times are UTC. Thailand is UTC+7: subtract 7 hours. |
 | `Leaderboard.Update(...)` on every Coins change | Once per player per minute (Step 4) | OrderedDataStore writes are limited (about 60 + 10 × players per minute per server). Extra writes fail with a warning. |

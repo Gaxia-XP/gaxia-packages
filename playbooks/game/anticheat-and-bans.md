@@ -93,7 +93,7 @@ local function getPad(): BasePart
 	local part = Instance.new("Part")
 	part.Name = "SpeedPad"
 	part.Size = Vector3.new(8, 1, 8)
-	part.Position = Vector3.new(0, 0.5, -20)
+	part.Position = Vector3.new(24, 0.5, 0) -- 24 studs from the middle of the Baseplate, toward +X
 	part.Anchored = true
 	part.Material = Enum.Material.Neon
 	part.Color = Color3.fromRGB(80, 255, 120)
@@ -129,7 +129,7 @@ end)
 print("[SpeedPad] ready")
 ```
 
-What it does: touching the green pad (20 studs from the center of the map) gives 5 seconds of speed 40, with no `Speed` flag.
+What it does: touching the green pad (24 studs from the middle of the Baseplate, toward +X) gives 5 seconds of speed 40, with no `Speed` flag.
 
 ## Step 3 — Play-test as a normal player and fix false positives
 
@@ -192,7 +192,7 @@ Agent: check your scripts against Steps 1–4. The user runs these in Studio. No
 |---|---|---|
 | `humanoid.WalkSpeed = 40` in a LocalScript | `GaxiaServer.Player.SetWalkSpeed(player, 40)` on the server | The server sees a player faster than its WalkSpeed: `Speed` flags. |
 | `character.HumanoidRootPart.CFrame = cframe` / `character:PivotTo(cframe)` | `GaxiaServer.Player.Teleport(player, cframe)` | A big jump is a **hard** `Teleport` flag: kicked in enforce mode. |
-| A launch pad or knockback with `AssemblyLinearVelocity` | First `AntiCheat.Whitelist(player, "Teleport", 3)` and `AntiCheat.Whitelist(player, "Speed", 3)` | A launch over ~100 studs/s is a hard `Teleport` flag: kicked in enforce mode. |
+| A launch pad or knockback with `AssemblyLinearVelocity` | First `AntiCheat.Whitelist(player, "Teleport", 3)` and `AntiCheat.Whitelist(player, "Speed", 3)` (also `"Fly"` if the flag says `Fly`) | A launch over ~100 studs/s is a hard `Teleport` flag: kicked in enforce mode. |
 | Drops longer than ~50 studs, or cars/seats faster than 1.5 × WalkSpeed, left as they are | Whitelist `"Teleport"` (falls) or `"Speed"` and `"Teleport"` (while seated) for those players, or turn that detector off (Change it) | Falling or driving fast looks like teleporting or speed hacking. |
 | `player.leaderstats.Coins.Value = 10` | `Economy.Add` / `GaxiaServer.Player.SetLeaderstat` | A hard `StatTamper` flag ([currency](currency-and-leaderstats.md)). |
 | `Instance.new("Tool")` or `:Clone()` into the Backpack | `GaxiaServer.Tool.Create` ([items](items-and-inventory.md)) | A hard `Backpack` flag. |

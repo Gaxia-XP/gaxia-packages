@@ -194,7 +194,7 @@ print("[WorldMessages] ready")
 | Only `Cooldown = 30` in the Interaction config for a reward | `Cooldown.ConsumePlayer(player, "CoinChest", 30)` inside `OnTrigger` | The Interaction `Cooldown` field silently ignores presses. ConsumePlayer lets you tell the player how long to wait. |
 | Giving Coins without `Data.IsLoaded(player)` | Check `Data.IsLoaded` first, then check what `Economy.Add` returns | Coins live in the saved data. Before it loads, `Economy.Add` gives nothing and returns `false`. |
 | A Model with no parts given to `Interaction.Register` | A BasePart, an Attachment, or a Model that has parts | Register warns `cannot mount a prompt` and returns `nil`. The `assert(handle, ...)` stops the script there. |
-| `humanoid:TakeDamage(10)` alone in a damage zone | Call `RegisterDamage` first (see Change it) | AntiCheat treats every health drop it was not told about as a hard `Combat` cheat. By default it only warns. With `Enforce = true` in `ServerStorage/Gaxia_Packages_Server/Config/AntiCheat.lua` (or the flag `AntiCheat.Enforce`, see [config-and-flags](config-and-flags.md)) it kicks the player. |
+| `humanoid:TakeDamage(10)` alone in a damage zone | Call `RegisterDamage` first (see Change it) | AntiCheat treats every health drop it was not told about as a hard `Combat` cheat. By default it only warns. Once the game turns on enforcing (`GaxiaServer.EConfig.Set("AntiCheat.Enforce", true)`, see [anticheat-and-bans](anticheat-and-bans.md) Step 4) it kicks the player. |
 
 ## Change it
 

@@ -4,24 +4,13 @@
 
 **Use this when** the user asks for: "an event between scripts", "Signal", "BindableEvent", "clean up when the player leaves", "Trove", "memory leak", "a timer", "run every N seconds", "debounce", "cooldown", "promise", "object pool" (ไทย: "ส่ง event ระหว่างสคริปต์", "ล้างของตอนผู้เล่นออก", "หน่วงเวลา", "ทำซ้ำทุก ๆ กี่วินาที", "คูลดาวน์", "กันกดรัว", "สัญญาณ", "หน่วยความจำรั่ว").
 **Packages:** `Cooldown`, `Scheduler`, `Promise`, `Pool` (every script below stops with a clear message if one is missing). `Signal` and `Trove` are Core: always installed.
-**You will create:** a ModuleScript `ServerStorage/GameModules/GameEvents`, Scripts `ServerScriptService/ChestServer`, `ServerScriptService/ChestRewards` and `ServerScriptService/PlayerTimers`.
+**You will create:** a ModuleScript `ServerStorage/GameModules/GameEvents`, Scripts `ServerScriptService/ChestServer`, `ServerScriptService/ChestRewards` and `ServerScriptService/PlayerTimers`. With Rojo: `GameEvents.lua` and `<Name>.server.lua` ([first server script](../start/02-server-script.md)).
 
-## Which tool for which job
-
-| You need | Use |
-|---|---|
-| One server Script tells other server Scripts "X happened" | a `Signal` in a ModuleScript (Step 1) |
-| Server and client talk to each other | `Gaxia.Net`, never a Signal ([client-server communication](../start/04-client-server-communication.md)) |
-| Remove everything made for a player when they leave | one `Trove` per player (Step 4) |
-| Run code later, every N seconds, or not too often | `Scheduler.After` / `Every` / `Throttle` / `Debounce` |
-| "A player may do X once every N seconds", decided by the server | `GaxiaServer.Cooldown` (Step 2) |
-| A step that finishes later and must stop if the player leaves first | `Promise` (Step 4) |
-| Many identical parts that appear and disappear | `Pool` (Step 3) |
+Shared utilities (`Signal`, `Trove`, `Pool`, `Scheduler`, `Promise`) come from the `Gaxia` loader, on the server too. Services (`Cooldown`) come from `GaxiaServer`. A Signal never crosses between server and client: use `Gaxia.Net` for that ([client-server communication](../start/04-client-server-communication.md)).
 
 ## Step 1 — Create the GameEvents module (signals)
 
-1. In **ServerStorage**, insert a **Folder** named **GameModules** (skip if it exists).
-2. In **ServerStorage → GameModules**, insert a **ModuleScript** named **GameEvents**. Paste this whole block into it:
+In **ServerStorage**, insert a **Folder** named **GameModules** (skip if it exists). In it, insert a **ModuleScript** named **GameEvents** and paste:
 
 ```lua
 -- ModuleScript: ServerStorage/GameModules/GameEvents
@@ -37,7 +26,7 @@ local GameEvents = {
 return GameEvents
 ```
 
-Why a ModuleScript: every Script that requires it gets the same table, so they share the same signals.
+Every Script that requires this module gets the same table, so they share the same signals.
 
 ## Step 2 — Create ChestServer (server cooldown, fires the signal)
 
@@ -49,7 +38,6 @@ local ServerStorage = game:GetService("ServerStorage")
 local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
 local GameEvents = require(ServerStorage.GameModules.GameEvents)
 
--- Stop early, with a clear message, if a package this script needs is missing.
 assert(GaxiaServer.IsInstalled("Cooldown"), "ChestServer needs the Cooldown package: install it (playbooks/start/01-install-packages.md)")
 
 local Cooldown = GaxiaServer.Cooldown
@@ -72,7 +60,8 @@ prompt.ObjectText = "Chest"
 prompt.Parent = chest
 
 prompt.Triggered:Connect(function(player: Player)
-	-- One call checks AND starts the cooldown. false = still cooling down.
+	-- ConsumePlayer checks AND starts the cooldown in one call.
+	-- true = allowed (cooldown started now), false = still cooling down.
 	if not Cooldown.ConsumePlayer(player, "ChestOpen", CHEST_COOLDOWN) then
 		local left = Cooldown.GetPlayerRemaining(player, "ChestOpen")
 		print(`[ChestServer] {player.Name} must wait {math.ceil(left)} s`)
@@ -134,8 +123,6 @@ end)
 print("[ChestRewards] ready")
 ```
 
-Pool functions use a dot: `coinPool.Get()`, `coinPool.Return(coin)`. Signals use a colon: `GameEvents.ChestOpened:Connect(...)`.
-
 ## Step 4 — Create PlayerTimers (one Trove per player, timers, promises)
 
 Create a **Script** in **ServerScriptService** named **PlayerTimers**:
@@ -148,7 +135,7 @@ local Gaxia = require(game:GetService("ReplicatedStorage").Gaxia_Packages)
 assert(Gaxia.IsInstalled("Scheduler"), "PlayerTimers needs the Scheduler package: install it (playbooks/start/01-install-packages.md)")
 assert(Gaxia.IsInstalled("Promise"), "PlayerTimers needs the Promise package: install it (playbooks/start/01-install-packages.md)")
 
--- Types only (part of the Promise package): lets a function say "this returns a promise of a string".
+-- The promise TYPES live here (Gaxia.Promise itself has none).
 local PromiseTypes = require(game:GetService("ReplicatedStorage").Gaxia_Packages.Shared.PromiseTypes)
 
 local Trove = Gaxia.Trove
@@ -161,13 +148,11 @@ local PLAYTIME_STEP = 10 -- seconds between two playtime prints
 local troves: { [Player]: typeof(Trove.new()) } = {}
 
 -- A promise that resolves with the player's name after `seconds`.
--- Gaxia.Promise has no types of its own. So every promise is made in a helper like
--- this one: the `any` local is returned as a PromiseTypes type, and the rest is checked.
+-- Make every promise in a helper like this: the `::` cast gives it its type.
 local function welcomeAfter(player: Player, seconds: number): PromiseTypes.Promise<string>
-	local promise: any = Promise.new(function(resolve)
+	return Promise.new(function(resolve)
 		task.delay(seconds, resolve, player.Name)
-	end)
-	return promise
+	end) :: PromiseTypes.Promise<string>
 end
 
 local function onPlayerAdded(player: Player)
@@ -213,7 +198,7 @@ local function onPlayerRemoving(player: Player)
 		return
 	end
 	troves[player] = nil -- forget the player, or this table grows forever
-	trove:Destroy() -- cancels the timer, disconnects, destroys the folder, cancels the promise
+	trove:Destroy() -- stops the timer, disconnects, destroys the folder, cancels the promise
 	print(`[PlayerTimers] cleaned up {player.Name}`)
 end
 
@@ -240,31 +225,25 @@ print("[PlayerTimers] ready")
 | Wrong | Right | Why |
 |---|---|---|
 | `local ChestOpened = Gaxia.Signal.new()` inside a Script | The signal in the `GameEvents` ModuleScript | Other Scripts cannot reach a local of a Script. |
-| A Signal to talk to the client | `Gaxia.Net` (`Net.FireClient`, `Net.OnServer`) | Signals never cross between server and client. |
-| `GameEvents.ChestOpened.Fire(player, 25)` | `GameEvents.ChestOpened:Fire(player, 25)` | Signal and Trove methods use a colon. |
-| `coinPool:Get()`, `coinPool:Return(coin)` | `coinPool.Get()`, `coinPool.Return(coin)` | Pool functions use a dot. `coinPool:Return(coin)` puts the pool table in itself. |
+| `GameEvents.ChestOpened.Fire(...)`, or `coinPool:Get()` / `coinPool:Return(coin)` | `GameEvents.ChestOpened:Fire(...)`, `coinPool.Get()`, `coinPool.Return(coin)` | Signal and Trove methods use a colon. Pool functions use a dot. |
 | `player.CharacterAdded:Connect(...)` inside `onPlayerAdded` | `trove:Connect(player.CharacterAdded, ...)` | A connection you never disconnect leaks. The Trove disconnects it on leave. |
 | `Scheduler.Every(...)` or `while true do task.wait(10) ... end` per player, never stopped | `trove:Add(function() stopPlaytime() end)` | The timer keeps running after the player left. |
 | `trove:Add(stopPlaytime)` or `trove:AddPromise(welcome)` | `trove:Add(function() stopPlaytime() end)`, `trove:Add(function() welcome:cancel() end)` | Both run, but Script Analysis reports a type error. A new function always type-checks. |
-| `trove:Destroy()` but `troves[player]` kept | `troves[player] = nil`, then `trove:Destroy()` | The table keeps every player who ever joined. |
-| `Promise.delay(3)` or `Promise.new(...):andThen(...)` used directly | Make the promise in a helper typed `PromiseTypes.Promise<...>` (like `welcomeAfter`) | `Gaxia.Promise` has no types: Script Analysis (new type solver) reports errors on its functions. |
-| `welcomeAfter(player, 3):expect()` | `local ok, name = welcomeAfter(player, 3):await()`, then check `ok` | `expect` throws an error when the promise fails or is cancelled. |
-| `if not Cooldown.IsPlayerActive(...) then Cooldown.Start(...) end` | `if Cooldown.ConsumePlayer(player, "ChestOpen", 10) then` | One call checks and starts the cooldown. |
-| The cooldown only in a LocalScript | `GaxiaServer.Cooldown` on the server | A cheater skips client code. |
+| `Promise.delay(3)`, or `Promise.new(...)` without the cast | `Promise.new(...) :: PromiseTypes.Promise<string>` in a helper (like `welcomeAfter`) | `Gaxia.Promise` has no types: Script Analysis reports errors on its functions. |
+| A cooldown in a LocalScript, or `IsPlayerActive` then `Start` | `Cooldown.ConsumePlayer(player, "ChestOpen", 10)` on the server | A cheater skips client code. One call checks and starts the cooldown. |
 | `GaxiaServer.Cooldown` for a daily reward | Save the time in player data, or use `DailyReward` ([live ops](live-ops.md)) | Per-player cooldowns are cleared when the player leaves and when the server restarts. |
 | `GameEvents.ChestOpened:Wait()` at the top of a Script | `GameEvents.ChestOpened:Once(fn)` | `Wait` stops the script until the next fire, maybe forever. |
 | Expecting `Scheduler.Every(10, fn)` to run `fn` at once | Call `fn()` yourself first | The first run is after 10 seconds. |
 
 ## Change it
 
-- To react only to the next fire: `GameEvents.ChestOpened:Once(function(player, coins) ... end)`.
-- To stop one listener: `local connection = GameEvents.ChestOpened:Connect(fn)`, later `connection:Disconnect()`. All listeners: `GameEvents.ChestOpened:DisconnectAll()`.
-- To give real coins: in `ChestRewards`, call `GaxiaServer.Economy.Add(player, "Coins", coins)` ([coins and leaderstats](currency-and-leaderstats.md)).
+- Only the next fire: `GameEvents.ChestOpened:Once(fn)`. Stop one listener: `local connection = GameEvents.ChestOpened:Connect(fn)`, later `connection:Disconnect()`. Stop all: `GameEvents.ChestOpened:DisconnectAll()`.
+- To give real coins: at the top of `ChestRewards`, add `local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)` and `assert(GaxiaServer.IsInstalled("Economy"), "ChestRewards needs the Economy package")`. In the handler, call `GaxiaServer.Economy.Add(player, "Coins", coins)` ([coins and leaderstats](currency-and-leaderstats.md)). It returns `false` while the player's data is still loading.
 - To run code 5 seconds from now and maybe cancel it: `local cancel = Scheduler.After(5, fn)`, later `cancel()`.
 - To save only after the player stops clicking for 2 seconds: `local saveSoon = Scheduler.Debounce(function(player: Player) ... end, 2)`, then call `saveSoon(player)` on every click.
-- To wait for a promise inside a function that may wait: `local ok, name = welcomeAfter(player, 3):await()`.
+- To wait for a promise inside a function that may wait: `local ok, name = welcomeAfter(player, 3):await()`, then check `ok`. Never `:expect()`: it throws when the promise is cancelled.
 - One cooldown for the whole server (a boss): `Cooldown.Consume("BossSpawn", 300)`.
-- To clean up when a part is destroyed instead of when a player leaves: `trove:AttachToInstance(part)`.
+- To clean up when a part is destroyed instead of when a player leaves: after `part.Parent = workspace`, call `trove:AttachToInstance(part)`. It errors on a part that is not in the game yet.
 - To stop a client button from sending more than one request per second: wrap the send in `Scheduler.Throttle(fn, 1)`. The server still decides.
 - On the client: make a Trove when a menu opens and `trove:Destroy()` it when the menu closes.
 

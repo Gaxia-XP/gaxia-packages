@@ -146,8 +146,8 @@ If you cannot press Play: run the `luau-lsp analyze` command from AGENTS.md sect
 | `require(...Gaxia_Packages_Server.init)` | `require(game:GetService("ServerStorage").Gaxia_Packages_Server)` | There is no child named `init`. |
 | Calling `Init()`, `Start()` or `GaxiaServer.Boot()` in game code | Just use the service | Services start by themselves. |
 | Only `GaxiaServer.Player.OnPlayerJoined:Connect(...)` | `Players.PlayerAdded` + the `Players:GetPlayers()` loop | `OnPlayerJoined` does not fire again for players who joined before you connected. |
-| `Data.OnLoaded:Connect(...)` to set up each player | `Data.WaitFor(player)` inside `onPlayerAdded` | `OnLoaded` misses players whose data loaded before you connected. |
-| `Data.Get(player, "Coins")` right after the player joins | `Data.WaitFor(player)` first | Data loads a moment later; before that `Get` returns nil. |
+| `Data.OnLoaded:Connect(...)` to set up each player | `Data.WaitFor(player, GameSettings.DataWaitSeconds)` inside `onPlayerAdded` | `OnLoaded` misses players whose data loaded before you connected. |
+| `Data.Get(player, "Coins")` right after the player joins | `Data.WaitFor(player, GameSettings.DataWaitSeconds)` first | Data loads a moment later; before that `Get` returns nil. |
 | Not checking `if data == nil then` | Keep the check | `WaitFor` returns nil when the player left or the wait timed out. |
 | Only `return` when `WaitFor` timed out | Kick the player when `player.Parent ~= nil` (Step 2) | Data can still load later; your setup code would never run for them. |
 | `repeat task.wait() until Data.IsLoaded(player)` | `Data.WaitFor(player, GameSettings.DataWaitSeconds)` | The loop never ends if the player leaves. |

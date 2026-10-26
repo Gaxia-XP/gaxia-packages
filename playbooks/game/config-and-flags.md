@@ -4,15 +4,15 @@
 
 **Use this when** the user asks for: "settings", "config", "change a limit", "tune values", "max coins per purchase", "faster leveling", "feature flag", "turn a feature on/off without updating", "double coins event", "where do I put game settings" (ไทย: "ตั้งค่า", "ปรับค่า", "แก้ค่า config", "ค่าสูงสุด", "เปิดปิดฟีเจอร์", "ฟีเจอร์แฟล็ก", "อีเวนต์เงินคูณสอง", "เก็บค่าตั้งค่าเกมไว้ที่ไหน").
 **Packages:** `Economy` (for the round reward). `AntiCheatAdmin` for the `/flag` chat command (Step 5, Checks 4–5). `EConfig` and `Flags` are Core (always installed).
-**You will create:** a ModuleScript `ReplicatedStorage/GameConfig`, the Scripts `ServerScriptService/ConfigOverrides` and `ServerScriptService/RoundRewards`, and a LocalScript `StarterPlayer/StarterPlayerScripts/DoubleCoinsBanner` (Rojo: `GameConfig.lua`, `<Name>.server.lua`, `DoubleCoinsBanner.client.lua`, see [02-server-script](../start/02-server-script.md)).
+**You will create:** a ModuleScript `ReplicatedStorage/GameShared/GameConfig`, the Scripts `ServerScriptService/ConfigOverrides` and `ServerScriptService/RoundRewards`, and a LocalScript `StarterPlayer/StarterPlayerScripts/DoubleCoinsBanner` (Rojo: `GameShared/GameConfig.lua`, `<Name>.server.lua`, `DoubleCoinsBanner.client.lua`, see [02-server-script](../start/02-server-script.md)).
 
 How it works — there are three layers:
 
 | Layer | What it is | How you change it |
 |---|---|---|
-| `GaxiaServer.Config` | Gaxia's defaults, inside `Gaxia_Packages_Server/Config` | Never. Read it only: Install / Update replaces it. |
+| `GaxiaServer.Config` | Gaxia's defaults, inside `Gaxia_Packages_Server/Config` | Never. Read it only: Install / Update replaces it. (One exception: Discord webhook URLs, set from your own Script in [webhooks-and-analytics](webhooks-and-analytics.md).) |
 | Overrides | A value on top of a default, by key `"<Section>.<Key>"` | Server: `GaxiaServer.EConfig.Set(key, value)` / `GaxiaServer.EConfig.Clear(key)`. Admin chat: `/flag set <key> <value>`. |
-| `ReplicatedStorage/GameConfig` | Your game's own values (Step 1) | Edit the module. |
+| `ReplicatedStorage/GameShared/GameConfig` | Your game's own values (Step 1) | Edit the module. |
 
 - `EConfig` (effective config) reads an override, else the default. `EConfig.Set` calls `Flags.Set`, so `/flag`, `EConfig` and `Flags` share one store. Read an override with `GaxiaServer.EConfig.Get(key, default)` (server) or `Gaxia.Flags.Get(key, default)` (client). Values: numbers, strings or booleans.
 - An override lasts until that server closes: not saved, not seen by other servers, but read by every client. So `ConfigOverrides` (Step 2) sets them on every server start, and `/flag set` is for live tests and events.
@@ -31,10 +31,11 @@ Gaxia keys you can override (the common ones; other packages read more keys, suc
 
 ## Step 1 — Put your game's settings in one module
 
-Create a **ModuleScript** in **ReplicatedStorage** named **GameConfig**. Paste this whole block into it:
+1. In **ReplicatedStorage**, insert a **Folder** named **GameShared** (skip if it exists; [first client script](../start/03-client-script.md) uses the same folder).
+2. In **ReplicatedStorage → GameShared**, insert a **ModuleScript** named **GameConfig**. Paste this whole block into it:
 
 ```lua
--- ModuleScript: ReplicatedStorage/GameConfig
+-- ModuleScript: ReplicatedStorage/GameShared/GameConfig
 -- This game's own settings. Server and client scripts both read this module.
 -- Clients can read everything in ReplicatedStorage: never put secrets here.
 export type GameConfig = {
@@ -51,7 +52,8 @@ local GameConfig: GameConfig = {
 return table.freeze(GameConfig)
 ```
 
-What it does: every value you may tune is in one place. Scripts read it with `require(game:GetService("ReplicatedStorage").GameConfig)`.
+What it does: every value you may tune is in one place. Scripts read it with `require(game:GetService("ReplicatedStorage").GameShared.GameConfig)`.
+Values that only the server needs (like `GameSettings` in [first server script](../start/02-server-script.md)) stay in `ServerStorage/GameModules`.
 
 ## Step 2 — Change Gaxia's limits at server start
 
@@ -94,7 +96,7 @@ Create a **Script** in **ServerScriptService** named **RoundRewards**:
 local Players = game:GetService("Players")
 local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
 local Gaxia = require(game:GetService("ReplicatedStorage").Gaxia_Packages)
-local GameConfig = require(game:GetService("ReplicatedStorage").GameConfig)
+local GameConfig = require(game:GetService("ReplicatedStorage").GameShared.GameConfig)
 
 assert(GaxiaServer.IsInstalled("Economy"), "RoundRewards needs the Economy package: install it (playbooks/start/01-install-packages.md)")
 
@@ -143,7 +145,7 @@ Do Steps 2 and 3 first: the banner reads the server's flag store, which they cre
 -- LocalScript: StarterPlayer/StarterPlayerScripts/DoubleCoinsBanner
 local Players = game:GetService("Players")
 local Gaxia = require(game:GetService("ReplicatedStorage").Gaxia_Packages)
-local GameConfig = require(game:GetService("ReplicatedStorage").GameConfig)
+local GameConfig = require(game:GetService("ReplicatedStorage").GameShared.GameConfig)
 
 local Flags = Gaxia.Flags
 local screenGui = Instance.new("ScreenGui")
@@ -200,13 +202,13 @@ Agent: check your scripts against Steps 1–4. The user runs these in Studio. No
 | A typo such as `"Economy.MaxTransation"` | Copy the key from the table | A wrong key is accepted and does nothing. `/flag get` only shows what you typed. |
 | `EConfig.Set("Game.Prices", { Sword = 100 })` | Tables go in `GameConfig` | An override must be a number, string or boolean (a table errors). |
 | `Flags.Set(...)` in a LocalScript | Set on the server | `Flags.Set` is server-only; it errors on the client. |
-| An API key or webhook URL in `GameConfig` or an override | A ModuleScript in `ServerStorage` | Clients can read ReplicatedStorage and every override. |
+| An API key or webhook URL in `GameConfig` or an override | Webhook URLs: `WebhookSetup` ([webhooks-and-analytics](webhooks-and-analytics.md)). Other secrets: a ModuleScript in `ServerStorage/GameModules` | Clients can read ReplicatedStorage and every override. |
 | Changing anti-cheat detector numbers (`Speed.ToleranceMultiplier`), `BanPolicy`, `Data` store names or admin roles here | Not possible from game code today: turn a detector off instead; give roles in [StaffRoles](admin-and-chat-commands.md) | Gaxia does not read them through `EConfig` (detector numbers are fixed when the server starts). |
 
 ## Change it
 
 - To add a setting: add a line to the type and to the table in `GameConfig`, then read `GameConfig.Name`. To make it switchable live: read it as `EConfig.Get("Game.Name", GameConfig.Name)` (server) or `Flags.Get("Game.Name", GameConfig.Name)` (client).
-- Server-only secrets: a ModuleScript `ServerStorage/GameSecrets` shaped like `GameConfig`, required only from Scripts.
+- Server-only secrets: a ModuleScript `ServerStorage/GameModules/GameSecrets` shaped like `GameConfig`, required only from Scripts.
 - To read a Gaxia value with its override: `EConfig.Get("Economy.MaxTransaction", Config.Economy.MaxTransaction)`, with `local Config = GaxiaServer.Config`. `EConfig.IsOverridden(key)` tells whether one is set.
 - To switch a flag from server code (for example a weekend event): `GaxiaServer.EConfig.Set("Game.DoubleCoins", true)`.
 - To turn on anti-cheat kicking: [anticheat-and-bans](anticheat-and-bans.md) Step 4.

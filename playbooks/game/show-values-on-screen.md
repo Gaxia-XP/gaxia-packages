@@ -54,8 +54,8 @@ end)
 
 local function onPlayerAdded(player: Player)
 	-- The balance is in the saved data: wait until it is loaded.
-	if Data.WaitFor(player) == nil then
-		return -- the player left, or the data did not load in 30 seconds
+	if Data.WaitFor(player, 120) == nil then
+		return -- the player left, or the data did not load in 120 seconds
 	end
 	if player.Parent == nil then
 		return -- left right after loading: PlayerRemoving already cleared the key
@@ -194,7 +194,7 @@ What it does: it makes three labels and binds each one to a state key. No loop i
 - To show Gems too: in `HudState` add `if currency == "Gems" then` with a key `"Gems_" .. player.Name`. In `onPlayerAdded`, after `Data.WaitFor`, add `coinState:Set("Gems_" .. player.Name, Economy.Get(player, "Gems"))`; in `PlayerRemoving` set it to `nil`. Add one more label and `BindText` in `HudScreen`.
 - To show a value with your own format: change the `format` function, for example ``return `Time left: {value}` ``. It must return a string. To bind another property than Text: `StateBinding.Bind(frame, "Visible", roundState, "Status", function(value) return value == "Round" end)`.
 - To show Level from [progression](progression.md): set `"Level_" .. player.Name` to `GaxiaServer.Level.GetLevel(player)` in `onPlayerAdded` after `Data.WaitFor`, and again in `Level.OnLevelUp`; set it to `nil` in `PlayerRemoving`. Bind that key on the client.
-- For a quick text label without your own ScreenGui: `Gaxia.UI.HUDController.AddText` (package `UI.HUDController`; it also installs `UI.UIController`). First, in Studio, add a **ScreenGui** named `Gaxia_UI` to **StarterGui** (ResetOnSpawn off) with a **Folder** named `HUD` in it. Make them in Studio only, not in code: Roblox copies StarterGui into PlayerGui, and code that also creates one can make two. Without `Gaxia_UI`, `AddText` waits about 10 seconds, warns `[HUDController] no HUD parent`, and returns `nil`.
+- For a quick text label without your own ScreenGui: `Gaxia.UI.HUDController.AddText` (package `UI.HUDController`; it also installs `UI.UIController`). First, in Studio, add a **ScreenGui** named `Gaxia_UI` to **StarterGui** (ResetOnSpawn off) with a **Folder** named `HUD` in it. Make them in Studio only, not in code: Roblox copies StarterGui into PlayerGui, and code that also creates one can make two. (`PetPanel` from [pets](pets.md) reuses this copy and adds its `Overlays` folder.) Without `Gaxia_UI`, `AddText` waits about 10 seconds, warns `[HUDController] no HUD parent`, and returns `nil`.
 - For buttons, menus and notifications: [ui](ui.md). Coins in the player list instead: [currency-and-leaderstats](currency-and-leaderstats.md).
 
 ## See also

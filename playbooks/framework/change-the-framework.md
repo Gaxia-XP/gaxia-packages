@@ -11,12 +11,14 @@ Run every command from the repo root.
 
 ## Step 1 — Install the tools and save a baseline (once per change)
 
-1. `rokit install` (or `aftman install`). This installs `rojo`, `stylua` and `selene`.
-2. Download `luau-lsp` from https://github.com/JohnnyMorganz/luau-lsp/releases and `luau-ast` from https://github.com/luau-lang/luau/releases. Put both on your PATH (or set `LUAU_LSP` and `LUAU_AST` to their paths).
-3. Download the Roblox definitions file into the repo root:
+1. Run `rokit install`. This installs `rojo`, `stylua` and `selene`.
+2. Download `luau-lsp` from https://github.com/JohnnyMorganz/luau-lsp/releases (the repo was last checked with 1.70.0) and `luau-ast` from https://github.com/luau-lang/luau/releases (latest). Put both on your PATH. Check: `luau-lsp --version` prints a version and `luau-ast` prints `Usage:`.
+3. Download the Roblox definitions file into the repo root, and hide it and the `lsp-*.txt` files from git (this changes no tracked file):
 
 ```sh
 curl -LO https://raw.githubusercontent.com/JohnnyMorganz/luau-lsp/main/scripts/globalTypes.d.luau
+echo globalTypes.d.luau >> .git/info/exclude
+echo 'lsp-*.txt' >> .git/info/exclude
 ```
 
 4. Before you edit anything, save the current type errors. You compare against them in Step 7:
@@ -52,19 +54,19 @@ To add a server service, follow [add a service](add-a-service.md). To add a dete
 
 ## Step 3 — Follow the architecture rules
 
-`node tools/check-architecture.mjs` checks them. Rules R4–R6 apply to `Lib/` and `AntiCheat/`; the others to every framework module.
+`node tools/check-architecture.mjs` checks them. R4–R7 and R10 apply to `Lib/` and `AntiCheat/` modules. R1–R3 and R8 apply to every module in `Lib/`, `AntiCheat/`, `Shared/` and `Client/`. R11 is for `Lib/`. R9, R12 and R13 check that files agree with each other.
 
 | Rule | In plain words |
 |---|---|
 | R1 | A framework module never requires a loader (`Gaxia_Packages`, `Gaxia_Packages_Server`). Require the module itself: `require(script.Parent.EconomyService)`. |
-| R2 | No `SharedPkg`, no `server()` helper, no `require(...) :: any`. |
+| R2 | No local named `SharedPkg` (an old shared-loader handle) and no local function `server()` (an old loader helper): require the module itself. No `require(...) :: any`. |
 | R3 | `require` takes a static path (`script.Parent.X`, `Shared.Signal`). No `WaitForChild`, `FindFirstChild` or variables. |
 | R4 | A module body only defines things (requires, constants, tables, `Signal.new()`, functions). Connections, instances, threads and loops go in `Init` / `Start`. |
 | R5 | `Lifecycle.Define(...)` is the last statement before `return`. Detectors never call Define. |
 | R6 | No `require` inside a function (a few deliberate lazy loads are allow-listed in the tool). |
 | R7 | Never require `ProfileService`, `PerformanceMonitor`, `Maid`, `Janitor`, `ComponentLegacy` or `ReplicatedState` at the top of a Lib/AntiCheat module. |
 | R8 | Index typed Config sections directly: `Config.Vault.DefaultCapacity`, never `(Config.Vault or {})`. |
-| R9 | `Types.ServiceName`, the Define names, `LIB_KEY_MAP` and the `GaxiaServerPackage` fields list the same keys. |
+| R9 | `Types.ServiceName`, the `Name` in each `Lifecycle.Define(...)`, `LIB_KEY_MAP` and the `GaxiaServerPackage` fields list the same keys. |
 | R10 | Each entry of `Needs` is a module required at the top of the file. List only modules whose Init must run first. |
 | R11 | (`--complete`) every Lib service calls `Lifecycle.Define`. |
 | R12 | `Packages.lua` matches the source (`node tools/packages.mjs check`). |
@@ -111,7 +113,7 @@ Then:
 
 1. Add the path (`Shared/<Name>`, `Client/<ModuleName>`) to the `Replicated` list of a package in `Packages.lua`.
 2. Keep each `typeof(require(...))` type line on one line. Installs delete the type lines of modules that are not installed.
-3. To load a client module at spawn: add its key to `ClientKey` and an entry to `Client` in `Gaxia_Packages/Features.lua` (`RequiresServer` = the server service it talks to).
+3. To load a client module at spawn, edit `src/ReplicatedStorage/Gaxia_Packages/Features.lua`. Add `| "<Key>"` to the `export type ClientKey` union. Add an entry to the `Client` list: `{ Key = "<Key>", RequiresServer = "<ServerService>" },` (leave out `RequiresServer` when the module talks to no server service).
 4. Run Step 7. `Gaxia.IsInstalled("<Key>")` works without more changes.
 
 ## Step 7 — Run every check
@@ -127,21 +129,26 @@ rojo sourcemap default.project.json -o sourcemap.json
 luau-lsp analyze --platform=roblox --sourcemap=sourcemap.json --definitions=@roblox=globalTypes.d.luau --ignore="**/ProfileService.lua" src > lsp-after.txt 2>&1
 luau-lsp analyze --flag:LuauSolverV2=true --platform=roblox --sourcemap=sourcemap.json --definitions=@roblox=globalTypes.d.luau --ignore="**/ProfileService.lua" src > lsp-v2-after.txt 2>&1
 grep -c TypeError lsp-before.txt lsp-after.txt lsp-v2-before.txt lsp-v2-after.txt
+grep -c "<YourFile>.*TypeError" lsp-before.txt lsp-after.txt lsp-v2-before.txt lsp-v2-after.txt
 ```
+
+Run the last line once for each file you changed (`<YourFile>` = the end of its path, for example `Lib/EconomyService.lua`). Each `after` count must not be higher than its `before` count. A new file must have `0` in both `after` files. Some files already have type errors: those are not yours to fix.
 
 Then play-test in Studio:
 
 1. Run `rojo serve` and connect from Studio (**Plugins → Rojo → Connect**).
 2. Press **Play**. Output shows `[Gaxia_ServerBootstrap] complete` and no red errors.
 3. Use the feature you changed, the way a game does.
-4. If you changed packages or requires, also test a picked install: `node tools/packages.mjs build --select <YourPackage> --out ../gaxia-test`, then `rojo serve ../gaxia-test/default.project.json`. This catches a missing `Requires`.
-5. Anti-cheat changes: test with players who are not the place creator (the creator is never kicked or banned). In Studio: **Test → Clients and Servers** with 1 player starts a local server whose test player is not the creator.
+4. If you changed packages or requires, also test a picked install: `node tools/packages.mjs build --select <YourPackage> --out ../gaxia-test`, then `rojo serve ../gaxia-test/default.project.json`. `<YourPackage>` = the package in `Packages.lua` that holds the module you changed (for a detector: `AntiCheat`). This catches a missing `Requires`.
+5. Anti-cheat changes: set `Enforce = true` in `Config/AntiCheat.lua` for the test (put it back to `false` after). Test with **Test → Clients and Servers** with 1 player: that test player is not the place creator. While `Enforce = false` nobody is kicked. With the Ban package installed, the place creator is never kicked or banned.
+
+No Studio? Run every command check, report each Studio check as NOT RUN, and tell the user before you say done.
 
 ## Step 8 — Update the docs
 
 1. Search the playbooks for every name you changed: `grep -rn "<OldName>" playbooks AGENTS.md`. Update each one, following [WRITING.md](../WRITING.md).
 2. Never edit `playbooks/api/` by hand. `node tools/gen-api.mjs` rewrites it from the source comments: the comment line above a function becomes its description.
-3. Add an entry to `CHANGELOG.md` under `## Unreleased`: a heading `### Added — …`, `### Changed — …` or `### Fixed — …`, then short bullets on what changes for games and what they must do.
+3. Add an entry to `CHANGELOG.md` under `## Unreleased`: a heading `### Added — …`, `### Changed — …`, `### Fixed — …` or `### Removed / deprecated`, then short bullets on what changes for games and what they must do.
 4. If the change affects a section of `MANUAL.md` (Thai), update that section.
 5. Changed `pruneTypeLines` in `tools/packages.mjs`? Make the same change in `plugin/src/PackageSelect.lua`: the two must match.
 6. Run `node tools/check-playbooks.mjs --v2` again.
@@ -150,9 +157,9 @@ Then play-test in Studio:
 
 1. `packages.mjs check` prints `✓ … catalogue matches the source`; `gen-api.mjs --check` prints `✓ playbooks/api is up to date`.
 2. `check-architecture.mjs --complete` prints `… 0 violation(s)`; `check-playbooks.mjs --v2` prints `… 0 problem(s)`.
-3. The `grep -c TypeError` counts after are not higher than before, and `grep <YourFile> lsp-after.txt lsp-v2-after.txt` prints nothing.
+3. The `grep -c` counts in Step 7: no `after` count is higher than its `before` count, and new files have `0`.
 4. The Studio play-test shows no red errors, and the changed feature works.
-5. `CHANGELOG.md` has your entry, and `git status` shows no stray files (delete `lsp-*.txt`).
+5. `CHANGELOG.md` has your entry, and `git status` shows only the files you meant to change.
 
 ## Common mistakes
 
@@ -165,13 +172,15 @@ Then play-test in Studio:
 | Renaming a public function | Add the new name, keep the old one as a warning alias | Games still call the old name. |
 | Renaming a saved data key | A migration step | Old saves lose the value. |
 | "All checks pass" without a Studio play-test | Play-test (Step 7) | The checks do not run the code. |
-| Testing the anti-cheat as the place creator | A second account | The creator is exempt from kicks and bans. |
+| Testing anti-cheat kicks as the place creator, or with `Enforce = false` | `Enforce = true` and a **Clients and Servers** test player | With Ban installed, the creator is exempt from kicks and bans. Nothing is kicked while `Enforce = false`. |
 | Fixing old type errors in files you did not touch | Leave them; fix only your change | A small change is easier to review. |
 
 ## Change it
 
 - To add a server service: [add a service](add-a-service.md).
 - To add an anti-cheat detector: [add an anti-cheat detector](add-an-anticheat-detector.md).
+- Without rokit: `aftman install` installs the same tools.
+- Without luau-lsp / luau-ast on PATH: `check-playbooks` reads `LUAU_LSP` and `check-architecture` reads `LUAU_AST` (full paths). The raw `luau-lsp` commands then need the full path too.
 - To rebuild the Companion plugin after changing `src/` or `plugin/`: `rojo build plugin.project.json -o GaxiaCompanion.rbxmx`.
 
 ## See also

@@ -99,8 +99,8 @@ end)
 
 -- 4. When the player's data is loaded: show Level, start the quest if not finished before.
 local function onPlayerAdded(player: Player)
-	if Data.WaitFor(player) == nil then
-		return -- the player left, or the data did not load in 30 seconds
+	if Data.WaitFor(player, 120) == nil then
+		return -- the player left, or the data did not load in 120 seconds
 	end
 	-- Adds or updates only the Level column; other columns (Coins) stay.
 	PlayerService.SetupLeaderstats(player, { Level = Level.GetLevel(player) })
@@ -122,7 +122,7 @@ print("[Progression] ready")
 
 ## Step 2 — Spawn apples that count for the quest
 
-Create a **Script** in **ServerScriptService** named **AppleSpawner**. It places 8 red apples in a circle 20 studs around the center. Touching one counts 1 apple.
+Create a **Script** in **ServerScriptService** named **AppleSpawner**. It places 8 red apples in a circle (12 studs radius) whose middle is 48 studs from the middle of the Baseplate, toward +Z. Touching one counts 1 apple.
 
 ```lua
 -- Script: ServerScriptService/AppleSpawner
@@ -136,6 +136,7 @@ local Quest = GaxiaServer.Quest
 local APPLE_COUNT = 8
 local RESPAWN_SECONDS = 5
 local MAX_DISTANCE = 12 -- studs: a touch from farther away is a cheat
+local CIRCLE_CENTER = Vector3.new(0, 3, 48) -- away from the parts of the other playbooks
 
 local folder = Instance.new("Folder")
 folder.Name = "Apples"
@@ -149,9 +150,9 @@ local function makeApple(index: number)
 	apple.Color = Color3.fromRGB(220, 30, 30)
 	apple.Anchored = true
 	apple.CanCollide = false
-	-- A circle of apples around the middle of the map.
+	-- A circle of apples, 12 studs from CIRCLE_CENTER.
 	local angle = index / APPLE_COUNT * math.pi * 2
-	apple.Position = Vector3.new(math.cos(angle) * 20, 3, math.sin(angle) * 20)
+	apple.Position = CIRCLE_CENTER + Vector3.new(math.cos(angle) * 12, 0, math.sin(angle) * 12)
 	apple.Parent = folder
 
 	apple.Touched:Connect(function(hit: BasePart)
@@ -188,7 +189,7 @@ Before you press Play: turn on **Enable Studio Access to API Services** (see [pl
 1. Press **Play** in Studio.
 2. Output shows `[Progression] ready` and `[AppleSpawner] ready, 8 apples`, and no red errors.
 3. Within a few seconds Output shows `[Progression] <YourName> is level 1, apple quest active: true`. The player list shows a **Level** column with `1`.
-4. Walk into an apple. Output shows `[Progression] <YourName> CollectApples: Apple 1/5`.
+4. Walk toward +Z (48 studs from the middle of the Baseplate) and into an apple. Output shows `[Progression] <YourName> CollectApples: Apple 1/5`.
 5. Touch 5 apples. Output shows, in this order: `finished CollectApples, reward 50 Coins (before pet bonus)`, `+150 XP`, `level 1 -> 2, 232 XP to next`, `unlocked achievement ReachLevel2 (Growing Up), now <N> Coins`, `unlocked achievement FirstQuest (Quest Starter), now <N> Coins`. The **Level** column shows `2`. On a new save `<N>` is `150` (50 quest + 100 `ReachLevel2`); FirstQuest also gave 5 Gems. With an equipped coin pet, `<N>` is higher.
 6. Stop and press **Play** again: Output shows `is level 2, apple quest active: false`. The quest does not start again.
 
@@ -198,7 +199,7 @@ Before you press Play: turn on **Enable Studio Access to API Services** (see [pl
 |---|---|---|
 | `Quest.IsComplete(player, id)` to know if a quest was finished | Save finished quests yourself (`QuestsDone` in Step 1) | `IsComplete` is `true` for every quest that is not active, also one never started. |
 | `reward = { xp = 150 }` in the quest | Give XP in `Quest.OnQuestComplete` with `Level.AddXP` | Quest only pays `currency`/`amount` and `items`. Other fields are ignored. |
-| `Quest.Start` in `PlayerAdded` right away | `Data.WaitFor(player)` first | Before data loads, `Start` returns `false` and `Track` does nothing. |
+| `Quest.Start` in `PlayerAdded` right away | `Data.WaitFor(player, 120)` first | Before data loads, `Start` returns `false` and `Track` does nothing. |
 | `Quest.Track` from a LocalScript or after a client remote with no checks | Track on the server, from a server event (Touched, a kill, a purchase) | A cheater would finish quests by sending the remote. |
 | Counting every `Touched` | Check the character is near the apple (Step 2) | Exploiters can fire `Touched` from far away. |
 | `Quest.Start` directly inside `Quest.OnQuestComplete` | `task.defer(Quest.Start, player, id)` | Track is still looping the active quests: the new quest can get progress from the same event. |

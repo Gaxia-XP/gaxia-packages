@@ -151,10 +151,10 @@ local function addButton(shopItem: { [string]: any }, order: number)
 			return -- wait for the answer before asking again
 		end
 		busy = true
-		-- Send only WHICH item. The server knows the price.
-		local ok, message = Net.InvokeServer("ShopBuy", shopItem.id)
-		if ok == nil then
-			message = "No answer, try again" -- dropped by the rate limit
+		-- Send only WHICH item. The server knows the price. pcall: the button keeps working if the call errors.
+		local called, ok, message = pcall(Net.InvokeServer, "ShopBuy", shopItem.id)
+		if not called or ok == nil then
+			ok, message = false, "No answer, try again" -- the call failed, or the server dropped it (too many requests)
 		end
 		print(`[CoinShopUI] buy {shopItem.id}: {tostring(ok)} {tostring(message)}`)
 		status.Text = tostring(message)
