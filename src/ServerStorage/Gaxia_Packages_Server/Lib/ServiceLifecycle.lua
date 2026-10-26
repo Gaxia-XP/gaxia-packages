@@ -23,6 +23,9 @@
 --           retry); modules that need it still start ("fail-open", like the old
 --           independent module bodies).
 --
+--           Find(name) is for optional integrations with a service whose package
+--           may not be installed (a static require would force it to install).
+--
 -- Access  : GaxiaServer.Lifecycle
 --
 -- Legacy  : Register / RegisterMany / Start / IsStarted / OnStarted keep their
@@ -305,6 +308,31 @@ end
 -- publish the started set to clients).
 function ServiceLifecycle.OnAnyInitialized(fn: (name: string) -> ()): ()
 	table.insert(anyInitCallbacks, fn)
+end
+
+-- Loads a service module by name for Find. Installed by the server loader.
+local resolver: ((name: string) -> {}?)? = nil
+
+function ServiceLifecycle.SetResolver(fn: (name: string) -> {}?): ()
+	resolver = fn
+end
+
+-- Soft dependency: the service registered as `name`, or nil when its package is
+-- not installed. Loads the module if it is installed but not loaded yet; never
+-- starts it (calling one of its functions does, unless it is AutoStart = false).
+-- Call it from Init / Start / functions, never from a module body, and cast the
+-- result to the few members you use:
+--     type PetApi = { GetCoinMultiplier: (player: Player) -> number }
+--     local Pet: PetApi? = Lifecycle.Find("Pet")
+function ServiceLifecycle.Find(name: Types.ServiceName): any
+	local rec = byName[name]
+	if rec then
+		return rec.module
+	end
+	if resolver then
+		return resolver(name)
+	end
+	return nil
 end
 
 -- ── Legacy API (MANUAL §8.21) — unchanged semantics, separate state ──

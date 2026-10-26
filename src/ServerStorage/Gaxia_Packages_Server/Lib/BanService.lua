@@ -30,9 +30,10 @@ local Signal    = require(Shared.Signal)
 local Lifecycle = require(script.Parent.ServiceLifecycle)
 local Config    = require(script.Parent.Parent.Config)
 local Types     = require(script.Parent.Parent.Types)
--- The orchestrator (not a Need: Start only subscribes to its OnAction signal,
--- which never starts AntiCheat).
-local AntiCheat = require(script.Parent.Parent.AntiCheat)
+-- The AntiCheat orchestrator is a soft dependency (its package may not be
+-- installed): Start subscribes to its OnAction signal if it is, which never
+-- starts AntiCheat. Manual bans work without it.
+type AntiCheatApi = { OnAction: Signal.Signal<Player, string, Types.ActionKind> }
 
 -- Store name comes from Config so operators can namespace bans per-game
 -- (Config.Admin.Stores.Bans, "override to namespace bans/roles per game").
@@ -361,6 +362,10 @@ Lifecycle.Define(BanService, {
 	end,
 	Start = function()
 		-- Escalate repeat hard AntiCheat actions ("observe" = not enforced: ignored).
+		local AntiCheat: AntiCheatApi? = Lifecycle.Find("AntiCheat")
+		if AntiCheat == nil then
+			return
+		end
 		AntiCheat.OnAction:Connect(function(player: Player, reason: string, kind: string)
 			if kind == "hard" then
 				escalate(player, reason)

@@ -13,7 +13,8 @@
 --   Gaxia.Analytics.Track(player, "tutorial_step", { step = 3 })
 --
 -- Lifecycle: Start subscribes to Economy.OnTransaction, Level.OnLevelUp and
---            Quest.OnQuestComplete (subscribing never starts those services).
+--            Quest.OnQuestComplete, for those whose package is installed
+--            (subscribing never starts those services).
 --            Not in the default Features: list "Analytics" to funnel from boot.
 -- ─────────────────────────────────────────────────────────────
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -21,9 +22,12 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 -- ── Dependencies ──
 local Signal         = require(ReplicatedStorage.Gaxia_Packages.Shared.Signal)
 local Lifecycle      = require(script.Parent.ServiceLifecycle)
-local EconomyService = require(script.Parent.EconomyService)
-local LevelSystem    = require(script.Parent.LevelSystem)
-local QuestSystem    = require(script.Parent.QuestSystem)
+
+-- Soft dependencies: Start funnels the signals of whichever of these packages are
+-- installed (looked up with Lifecycle.Find).
+type EconomyApi = { OnTransaction: Signal.Signal<Player, string, number, number, string> }
+type LevelApi = { OnLevelUp: Signal.Signal<Player, number, number> }
+type QuestApi = { OnQuestComplete: Signal.Signal<Player, string, any> }
 
 export type Props = { [string]: any }
 export type Sink = (player: Player, event: string, props: Props) -> ()
@@ -60,17 +64,26 @@ end
 
 -- ── Auto-subscribe the framework's existing signals ──
 local function autoSubscribe(): ()
-	EconomyService.OnTransaction:Connect(function(player: Player, currency: string, delta: number, newBalance: number, kind: string)
-		Analytics.Track(player, "currency_change", { currency = currency, delta = delta, balance = newBalance, kind = kind })
-	end)
+	local EconomyService: EconomyApi? = Lifecycle.Find("Economy")
+	if EconomyService then
+		EconomyService.OnTransaction:Connect(function(player: Player, currency: string, delta: number, newBalance: number, kind: string)
+			Analytics.Track(player, "currency_change", { currency = currency, delta = delta, balance = newBalance, kind = kind })
+		end)
+	end
 
-	LevelSystem.OnLevelUp:Connect(function(player: Player, newLevel: any)
-		Analytics.Track(player, "level_up", { level = newLevel })
-	end)
+	local LevelSystem: LevelApi? = Lifecycle.Find("Level")
+	if LevelSystem then
+		LevelSystem.OnLevelUp:Connect(function(player: Player, newLevel: any)
+			Analytics.Track(player, "level_up", { level = newLevel })
+		end)
+	end
 
-	QuestSystem.OnQuestComplete:Connect(function(player: Player, questId: any)
-		Analytics.Track(player, "quest_complete", { quest = questId })
-	end)
+	local QuestSystem: QuestApi? = Lifecycle.Find("Quest")
+	if QuestSystem then
+		QuestSystem.OnQuestComplete:Connect(function(player: Player, questId: any)
+			Analytics.Track(player, "quest_complete", { quest = questId })
+		end)
+	end
 end
 
 Lifecycle.Define(Analytics, {

@@ -12,16 +12,16 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- ── Dependencies ──
--- Data / Economy / Item / Pet are only called when a player's quests are read or a
--- reward is paid (call time), so they are plain requires, not lifecycle Needs. Pet's
--- coin multiplier stays best-effort (see grantReward).
+-- Data / Economy / Item are only called when a player's quests are read or a
+-- reward is paid (call time), so they are plain requires, not lifecycle Needs. Pet is
+-- optional (its package may not be installed): its coin multiplier is looked up
+-- with Lifecycle.Find and stays best-effort (see grantReward).
 local Shared         = ReplicatedStorage.Gaxia_Packages.Shared
 local Signal         = require(Shared.Signal)
 local Lifecycle      = require(script.Parent.ServiceLifecycle)
 local DataManager    = require(script.Parent.DataManager)
 local EconomyService = require(script.Parent.EconomyService)
 local ItemService    = require(script.Parent.ItemService)
-local PetService     = require(script.Parent.PetService)
 
 -- ── Types ──
 export type GoalType = "kill" | "collect" | "reach" | "time_played"
@@ -39,6 +39,9 @@ export type QuestProgress = { progress: { [string]: number }, started: number }
 
 -- The equipped-pet multiplier boosts ONLY this currency (matches PetService.EGG_CURRENCY).
 local COIN_CURRENCY: string = "Coins"
+
+-- The part of the Pet service a reward uses (Pet is a soft dependency).
+type PetApi = { GetCoinMultiplier: (player: Player) -> number }
 
 -- ── Module ──
 local QuestSystem = {}
@@ -106,8 +109,9 @@ local function grantReward(player: Player, def: QuestDef): ()
 		local amount = reward.amount
 		-- Coin rewards get the equipped-pet multiplier; other currencies (Gems, …) don't.
 		-- Best-effort: if Pet errors or returns a non-number / NaN, the reward is ×1.0.
-		if reward.currency == COIN_CURRENCY then
-			local ok, mult = pcall(PetService.GetCoinMultiplier, player)
+		local Pet: PetApi? = if reward.currency == COIN_CURRENCY then Lifecycle.Find("Pet") else nil
+		if Pet then
+			local ok, mult = pcall(Pet.GetCoinMultiplier, player)
 			if ok and typeof(mult) == "number" and mult == mult then
 				amount = math.floor(amount * mult)
 			end

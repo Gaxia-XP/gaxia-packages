@@ -17,8 +17,9 @@
 --   Gaxia.Webhook.SendUrl("https://discord.com/api/webhooks/...", { content = "ad-hoc" })
 --
 -- Lifecycle: Start wires the auto-reports (Ban, AntiCheat, Guild signals) for
---            each Config.Webhook.AutoReport source whose channel has a URL.
---            Subscribing never starts those services (Features decides).
+--            each Config.Webhook.AutoReport source whose channel has a URL and
+--            whose package is installed. Subscribing never starts those services
+--            (Features decides).
 -- ─────────────────────────────────────────────────────────────
 local HttpService       = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -28,9 +29,17 @@ local Signal       = require(ReplicatedStorage.Gaxia_Packages.Shared.Signal)
 local Lifecycle    = require(script.Parent.ServiceLifecycle)
 local Config       = require(script.Parent.Parent.Config)
 local EConfig      = require(script.Parent.EffectiveConfig)
-local BanService   = require(script.Parent.BanService)
-local GuildService = require(script.Parent.GuildService)
-local AntiCheat    = require(script.Parent.Parent.AntiCheat)
+local Types        = require(script.Parent.Parent.Types)
+
+-- Soft dependencies: each auto-report is wired only when its package is installed
+-- (looked up with Lifecycle.Find in Start).
+type BanApi = { OnBan: Signal.Signal<number, any>, OnUnban: Signal.Signal<number> }
+type AntiCheatApi = { OnAction: Signal.Signal<Player, string, Types.ActionKind> }
+type GuildApi = {
+	OnCreate: Signal.Signal<string, number>,
+	OnDisband: Signal.Signal<string, number>,
+	OnRoleChange: Signal.Signal<string, number, any>,
+}
 
 -- ── Effective config (call-time: Config default <- runtime Flag override) ──
 local function flag(key: string, fallback: any): any
@@ -282,8 +291,12 @@ local function autoChannel(ch: string?): string?
 end
 
 local function autoSubscribe(): ()
+	local BanService: BanApi? = Lifecycle.Find("Ban")
+	local AntiCheat: AntiCheatApi? = Lifecycle.Find("AntiCheat")
+	local GuildService: GuildApi? = Lifecycle.Find("Guild")
+
 	local banCh = autoChannel(Config.Webhook.AutoReport.Bans)
-	if banCh then
+	if banCh and BanService then
 		BanService.OnBan:Connect(function(userId: number, ban: any)
 			ban = ban or {}
 			local duration = if ban.expiresAt
@@ -309,7 +322,7 @@ local function autoSubscribe(): ()
 	end
 
 	local acCh = autoChannel(Config.Webhook.AutoReport.AntiCheat)
-	if acCh then
+	if acCh and AntiCheat then
 		AntiCheat.OnAction:Connect(function(player: any, reason: string, kind: string)
 			-- "observe" = would have been "hard" but Config.AntiCheat.Enforce is false.
 			if kind ~= "hard" and kind ~= "observe" then return end
@@ -330,7 +343,7 @@ local function autoSubscribe(): ()
 	-- unconditionally, which started GuildService as a side effect; Guild is in the
 	-- default Features, and otherwise Features decides whether it runs.)
 	local guildChannel = autoChannel(Config.Webhook.AutoReport.Guild)
-	if guildChannel then
+	if guildChannel and GuildService then
 		GuildService.OnCreate:Connect(function(guildId: string, ownerUserId: number)
 			Webhook.Discord(guildChannel, {
 				title = "Guild created",

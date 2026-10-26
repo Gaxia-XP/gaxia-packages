@@ -26,13 +26,15 @@ local Config         = require(script.Parent.Parent.Config)
 local EConfig        = require(script.Parent.EffectiveConfig)
 local DataManager    = require(script.Parent.DataManager)
 local EconomyService = require(script.Parent.EconomyService)
--- Best-effort Coins multiplier (call-time only, so not a Need).
-local PetService     = require(script.Parent.PetService)
 
 local LAST_SEEN_KEY : string = "IdleLastSeen"
 local DEFAULT_RATE  : number = 1           -- ultimate fallback if Config absent
 local MAX_OFFLINE   : number = 8 * 3600    -- ultimate fallback (8h)
 local COIN_CURRENCY : string = "Coins"     -- the pet multiplier boosts only this currency (matches PetService.EGG_CURRENCY)
+
+-- The part of the Pet service the payout uses. Pet is a soft dependency (its
+-- package may not be installed), looked up with Lifecycle.Find at call time.
+type PetApi = { GetCoinMultiplier: (player: Player) -> number }
 
 -- Effective tunables: runtime Flag override <- Config.Idle default <- fallback.
 local function defaultRate(): number
@@ -42,16 +44,18 @@ local function maxOffline(): number
 	return EConfig.Get("Idle.MaxOffline", Config.Idle.MaxOffline or MAX_OFFLINE)
 end
 
--- Best-effort equipped-pet Coins multiplier. Returns 1.0 if the Pet service
--- failed to start (GaxiaServer.Pet is nil), the profile is unloaded, or the call
--- errors / returns NaN — so wiring this into a faucet can never break the grant
--- itself. Calling it starts Pet if nothing has yet (like touching GaxiaServer.Pet).
+-- Best-effort equipped-pet Coins multiplier. Returns 1.0 if the Pet package is
+-- not installed, the Pet service failed to start (GaxiaServer.Pet is nil), the
+-- profile is unloaded, or the call errors / returns NaN — so wiring this into a
+-- faucet can never break the grant itself. Calling it starts Pet if nothing has
+-- yet (like touching GaxiaServer.Pet).
 local function coinMultiplierFor(player: Player): number
-	if Lifecycle.GetState(PetService) == "failed" then
+	local Pet: PetApi? = Lifecycle.Find("Pet")
+	if Pet == nil or Lifecycle.GetState(Pet) == "failed" then
 		return 1.0
 	end
 	local ok, mult = pcall(function(): number
-		return PetService.GetCoinMultiplier(player)
+		return Pet.GetCoinMultiplier(player)
 	end)
 	if ok and typeof(mult) == "number" and mult == mult then -- mult == mult rejects NaN
 		return mult

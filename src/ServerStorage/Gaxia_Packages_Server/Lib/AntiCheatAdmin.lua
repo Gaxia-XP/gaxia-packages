@@ -24,8 +24,11 @@ local EConfig          = require(script.Parent.EffectiveConfig)
 local AdminCommands    = require(script.Parent.AdminCommands)
 local AntiCheatJournal = require(script.Parent.AntiCheatJournal)
 local BanService       = require(script.Parent.BanService)
-local AnalyticsService = require(script.Parent.AnalyticsService)
 local AntiCheat        = require(script.Parent.Parent.AntiCheat)
+
+-- Analytics is a soft dependency (its package may not be installed): the audit
+-- event is sent only when it is.
+type AnalyticsApi = { Track: (...any) -> () }
 
 local AntiCheatAdmin = {}
 
@@ -152,7 +155,10 @@ local function register(): ()
 			-- KNOWN BUG, kept as-is by the lifecycle refactor (fixing it changes
 			-- behaviour): the event name sits in Track's player slot, so Track drops
 			-- the event. The call still starts Analytics, as touching it always did.
-			(AnalyticsService.Track :: any)("admin_config", { by = caller.UserId, action = action })
+			local AnalyticsService: AnalyticsApi? = Lifecycle.Find("Analytics")
+			if AnalyticsService then
+				AnalyticsService.Track("admin_config", { by = caller.UserId, action = action })
+			end
 		end)
 	end
 

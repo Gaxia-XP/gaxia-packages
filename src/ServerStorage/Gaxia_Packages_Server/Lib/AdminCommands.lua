@@ -25,10 +25,17 @@ local Config                = require(script.Parent.Parent.Config)
 local EConfig               = require(script.Parent.EffectiveConfig)
 local BanService            = require(script.Parent.BanService)
 local ChatCommandSystem     = require(script.Parent.ChatCommandSystem)
-local ItemService           = require(script.Parent.ItemService)
-local ItemDefinitionService = require(script.Parent.ItemDefinitionService)
 local PlayerService         = require(script.Parent.PlayerService)
-local AntiCheat             = require(script.Parent.Parent.AntiCheat)
+
+-- Soft dependencies (their packages may not be installed), looked up with
+-- Lifecycle.Find when a command runs: /give needs Item (and checks ItemDef's
+-- catalogue if installed); admin actions whitelist AntiCheat if installed.
+type ItemApi = { Give: (player: Player, itemId: string, count: number?) -> (boolean, number?) }
+type ItemDefApi = { Count: () -> number, Has: (itemId: string) -> boolean }
+type AntiCheatApi = {
+	Whitelist: (player: Player, reason: string, duration: number?) -> (),
+	ClearFlags: (player: Player, reason: string?) -> (),
+}
 
 -- ── Server config (declarative admin surface) — read in Init ──
 local AdminConfig = Config.Admin
@@ -186,7 +193,8 @@ local ADMIN_WHITELIST_REASONS : { string } = {
 -- wipe any pending flag counts so the orchestrator does not act on stale
 -- counts that crossed the threshold *before* the admin action.
 local function whitelistAdminAction(player: Player?, duration: number)
-	if player == nil then return end
+	local AntiCheat: AntiCheatApi? = Lifecycle.Find("AntiCheat")
+	if player == nil or AntiCheat == nil then return end
 	for _, reason in ipairs(ADMIN_WHITELIST_REASONS) do
 		AntiCheat.Whitelist(player, reason, duration)
 		AntiCheat.ClearFlags(player, reason)
@@ -505,7 +513,12 @@ local function registerBuiltins(): ()
 			-- Catalog check is opt-in: games that never register item definitions
 			-- keep free-form ids; once a catalog exists, typos are rejected instead
 			-- of minting phantom persistent inventory keys.
-			if ItemDefinitionService.Count() > 0 and not ItemDefinitionService.Has(itemId) then
+			local ItemService: ItemApi? = Lifecycle.Find("Item")
+			if ItemService == nil then
+				return fail("/give needs the Item package, which is not installed")
+			end
+			local ItemDefinitionService: ItemDefApi? = Lifecycle.Find("ItemDef")
+			if ItemDefinitionService and ItemDefinitionService.Count() > 0 and not ItemDefinitionService.Has(itemId) then
 				return fail(`Unknown item: {itemId}`)
 			end
 			local ok, delta = ItemService.Give(target, itemId, count)

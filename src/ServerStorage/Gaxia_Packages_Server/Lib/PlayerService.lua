@@ -19,9 +19,11 @@ local PlayerUtil = require(Shared.Util.Player)
 local Lifecycle  = require(script.Parent.ServiceLifecycle)
 local Config     = require(script.Parent.Parent.Config)
 local EConfig    = require(script.Parent.EffectiveConfig)
--- The AntiCheat orchestrator, for the Teleport whitelist only (called at call
--- time). Not a Need: teleporting a player must never start AntiCheat.
-local AntiCheat  = require(script.Parent.Parent.AntiCheat)
+
+-- The AntiCheat orchestrator, for the Teleport whitelist only: a soft dependency
+-- (its package may not be installed), looked up at call time. Whitelist never
+-- starts AntiCheat (it is AutoStart = false).
+type AntiCheatApi = { Whitelist: (player: Player, reason: string, duration: number?) -> () }
 
 -- ── Constants ──
 local LEADERSTATS_NAME : string = "leaderstats"
@@ -148,10 +150,14 @@ end
 -- short window so the position-delta sample after this CFrame change does
 -- not raise a false-positive flag. 2 seconds comfortably covers one or two
 -- sampler ticks (SAMPLER_INTERVAL = 0.5s) plus replication lag. The whitelist
--- call is safe whether or not AntiCheat is running (it never starts it).
+-- call is safe whether or not AntiCheat is running (it never starts it), and is
+-- skipped when the AntiCheat package is not installed.
 function PlayerService.Teleport(player: Player, cframe: CFrame): ()
-	local grace = Config.AntiCheat.Teleport.WhitelistGraceSeconds or 2
-	AntiCheat.Whitelist(player, "Teleport", EConfig.Get("AntiCheat.Teleport.WhitelistGraceSeconds", grace))
+	local AntiCheat: AntiCheatApi? = Lifecycle.Find("AntiCheat")
+	if AntiCheat then
+		local grace = Config.AntiCheat.Teleport.WhitelistGraceSeconds or 2
+		AntiCheat.Whitelist(player, "Teleport", EConfig.Get("AntiCheat.Teleport.WhitelistGraceSeconds", grace))
+	end
 	PlayerUtil.Teleport(player, cframe)
 end
 
