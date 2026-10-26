@@ -10,7 +10,7 @@
 --           Require (Packages.lua) plus Core: the rest is removed from the clone
 --           before it is parented, the loaders' type lists are trimmed to match,
 --           and the pick is recorded on both package roots so the server boots
---           the picked packages that have Boot = true.
+--           the picked services plus every installed package with Boot = true.
 -- ─────────────────────────────────────────────────────────────
 
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
@@ -67,6 +67,16 @@ function Installer.currentPick(): { string }?
 		return nil
 	end
 	return string.split(value, ",")
+end
+
+-- The packages this place has installed now, or nil when Gaxia is not installed.
+function Installer.installedPackages(manifest: PackageSelect.Manifest): { string }?
+	local serverRoot = ServerStorage:FindFirstChild("Gaxia_Packages_Server")
+	local replicatedRoot = ReplicatedStorage:FindFirstChild("Gaxia_Packages")
+	if serverRoot == nil and replicatedRoot == nil then
+		return nil
+	end
+	return PackageSelect.installedIn(manifest, serverRoot, replicatedRoot)
 end
 
 function Installer.install(opts: Opts?): (boolean, string)

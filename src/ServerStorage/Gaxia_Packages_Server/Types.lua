@@ -43,7 +43,7 @@ export type PackageSpec = {
 	Name: string,
 	Category: string,
 	Description: string,
-	-- Start at server boot when the package was picked.
+	-- Start at server boot whenever installed (picked services boot anyway).
 	Boot: boolean?,
 	Server: { string }?,
 	Replicated: { string }?,

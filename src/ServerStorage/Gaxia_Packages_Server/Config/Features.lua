@@ -4,8 +4,8 @@
 -- packages could be picked).
 --
 -- When packages were picked (Gaxia Companion → Install, or tools/packages.mjs
--- build), this list is not used: the picked packages with Boot = true in
--- Packages.lua start at boot, and only those are installed.
+-- build), this list is not used: the picked services and every installed package
+-- with Boot = true in Packages.lua start at boot.
 --
 -- Services listed here start at boot, in this order (anything they Need starts
 -- first). A service that is NOT listed is never loaded unless the game uses it:

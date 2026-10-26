@@ -240,7 +240,7 @@ service ที่เกมไม่ได้ใช้เลย **ไม่ถู
 
 **รายการที่เริ่มตอน boot** (ตัวแรกที่มีชนะ):
 1. `ServerStorage.GaxiaFeatures` ของเกม (ด้านล่าง)
-2. ถ้าติดตั้งแบบ**เลือก package** (§4.3): package ที่เลือกซึ่งมี `Boot = true` ใน `Packages.lua`
+2. ถ้าติดตั้งแบบ**เลือก package** (§4.3): service ที่เลือก + package ที่ติดตั้งซึ่งมี `Boot = true` ใน `Packages.lua`
    (เช่น Data, AntiCheat, Monetization, Admin, Chat) — **ไม่ต้องแก้ Features เอง**
 3. ติดตั้งครบทุกตัว (Rojo `default.project.json` หรือติดตั้งก่อนมีตัวเลือก): `Config.Features`
 ```lua
@@ -259,7 +259,7 @@ Services = { "AntiCheat", "Data", "Player", "Item", "Economy", "Pet", ... }
 > ฝั่ง client ทำแบบเดียวกันด้วย `ReplicatedStorage.GaxiaClientFeatures` (`{ Client = { ... } }`)
 
 **ควรใส่ใน Features เมื่อเกมใช้** (มีงานต้องทำก่อนถูกเรียกครั้งแรก — ถ้าติดตั้งแบบเลือก package ตัวเหล่านี้มี
-`Boot = true` จึงบูตให้เองเมื่อเลือก):
+`Boot = true` จึงบูตให้เองเมื่อติดตั้ง):
 
 | Service | ถ้าไม่ใส่ |
 |---|---|
@@ -326,8 +326,9 @@ Framework แบ่งเป็น **~100 package** (รายการเต็
 | เลือก `Pet` | + Data, Migration, Economy, ItemDef, Loot, Codex, Guard, Util + UI ของ pet (UI.UIController, UI.Toast, UI.Templates, Theme) |
 
 **ใน Studio (Gaxia Companion):** แท็บ **Install** → ติ๊ก package (มีปุ่ม preset `Default` = ชุดที่บูตก่อนหน้านี้,
-`All`, `None`) → **Install / Update** — แถว `[+]` คือที่ถูกเพิ่มให้เพราะ package ที่เลือกต้องใช้ · ครั้งต่อไปที่เปิด
-จะติ๊กตามที่ติดตั้งไว้ใน place นั้น
+`All`, `None`) → **Install / Update** — แถว `[+]` คือที่ถูกเพิ่มให้เพราะ package ที่เลือกต้องใช้ · เปิดครั้งต่อไป
+จะติ๊กตามที่ติดตั้งไว้ใน place นั้น (place ที่ติดตั้งครบมาก่อน = ติ๊กทุกตัว) · ถ้าการติดตั้งจะ**ลบ** package ที่ place มีอยู่
+ต้องกด Install ซ้ำเพื่อยืนยัน (status แสดงรายชื่อ) · ติ๊กทุกตัว = ติดตั้งครบแบบเดิม (ไม่บันทึกการเลือก, `Config.Features` ตัดสิน)
 > plugin ต้องได้สิทธิ์ **แก้ script** (Script Injection) เพื่อตัด type ของ package ที่ไม่ได้ติดตั้งออกจาก loader —
 > ถ้าไม่ได้รับสิทธิ์ ติดตั้งได้ แต่ Script Analysis จะเตือน type ใน loader
 
@@ -336,14 +337,16 @@ Framework แบ่งเป็น **~100 package** (รายการเต็
 node tools/packages.mjs list                                    # ดูทุก package ตามหมวด
 node tools/packages.mjs resolve Data,Pet                        # ดูว่าจะติดตั้งอะไรบ้าง + อะไรบูต
 node tools/packages.mjs build --select Data,Pet --out ../MyGame/gaxia
-node tools/packages.mjs build --preset Default --out build/gaxia
+node tools/packages.mjs build --preset Default --out ../MyGame/gaxia
 rojo serve ../MyGame/gaxia/default.project.json
 ```
+`--out` ต้องอยู่นอก repo Gaxia และว่างหรือเป็นผล build ครั้งก่อน (ไม่งั้นต้อง `--force`) ·
 `build` เขียน `src/` (เฉพาะไฟล์ที่ติดตั้ง, loader ตัด type ให้แล้ว) + `default.project.json` + `gaxia-packages.json`
 (ใช้ `--from <ไฟล์นี้>` build ซ้ำด้วยชุดเดิมหลังอัปเดต Gaxia)
 
-**ติดตั้งแล้ว = เปิดใช้:** package ที่**เลือก**และมี `Boot = true` (มีงานต้องทำก่อนถูกเรียก: player hook, remote,
-loop, ProcessReceipt) เริ่มตอนบูต · ตัวอื่นที่ติดตั้ง (รวมที่ติดมาเป็น dependency) เริ่มเมื่อเกมใช้ครั้งแรก ·
+**ติดตั้งแล้ว = เปิดใช้:** ตอนบูตเริ่ม **service ทุกตัวที่เลือก** + **ทุก package ที่ติดตั้งและมี `Boot = true`**
+(มีงานต้องทำก่อนถูกเรียก: player hook, remote, loop, ProcessReceipt — รวมตัวที่ติดมาเป็น dependency เช่นเลือก Idle
+แล้ว Data บูตด้วย) · service อื่นที่ติดมาเป็น dependency เริ่มเมื่อถูกใช้ครั้งแรก · preset `Default` บูตชุดเดียวกับเดิม (+ Cooldown ที่ Friend/Guild ต้องใช้) ·
 ค่าที่เลือกบันทึกไว้ที่ attribute `GaxiaPackages` ของทั้งสอง package root · `ServerStorage.GaxiaFeatures` ยัง override ได้
 
 **Soft dependency — ใช้ถ้ามี:** บางการเชื่อมต่อเป็น optional จึงไม่บังคับให้ติดตั้งอีก package

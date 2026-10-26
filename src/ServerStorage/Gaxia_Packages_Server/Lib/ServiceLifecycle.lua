@@ -320,14 +320,19 @@ end
 -- Soft dependency: the service registered as `name`, or nil when its package is
 -- not installed. Loads the module if it is installed but not loaded yet; never
 -- starts it (calling one of its functions does, unless it is AutoStart = false).
--- Call it from Init / Start / functions, never from a module body, and cast the
--- result to the few members you use:
+-- Call it from Start / functions (it may load the server loader, which can yield),
+-- never from a module body or an Init, and cast the result to the few members you use:
 --     type PetApi = { GetCoinMultiplier: (player: Player) -> number }
 --     local Pet: PetApi? = Lifecycle.Find("Pet")
 function ServiceLifecycle.Find(name: Types.ServiceName): any
 	local rec = byName[name]
 	if rec then
 		return rec.module
+	end
+	if resolver == nil then
+		-- A service required directly before anything required the server loader:
+		-- load the loader, which installs the resolver. pcall: never fail a caller.
+		pcall(require, script.Parent.Parent)
 	end
 	if resolver then
 		return resolver(name)

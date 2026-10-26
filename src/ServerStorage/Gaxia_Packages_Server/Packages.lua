@@ -9,15 +9,16 @@
 --             • Rojo:   node tools/packages.mjs build --select Data,Economy --out <dir>
 --           Either way, the packages you pick plus everything they Require are
 --           installed, nothing else, and the pick is recorded on both package roots
---           (attribute "GaxiaPackages"). At boot the server starts the picked
---           packages that have Boot = true; every other installed service starts the
---           first time game code uses it.
+--           (attribute "GaxiaPackages"). At boot the server starts every picked
+--           service and every installed package that has Boot = true; any other
+--           installed service starts the first time game code uses it.
 --
 -- Fields  : Name        loader key (GaxiaServer.<Name> / Gaxia.<Name>) and the name
 --                       ServerStorage.GaxiaFeatures and the picker use
 --           Category    groups the picker
---           Boot        start at server boot when picked (it has work to do before
---                       its first call: player hooks, remotes, loops, receipts)
+--           Boot        start at server boot whenever installed, also when only
+--                       because another package Requires it (it has work to do
+--                       before its first call: player hooks, remotes, loops, receipts)
 --           Server      module paths under Gaxia_Packages_Server
 --           Replicated  module paths under ReplicatedStorage.Gaxia_Packages
 --           Requires    packages this one's modules require. GENERATED from the
@@ -61,7 +62,7 @@ local Packages: Types.PackageManifest = {
 			Name = "Migration", Category = "Data & players",
 			Description = "Schema versioning for saved profiles: register upgrade steps per version.",
 			Server = { "Lib/DataMigration" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Player", Category = "Data & players", Boot = true,
@@ -79,19 +80,19 @@ local Packages: Types.PackageManifest = {
 			Name = "Memory", Category = "Data & players",
 			Description = "Cross-server short-lived storage over MemoryStoreService (sorted maps, queues).",
 			Server = { "Lib/MemoryStore" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Messages", Category = "Data & players",
 			Description = "Cross-server messaging over MessagingService with JSON payloads.",
 			Server = { "Lib/CrossServerMessaging" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Teleport", Category = "Data & players",
 			Description = "Hardened TeleportService wrapper: retries, reserved servers, teleport data.",
 			Server = { "Lib/TeleportService" },
-			Requires = { },
+			Requires = {},
 		},
 
 		-- ── Economy & items ──────────────────────────────────
@@ -111,7 +112,7 @@ local Packages: Types.PackageManifest = {
 			Name = "ItemDef", Category = "Economy & items",
 			Description = "Item definition registry: what every item or decoration is.",
 			Server = { "Lib/ItemDefinitionService" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Inventory", Category = "Economy & items",
@@ -197,19 +198,19 @@ local Packages: Types.PackageManifest = {
 			Name = "Leaderboard", Category = "Progression & live ops",
 			Description = "Global top-N boards over OrderedDataStore.",
 			Server = { "Lib/LeaderboardService" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Event", Category = "Progression & live ops", Boot = true,
 			Description = "Timed live-ops events (start / end windows) with a scheduler loop.",
 			Server = { "Lib/EventService" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Analytics", Category = "Progression & live ops", Boot = true,
 			Description = "Typed event funnel: Economy / Level / Quest events routed to one sink.",
 			Server = { "Lib/AnalyticsService" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Idle", Category = "Progression & live ops", Boot = true,
@@ -223,25 +224,25 @@ local Packages: Types.PackageManifest = {
 			Name = "Tool", Category = "Gameplay & world",
 			Description = "Tool lifecycle helpers with anti-duplication UIDs.",
 			Server = { "Lib/ToolService" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Zone", Category = "Gameplay & world",
 			Description = "Trigger zones with Enter / Left signals.",
 			Server = { "Lib/ZoneService" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Cooldown", Category = "Gameplay & world", Boot = true,
 			Description = "Server-authoritative cooldowns and debounces (with a sweep loop).",
 			Server = { "Lib/CooldownService" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Interaction", Category = "Gameplay & world",
 			Description = "ProximityPrompt wrapper for \"press E to …\" interactions.",
 			Server = { "Lib/InteractionService" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Placement", Category = "Gameplay & world", Boot = true,
@@ -253,7 +254,7 @@ local Packages: Types.PackageManifest = {
 			Name = "Visit", Category = "Gameplay & world", Boot = true,
 			Description = "Read-only base / island visiting.",
 			Server = { "Lib/VisitService" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Protection", Category = "Gameplay & world",
@@ -271,7 +272,7 @@ local Packages: Types.PackageManifest = {
 			Name = "AI", Category = "Gameplay & world",
 			Description = "NPC movement over PathfindingService.",
 			Server = { "Lib/AIService" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Pet", Category = "Gameplay & world", Boot = true,
@@ -292,25 +293,25 @@ local Packages: Types.PackageManifest = {
 			Name = "SFX", Category = "Effects",
 			Description = "Sound bank and 3D audio.",
 			Server = { "Lib/SFXService" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Anim", Category = "Effects",
 			Description = "Named animation playback over Animator.",
 			Server = { "Lib/AnimationService" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Motion3D", Category = "Effects",
 			Description = "World motion: moving platforms, bobbing collectibles, spinners.",
 			Server = { "Lib/Motion3DService" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Ragdoll", Category = "Effects",
 			Description = "Toggle a character into a physics ragdoll and back.",
 			Server = { "Lib/RagdollService" },
-			Requires = { },
+			Requires = {},
 		},
 
 		-- ── Social ───────────────────────────────────────────
@@ -332,13 +333,13 @@ local Packages: Types.PackageManifest = {
 			Name = "GuildLock", Category = "Social",
 			Description = "Cross-server lock for guild record changes.",
 			Server = { "Lib/GuildLock" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "InviteQueue", Category = "Social",
 			Description = "Durable cross-server invite delivery.",
 			Server = { "Lib/InviteQueue" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Party", Category = "Social", Boot = true,
@@ -365,14 +366,14 @@ local Packages: Types.PackageManifest = {
 			Name = "Ban", Category = "Moderation & safety", Boot = true,
 			Description = "Saved bans and an auto-escalation policy for AntiCheat actions.",
 			Server = { "Lib/BanService" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Chat", Category = "Moderation & safety", Boot = true,
 			Description = "Slash-command chat parser with typed arguments, and client replies.",
 			Server = { "Lib/ChatCommandSystem" },
 			Replicated = { "Client/ChatFeedback" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Admin", Category = "Moderation & safety", Boot = true,
@@ -391,7 +392,7 @@ local Packages: Types.PackageManifest = {
 			Name = "Webhook", Category = "Moderation & safety", Boot = true,
 			Description = "Outbound webhooks (Discord-first) for bans, AntiCheat and guild events.",
 			Server = { "Lib/WebhookService" },
-			Requires = { },
+			Requires = {},
 		},
 
 		-- ── Client systems ───────────────────────────────────
@@ -399,25 +400,25 @@ local Packages: Types.PackageManifest = {
 			Name = "Input", Category = "Client systems",
 			Description = "Keybinds for keyboard, mouse and gamepad, with rebinding.",
 			Replicated = { "Client/InputManager" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Camera", Category = "Client systems",
 			Description = "Camera shake and FOV tweens.",
 			Replicated = { "Client/CameraController" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Sound", Category = "Client systems",
 			Description = "Pooled sound playback with a 3-bus mixer.",
 			Replicated = { "Client/SoundController" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Effects", Category = "Client systems",
 			Description = "Pooled particle / beam / trail bursts.",
 			Replicated = { "Client/EffectsController" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Dialog", Category = "Client systems",
@@ -435,13 +436,13 @@ local Packages: Types.PackageManifest = {
 			Name = "Tooltip", Category = "Client systems",
 			Description = "Hover tooltips with delay and cursor follow.",
 			Replicated = { "Client/TooltipSystem" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "DebugConsole", Category = "Client systems",
 			Description = "On-screen developer overlay (F3).",
 			Replicated = { "Client/DebugConsole" },
-			Requires = { },
+			Requires = {},
 		},
 
 		-- ── Client UI ────────────────────────────────────────
@@ -455,7 +456,7 @@ local Packages: Types.PackageManifest = {
 			Name = "UI.Templates", Category = "Client UI",
 			Description = "Code-first builders for the Gaxia UI templates.",
 			Replicated = { "Client/UI/Templates" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "UI.NotificationService", Category = "Client UI",
@@ -503,19 +504,19 @@ local Packages: Types.PackageManifest = {
 			Name = "UI.StateBinding", Category = "Client UI",
 			Description = "Bind a GUI property to a ReplicatedState key.",
 			Replicated = { "Client/UI/StateBinding" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "UI.Responsive", Category = "Client UI",
 			Description = "Fit UI to phones, tablets, console and desktop.",
 			Replicated = { "Client/UI/Responsive" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "UI.Router", Category = "Client UI",
 			Description = "Screen stack navigation and z-ordering.",
 			Replicated = { "Client/UI/Router" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "UI.Components", Category = "Client UI",
@@ -527,7 +528,7 @@ local Packages: Types.PackageManifest = {
 			Name = "UI.GamepadNav", Category = "Client UI",
 			Description = "Gamepad / console navigation for screens.",
 			Replicated = { "Client/UI/GamepadNav" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "UI.RebindMenu", Category = "Client UI",
@@ -545,13 +546,13 @@ local Packages: Types.PackageManifest = {
 			Name = "UI.Haptics", Category = "Client UI",
 			Description = "Gamepad rumble feedback.",
 			Replicated = { "Client/UI/Haptics" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "UI.Motion", Category = "Client UI",
 			Description = "UI motion presets over TweenService.",
 			Replicated = { "Client/UI/Motion" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "UI.InviteToast", Category = "Client UI",
@@ -565,13 +566,13 @@ local Packages: Types.PackageManifest = {
 			Name = "Promise", Category = "Shared utilities",
 			Description = "Promises (evaera) with typed wrappers.",
 			Replicated = { "Shared/Promise", "Shared/PromiseTypes" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Util", Category = "Shared utilities",
 			Description = "Table / String / Math / Instance / Player / Debug helpers.",
 			Replicated = { "Shared/Util" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "TweenUtil", Category = "Shared utilities",
@@ -583,43 +584,43 @@ local Packages: Types.PackageManifest = {
 			Name = "Spring", Category = "Shared utilities",
 			Description = "Damped springs for smooth motion.",
 			Replicated = { "Shared/Spring" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Raycaster", Category = "Shared utilities",
 			Description = "Builder-style RaycastParams wrapper.",
 			Replicated = { "Shared/Raycaster" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Random", Category = "Shared utilities",
 			Description = "Seeded RNG streams, weighted choice, shuffle.",
 			Replicated = { "Shared/Random" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Pool", Category = "Shared utilities",
 			Description = "Object pool for reusable instances.",
 			Replicated = { "Shared/Pool" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Scheduler", Category = "Shared utilities",
 			Description = "After / Every / Debounce / Throttle / Stopwatch.",
 			Replicated = { "Shared/Scheduler" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Guard", Category = "Shared utilities",
 			Description = "Runtime schema validation (t-style).",
 			Replicated = { "Shared/Guard" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Symbol", Category = "Shared utilities",
 			Description = "Unique reference-comparable identifiers.",
 			Replicated = { "Shared/Symbol" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Component", Category = "Shared utilities",
@@ -631,49 +632,49 @@ local Packages: Types.PackageManifest = {
 			Name = "Command", Category = "Shared utilities",
 			Description = "Command pattern over NetService remotes.",
 			Replicated = { "Shared/Command" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Theme", Category = "Shared utilities",
 			Description = "UI design tokens (colour, font, spacing, radius).",
 			Replicated = { "Shared/Theme" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Localization", Category = "Shared utilities",
 			Description = "One place every user-facing string goes through (i18n).",
 			Replicated = { "Shared/Localization" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "GuiCodec", Category = "Shared utilities",
 			Description = "Convert GUI instances to code and back.",
 			Replicated = { "Shared/GuiCodec" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Perf", Category = "Shared utilities",
 			Description = "FPS, memory and ping readings.",
 			Replicated = { "Shared/PerformanceMonitor" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Bench", Category = "Shared utilities",
 			Description = "Microbenchmarks.",
 			Replicated = { "Shared/PerformanceBenchmark" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "TestRunner", Category = "Shared utilities",
 			Description = "Minimal in-game test framework.",
 			Replicated = { "Shared/TestRunner" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "MockPlayer", Category = "Shared utilities",
 			Description = "Fake Player objects for tests.",
 			Replicated = { "Shared/MockPlayer" },
-			Requires = { },
+			Requires = {},
 		},
 
 		-- ── Deprecated ───────────────────────────────────────
@@ -681,7 +682,7 @@ local Packages: Types.PackageManifest = {
 			Name = "Maid", Category = "Deprecated",
 			Description = "Deprecated: use Trove (always installed).",
 			Replicated = { "Shared/Maid" },
-			Requires = { },
+			Requires = {},
 		},
 		{
 			Name = "Janitor", Category = "Deprecated",
@@ -693,7 +694,7 @@ local Packages: Types.PackageManifest = {
 			Name = "ComponentLegacy", Category = "Deprecated",
 			Description = "Deprecated: use Component.",
 			Replicated = { "Shared/ComponentLegacy" },
-			Requires = { },
+			Requires = {},
 		},
 	},
 }

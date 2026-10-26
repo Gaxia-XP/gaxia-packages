@@ -27,7 +27,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { readManifest, readGraph, ownership, computeRequires } from './packages.mjs'
+import { catalogueProblems } from './packages.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const AST_BIN = process.env.LUAU_AST || 'luau-ast'
@@ -47,6 +47,7 @@ const LIB_UTILITIES = new Set(['ServiceLifecycle', 'EffectiveConfig'])
 const LAZY_ALLOW = [
   [/\/AntiCheat\/init\.lua$/, /^script\.\w+$/], // DETECTORS table closures
   [/\/Lib\/DataManager\/init\.lua$/, /ProfileService$/], // loads on first profile load
+  [/\/Lib\/ServiceLifecycle\.lua$/, /^script\.Parent\.Parent$/], // Find: loads the server loader if nothing has yet (installs its resolver)
 ]
 // Non-static requires that are deliberate: [file suffix, require-arg regex].
 const DYNAMIC_ALLOW = [
@@ -279,19 +280,7 @@ function checkSync(ctx) {
 // R12: every module belongs to Core or one package, and each package's Requires
 // is what its modules require (`node tools/packages.mjs fix` regenerates them).
 function checkPackages() {
-  const file = `${SERVER}/Packages.lua`
-  const manifest = readManifest()
-  const graph = readGraph()
-  const { owners, problems } = ownership(manifest, graph)
-  for (const p of problems) report(file, null, 'R12', p)
-  for (const u of graph.unresolved) report(file, null, 'R12', `cannot resolve ${u}`)
-  const { requires, coreLeaks } = computeRequires(manifest, graph, owners)
-  for (const l of coreLeaks) report(file, null, 'R12', l)
-  for (const p of manifest.Packages) {
-    const want = requires[p.Name].join(', ')
-    const got = [...p.Requires].sort().join(', ')
-    if (want !== got) report(file, null, 'R12', `${p.Name}.Requires is { ${got} }, the source needs { ${want} } — run: node tools/packages.mjs fix`)
-  }
+  for (const p of catalogueProblems().problems) report(`${SERVER}/Packages.lua`, null, 'R12', p)
 }
 
 const args = process.argv.slice(2)

@@ -140,7 +140,10 @@ function cb.getPickerSource(): (any, string?)
 	if not manifest then
 		return nil, why
 	end
-	local initial = Installer.currentPick()
+	-- This place's recorded pick; else what it has installed (a full install from
+	-- before packages could be picked = everything); else the last pick made in
+	-- this plugin; else Default.
+	local initial = Installer.currentPick() or Installer.installedPackages(manifest)
 	if initial == nil then
 		local saved = plugin:GetSetting("package_pick")
 		initial = if type(saved) == "table" then saved else manifest.Presets.Default or {}
@@ -160,9 +163,40 @@ function cb.onPickChanged(picked: { string })
 	plugin:SetSetting("package_pick", picked)
 end
 
+-- An install that removes packages this place has must be clicked twice.
+local pendingRemoval: string? = nil
+
 function cb.onInstall(picked: { string }?)
 	safe("Install", function()
-		local ok, msg = Installer.install({ confirm = false, packages = picked })
+		local packages = picked
+		local manifest = Installer.manifest()
+		if packages and manifest then
+			-- Everything picked = a full install (no pick recorded; Config/Features
+			-- decides what boots, as before packages could be picked).
+			if #packages == #manifest.Packages then
+				packages = nil
+			else
+				local keep: { [string]: boolean } = {}
+				for _, name in ipairs(PackageSelect.closure(manifest, packages)) do
+					keep[name] = true
+				end
+				local removed: { string } = {}
+				local current: { string } = Installer.installedPackages(manifest) or {}
+				for _, name in ipairs(current) do
+					if not keep[name] then
+						table.insert(removed, name)
+					end
+				end
+				local signature = table.concat(packages, ",")
+				if #removed > 0 and pendingRemoval ~= signature then
+					pendingRemoval = signature
+					handle.setStatus(`! Click Install again to remove {#removed} installed package(s): {table.concat(removed, ", ")}`, "err")
+					return
+				end
+			end
+		end
+		pendingRemoval = nil
+		local ok, msg = Installer.install({ confirm = false, packages = packages })
 		handle.setStatus((ok and "✓ " or "✗ ") .. tostring(msg), ok and "ok" or "err")
 	end)
 end

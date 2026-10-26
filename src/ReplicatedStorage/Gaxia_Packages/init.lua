@@ -323,7 +323,7 @@ local function buildGaxia(): { [string]: any }
 	end
 
 	function Gaxia.IsInstalled(key: string): boolean
-		local namespace, name = string.match(key, "^(%w+)%.(%w+)$")
+		local namespace, name = string.match(key, "^([^.]+)%.([^.]+)$")
 		if namespace == "Util" and utilFolder then
 			return resolveChild(utilFolder, name :: string) ~= nil
 		elseif namespace == "UI" then

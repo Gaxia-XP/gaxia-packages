@@ -61,13 +61,18 @@ end
 -- Touching a key loads its module now (during character spawn) rather than on
 -- first use. Modules such as ClientAntiCheat, AdminPanel, ChatFeedback and
 -- PetController wire their loops, hotkeys and subscriptions in their module body.
--- An entry whose package is not installed in this place is skipped.
+-- A default entry whose package is not installed in this place is skipped; an
+-- entry from the game's own GaxiaClientFeatures is warned about.
+local fromOverride = entries ~= features.Client
 for _, entry in ipairs(entries) do
 	local needs = entry.RequiresServer
 	if needs and serverStarted and not serverStarted[needs] then
 		continue
 	end
 	if not Gaxia.IsInstalled(entry.Key) then
+		if fromOverride then
+			warn(`[Gaxia_ClientBootstrap] {entry.Key} is not installed — install its package or remove it from GaxiaClientFeatures`)
+		end
 		continue
 	end
 	local value: any = Gaxia

@@ -11,15 +11,18 @@
 //   node tools/packages.mjs fix                        # regenerate every Requires list
 //   node tools/packages.mjs resolve Data,Pet           # what a pick installs
 //   node tools/packages.mjs build --select Data,Pet --out ../MyGame/gaxia
-//   node tools/packages.mjs build --preset Default --out build/gaxia
-//   node tools/packages.mjs build --all --out build/gaxia
+//   node tools/packages.mjs build --preset Default --out ../MyGame/gaxia
+//   node tools/packages.mjs build --all --out ../MyGame/gaxia
+//
+// <out> must be outside this repo and empty or a previous build (--force
+// otherwise): build replaces <out>/src and <out>/default.project.json.
 //
 // `build` writes <out>/src (only the installed modules, same layout as this repo)
 // and <out>/default.project.json; then `rojo serve <out>/default.project.json` or
 // `rojo build <out>/default.project.json -o Gaxia.rbxm`. Re-run it after
 // pulling a new Gaxia version or changing the pick. The pick is recorded on both
 // package roots (attribute GaxiaPackages), so the server boots the picked
-// packages that have Boot = true.
+// services plus every installed package that has Boot = true.
 // ─────────────────────────────────────────────────────────────
 import fs from 'node:fs'
 import path from 'node:path'
@@ -32,6 +35,14 @@ const MANIFEST = path.join(ROOT, SERVER_DIR, 'Packages.lua')
 // Same exclusions as default.project.json's globIgnorePaths.
 const IGNORED = /(\.spec\.luau?|\.test\.luau?|jest\.config\.luau|wally\.toml)$/
 export const ATTRIBUTE = 'GaxiaPackages'
+
+// Requires of a variable that are deliberate (not a static dependency):
+// file → argument texts. Anything else that does not resolve fails `check`.
+const DYNAMIC_REQUIRES = {
+  [`${SERVER_DIR}/init.lua`]: ['mod'], // the loader's lazy key lookup
+  [`${REPLICATED_DIR}/init.lua`]: ['mod'], // the loader's lazy key lookup
+  [`${SERVER_DIR}/AntiCheat/init.lua`]: ['child'], // game-added detector modules
+}
 
 // Instance-path prefixes (also the side names used in Packages.lua).
 const SIDES = {
@@ -138,18 +149,23 @@ export function readGraph() {
     if (!file) { edges[inst] = []; continue }
     const src = fs.readFileSync(file, 'utf8').replace(/--\[(=*)\[[\s\S]*?\]\1\]/g, '').replace(/--[^\n]*/g, '')
     const aliases = {}
-    const aliasRe = /local\s+(\w+)\s*(?::\s*[\w.?]+\s*)?=\s*((?:script|ReplicatedStorage|ServerStorage|game:GetService\("\w+"\))[\w.:"(), ]*?)\s*(?:::\s*\w+)?\s*$/gm
+    // `local X = <path>` where <path> starts at script, a service, or an earlier alias
+    const aliasRe = /local\s+(\w+)\s*(?::\s*[\w.?]+\s*)?=\s*((?:script|game:GetService\("\w+"\)|[A-Za-z_]\w*)[\w.:"(), ]*?)\s*(?:::\s*\w+)?\s*$/gm
     for (const m of src.matchAll(aliasRe)) {
       const r = resolve(m[2], inst, aliases)
       if (r) aliases[m[1]] = r
     }
     const out = new Set()
-    // `require(x)` and the vendored `(require :: any)(x)` form
-    for (const m of src.matchAll(/(?:\brequire|\(require\s*::\s*any\))\(\s*([^()]*(?:\([^()]*\)[^()]*)*)\)/g)) {
-      const r = resolve(m[1], inst, aliases)
+    const dynamicOk = DYNAMIC_REQUIRES[path.relative(ROOT, file).split(path.sep).join('/')] ?? []
+    const add = (arg) => {
+      const a = arg.trim()
+      const r = resolve(a, inst, aliases)
       if (r && r in nodes) out.add(r)
-      else if (!(m[1].trim() === '...' || /^\w+$/.test(m[1].trim()))) unresolved.push(`${inst}: require(${m[1]})`)
+      else if (a !== '...' && !dynamicOk.includes(a)) unresolved.push(`${inst}: require(${a})`)
     }
+    // `require(x)`, the vendored `(require :: any)(x)` form, and `pcall(require, x)`
+    for (const m of src.matchAll(/(?:\brequire|\(require\s*::\s*any\))\(\s*([^()]*(?:\([^()]*\)[^()]*)*)\)/g)) add(m[1])
+    for (const m of src.matchAll(/\bpcall\(\s*require\s*,\s*([^()]*(?:\([^()]*\)[^()]*)*)\)/g)) add(m[1])
     edges[inst] = [...out]
   }
   return { nodes, edges, unresolved }
@@ -216,6 +232,14 @@ export function closure(manifest, picked) {
   return { installed: manifest.Packages.map((p) => p.Name).filter((n) => seen.has(n)), unknown }
 }
 
+// What the server loader boots for a pick: every picked server service, plus every
+// installed package with Boot = true. Mirrors pickedBootServices in the loader.
+export function bootServices(manifest, picked, installed) {
+  return manifest.Packages
+    .filter((p) => p.Server?.length && installed.includes(p.Name) && (p.Boot || picked.includes(p.Name)))
+    .map((p) => p.Name)
+}
+
 // The paths (per side) an install keeps: Core + every installed package.
 export function keptPaths(manifest, installed) {
   const kept = { Server: [...manifest.Core.Server], Replicated: [...manifest.Core.Replicated] }
@@ -242,8 +266,9 @@ export function pruneTypeLines(source, keptForSide) {
     .join('\n')
 }
 
-// ── Commands ─────────────────────────────────────────────────────────────────
-function cmdCheck({ quiet } = {}) {
+// Everything wrong with the catalogue (empty = it matches the source). Shared
+// with tools/check-architecture.mjs (R12).
+export function catalogueProblems() {
   const manifest = readManifest()
   const graph = readGraph()
   const problems = [...graph.unresolved.map((u) => `unresolved ${u}`)]
@@ -253,6 +278,7 @@ function cmdCheck({ quiet } = {}) {
     names.add(p.Name)
     if (!p.Category || !p.Description) problems.push(`${p.Name}: Category and Description are required`)
     if (!(p.Server?.length || p.Replicated?.length)) problems.push(`${p.Name}: no modules`)
+    if (!Array.isArray(p.Requires)) problems.push(`${p.Name}: Requires must be a list ({} if none)`)
   }
   for (const [preset, list] of Object.entries(manifest.Presets ?? {}))
     for (const n of list) if (!names.has(n)) problems.push(`preset ${preset}: unknown package ${n}`)
@@ -261,10 +287,17 @@ function cmdCheck({ quiet } = {}) {
   const { requires, coreLeaks } = computeRequires(manifest, graph, owners)
   problems.push(...coreLeaks)
   for (const p of manifest.Packages) {
-    const want = requires[p.Name].join(',')
-    const got = [...p.Requires].sort().join(',')
-    if (want !== got) problems.push(`${p.Name}: Requires is { ${got} }, the source needs { ${want} } — run: node tools/packages.mjs fix`)
+    if (!Array.isArray(p.Requires)) continue
+    const want = requires[p.Name].join(', ')
+    const got = [...p.Requires].sort().join(', ')
+    if (want !== got) problems.push(`${p.Name}.Requires is { ${got} }, the source needs { ${want} } — run: node tools/packages.mjs fix`)
   }
+  return { problems, manifest, graph }
+}
+
+// ── Commands ─────────────────────────────────────────────────────────────────
+function cmdCheck({ quiet } = {}) {
+  const { problems, manifest, graph } = catalogueProblems()
   if (problems.length) {
     console.error(problems.map((p) => `✗ ${p}`).join('\n'))
     process.exit(1)
@@ -283,19 +316,42 @@ function cmdFix() {
   const { requires } = computeRequires(manifest, graph, owners)
   let src = fs.readFileSync(MANIFEST, 'utf8')
   let changed = 0
+  const nameRe = (n) => new RegExp(`\\bName\\s*=\\s*"${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`)
   for (const p of manifest.Packages) {
-    const at = src.indexOf(`Name = "${p.Name}",`)
-    const re = /Requires = \{[^}]*\}/y
-    re.lastIndex = src.indexOf('Requires = {', at)
+    // This package's entry runs from its Name to the next entry's Name.
+    const m = nameRe(p.Name).exec(src)
+    if (!m) throw new Error(`fix: cannot find Name = "${p.Name}" in Packages.lua`)
+    const nextName = src.slice(m.index + m[0].length).search(/\bName\s*=/)
+    const end = nextName < 0 ? src.length : m.index + m[0].length + nextName
+    const reqAt = src.indexOf('Requires = {', m.index)
+    if (reqAt < 0 || reqAt > end) throw new Error(`fix: package ${p.Name} has no "Requires = { ... }" — add Requires = {} to it`)
+    const close = src.indexOf('}', reqAt)
     const list = requires[p.Name]
-    const next = `Requires = { ${list.map((n) => `"${n}"`).join(', ')}${list.length ? ' ' : ''}}`.replace('{  }', '{}')
-    src = src.replace(re, (old) => { if (old !== next) changed++; return next })
+    const next = list.length ? `Requires = { ${list.map((n) => `"${n}"`).join(', ')} }` : 'Requires = {}'
+    if (src.slice(reqAt, close + 1) !== next) changed++
+    src = src.slice(0, reqAt) + next + src.slice(close + 1)
   }
   fs.writeFileSync(MANIFEST, src)
   console.log(`✓ Requires regenerated (${changed} changed)`)
 }
 
+const VALUE_FLAGS = new Set(['--select', '--preset', '--from', '--out'])
+const BOOL_FLAGS = new Set(['--all', '--force'])
+
+function checkFlags(args) {
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]
+    if (VALUE_FLAGS.has(a)) {
+      if (args[i + 1] === undefined || args[i + 1].startsWith('--')) throw new Error(`${a} needs a value`)
+      i++
+    } else if (a.startsWith('--') && !BOOL_FLAGS.has(a)) {
+      throw new Error(`unknown option ${a}`)
+    }
+  }
+}
+
 function parseSelection(args, manifest) {
+  checkFlags(args)
   const sel = []
   const at = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : undefined }
   if (args.includes('--all')) sel.push(...manifest.Packages.map((p) => p.Name))
@@ -307,20 +363,26 @@ function parseSelection(args, manifest) {
   const list = at('--select')
   if (list) sel.push(...list.split(',').map((s) => s.trim()).filter(Boolean))
   const file = at('--from')
-  if (file) sel.push(...JSON.parse(fs.readFileSync(file, 'utf8')).packages)
+  if (file) {
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'))
+    if (!Array.isArray(data?.packages) || data.packages.some((n) => typeof n !== 'string'))
+      throw new Error(`${file} must be { "packages": [ "Name", ... ] }`)
+    sel.push(...data.packages)
+  }
   return [...new Set(sel)]
 }
 
 function cmdResolve(args) {
   const manifest = readManifest()
-  const picked = args[0] && !args[0].startsWith('--') ? args[0].split(',') : parseSelection(args, manifest)
+  const picked = args[0] && !args[0].startsWith('--')
+    ? args[0].split(',').map((s) => s.trim()).filter(Boolean)
+    : parseSelection(args, manifest)
   const { installed, unknown } = closure(manifest, picked)
   if (unknown.length) { console.error(`✗ unknown package(s): ${unknown.join(', ')}`); process.exit(1) }
   const extra = installed.filter((n) => !picked.includes(n))
   console.log(`picked (${picked.length}): ${picked.join(', ')}`)
   console.log(`also installed as dependencies (${extra.length}): ${extra.join(', ') || '—'}`)
-  const boot = manifest.Packages.filter((p) => p.Boot && picked.includes(p.Name)).map((p) => p.Name)
-  console.log(`start at boot: ${boot.join(', ') || '—'}`)
+  console.log(`start at boot: ${bootServices(manifest, picked, installed).join(', ') || '—'}`)
 }
 
 function copyTree(from, to) {
@@ -350,6 +412,15 @@ function cmdBuild(args) {
   const { installed, unknown } = closure(manifest, picked)
   if (unknown.length) throw new Error(`unknown package(s): ${unknown.join(', ')}`)
   const out = path.resolve(args[outIdx + 1])
+  // Never write into this repo, and only replace a directory that is empty or a
+  // previous build (it has gaxia-packages.json) — `build` deletes <out>/src.
+  const rel = path.relative(ROOT, out)
+  if (rel === '' || !rel.startsWith('..') && !path.isAbsolute(rel)) throw new Error(`--out must be outside the Gaxia repo (${out})`)
+  if (path.relative(out, ROOT) === '' || !path.relative(out, ROOT).startsWith('..')) throw new Error(`--out must not contain the Gaxia repo (${out})`)
+  const isPrevious = fs.existsSync(path.join(out, 'gaxia-packages.json'))
+  const isEmpty = !fs.existsSync(out) || fs.readdirSync(out).length === 0
+  if (!isPrevious && !isEmpty && !args.includes('--force'))
+    throw new Error(`${out} is not empty and is not a previous build (no gaxia-packages.json). Use an empty directory such as ${path.join(out, 'gaxia')}, or --force to replace its src/ and default.project.json`)
   const srcOut = path.join(out, 'src')
   if (fs.existsSync(srcOut)) fs.rmSync(srcOut, { recursive: true })
   const kept = keptPaths(manifest, installed)
@@ -383,8 +454,12 @@ function cmdBuild(args) {
 
   const project = JSON.parse(fs.readFileSync(path.join(ROOT, 'default.project.json'), 'utf8'))
   const pick = picked.filter((n) => installed.includes(n)).join(',')
-  project.tree.ReplicatedStorage.Gaxia_Packages.$attributes = { [ATTRIBUTE]: pick }
-  project.tree.ServerStorage.Gaxia_Packages_Server.$attributes = { [ATTRIBUTE]: pick }
+  // The package roots belong to this build: Rojo removes modules a previous,
+  // bigger install left in the place instead of keeping them.
+  for (const node of [project.tree.ReplicatedStorage.Gaxia_Packages, project.tree.ServerStorage.Gaxia_Packages_Server]) {
+    node.$attributes = { [ATTRIBUTE]: pick }
+    node.$ignoreUnknownInstances = false
+  }
   fs.writeFileSync(path.join(out, 'default.project.json'), JSON.stringify(project, null, 2) + '\n')
   fs.writeFileSync(path.join(out, 'gaxia-packages.json'), JSON.stringify({ packages: picked }, null, 2) + '\n')
 
@@ -404,10 +479,10 @@ function cmdList() {
     const req = p.Requires.length ? `  (needs ${p.Requires.join(', ')})` : ''
     console.log(`  ${p.Boot ? '●' : ' '} ${p.Name.padEnd(26)} ${p.Description}${req}`)
   }
-  console.log('\n● starts at server boot when picked; the rest start on first use')
+  console.log('\n● starts at server boot whenever installed; other services start at boot when picked, else on first use')
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+const isMain = process.argv[1] && fs.realpathSync(path.resolve(process.argv[1])) === fs.realpathSync(fileURLToPath(import.meta.url))
 if (isMain) {
   const [cmd, ...args] = process.argv.slice(2)
   try {

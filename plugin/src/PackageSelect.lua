@@ -14,7 +14,7 @@
 local PackageSelect = {}
 
 -- Attribute recording the pick on both package roots; the server loader boots
--- the picked packages that have Boot = true.
+-- the picked services plus every installed package that has Boot = true.
 PackageSelect.ATTRIBUTE = "GaxiaPackages"
 
 export type Spec = {
@@ -123,6 +123,38 @@ function PackageSelect.pruneTypeLines(source: string, kept: { string }): string
 		end
 	end
 	return table.concat(out, "\n")
+end
+
+-- True when `path` under `root` is a module, or a folder holding modules (prune
+-- keeps folders, so an empty one means the package is not installed).
+local function hasPath(root: Instance, path: string): boolean
+	local node: Instance? = root
+	for _, part in ipairs(string.split(path, "/")) do
+		node = if node then node:FindFirstChild(part) else nil
+	end
+	if node == nil then
+		return false
+	end
+	return node:IsA("ModuleScript") or node:FindFirstChildWhichIsA("ModuleScript", true) ~= nil
+end
+
+-- The packages whose modules are all present under the given package roots (what
+-- a place has installed, whether or not a pick was recorded).
+function PackageSelect.installedIn(manifest: Manifest, serverRoot: Instance?, replicatedRoot: Instance?): { string }
+	local out: { string } = {}
+	for _, spec in ipairs(manifest.Packages) do
+		local present = true
+		for _, p in ipairs(spec.Server or {}) do
+			present = present and serverRoot ~= nil and hasPath(serverRoot, p)
+		end
+		for _, p in ipairs(spec.Replicated or {}) do
+			present = present and replicatedRoot ~= nil and hasPath(replicatedRoot, p)
+		end
+		if present then
+			table.insert(out, spec.Name)
+		end
+	end
+	return out
 end
 
 -- Destroy every ModuleScript under `root` whose path is not kept (a kept module

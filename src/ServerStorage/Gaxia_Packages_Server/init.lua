@@ -121,8 +121,8 @@ export type GaxiaServerPackage = {
 
 	-- ── Boot / status ──
 	-- Start the boot services (idempotent; also runs on first service access):
-	-- ServerStorage.GaxiaFeatures if present, else the picked packages that have
-	-- Boot = true (Packages.lua), else Config/Features.
+	-- ServerStorage.GaxiaFeatures if present, else the picked services plus every
+	-- installed package with Boot = true (Packages.lua), else Config/Features.
 	Boot : () -> (),
 	-- True once the service has started (a boot service after Boot, or any
 	-- service after first use). Never loads anything.
@@ -393,9 +393,12 @@ local function buildGaxiaServer(): { [string]: any }
 		return libName ~= nil and resolveChild(libFolder, libName) ~= nil
 	end
 
-	-- The picked packages that start at boot, or nil when nothing was picked (a full
-	-- install). Config/Features order first (the order boot used before packages
-	-- could be picked), then Packages.lua order.
+	-- When packages were picked, the services that start at boot: every picked
+	-- service, plus every installed package with Boot = true (it has work to do
+	-- before its first call, so it boots even when it was installed only because a
+	-- picked package Requires it). nil when nothing was picked (a full install).
+	-- Config/Features order first (the order boot used before packages could be
+	-- picked), then Packages.lua order.
 	local function pickedBootServices(): { string }?
 		local picked = packageRoot:GetAttribute(PACKAGES_ATTRIBUTE)
 		if type(picked) ~= "string" then
@@ -406,16 +409,19 @@ local function buildGaxiaServer(): { [string]: any }
 			then safeRequire(manifestInst, "Packages")
 			else nil
 		if type(manifest) ~= "table" then
+			warn("[Gaxia_Packages_Server] packages were picked but the Packages catalogue is missing — reinstall Gaxia; booting Config/Features")
 			return nil
 		end
 		local wanted: { [string]: boolean } = {}
 		for name in string.gmatch(picked, "[^,]+") do
-			wanted[name] = true
+			wanted[(string.gsub(name, "^%s*(.-)%s*$", "%1"))] = true
 		end
 		local boot: { [string]: boolean } = {}
 		for _, spec in ipairs((manifest :: Types.PackageManifest).Packages) do
-			if spec.Boot and wanted[spec.Name] then
-				boot[spec.Name] = true
+			local name = spec.Name
+			local isService = (LIB_KEY_MAP[name] ~= nil or ROOT_KEY_MAP[name] ~= nil) and not UTILITY_KEYS[name]
+			if isService and isInstalled(name) and (wanted[name] or spec.Boot) then
+				boot[name] = true
 			end
 		end
 		local ordered: { string } = {}
@@ -456,7 +462,9 @@ local function buildGaxiaServer(): { [string]: any }
 		end
 		local defaults = configModule.Features
 		if type(defaults) == "table" and type(defaults.Services) == "table" then
-			return defaults.Services, true
+			-- Warn about a listed service that is missing only when nothing was picked
+			-- (a full install should have every one).
+			return defaults.Services, packageRoot:GetAttribute(PACKAGES_ATTRIBUTE) == nil
 		end
 		return {}, false
 	end
@@ -492,9 +500,11 @@ local function buildGaxiaServer(): { [string]: any }
 			end)
 		end
 		publishFeatures()
-		-- Role-gated behaviour depends on AdminCommands installing its resolvers.
+		-- Role-gated behaviour depends on AdminCommands installing its resolvers. Only
+		-- when Admin is installed but not running (installing Chat or Ban without
+		-- Admin is a valid choice: they then use the default role checks).
 		for _, dependent in ipairs({ "Chat", "Ban" }) do
-			if isStarted(dependent) and not isStarted("Admin") then
+			if isStarted(dependent) and isInstalled("Admin") and not isStarted("Admin") then
 				warn(`[Gaxia_Packages_Server] {dependent} is running without Admin: role checks fall back to defaults (role-gated chat commands are denied; only the place creator is exempt from auto-bans)`)
 			end
 		end

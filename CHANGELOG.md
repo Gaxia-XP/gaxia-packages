@@ -20,11 +20,15 @@ server modules at boot instead of 80.
   picked tree and a `default.project.json` for `rojo serve` / `rojo build`. Also `list`,
   `resolve`, `check`, `fix`.
 - **Installed = enabled.** The pick is recorded on both package roots (attribute
-  `GaxiaPackages`). At boot the server starts the picked packages that have
-  `Boot = true` (player hooks, remotes, loops, ProcessReceipt). Other installed services,
-  including the ones installed only as dependencies, start on first use.
-  `ServerStorage.GaxiaFeatures` still overrides. A full install without a pick keeps
-  using `Config/Features`.
+  `GaxiaPackages`). At boot the server starts every picked service, plus every installed
+  package with `Boot = true` (player hooks, remotes, loops, ProcessReceipt), including
+  ones installed only because a picked package Requires them (picking Idle boots Data).
+  Other services installed as dependencies start on first use. The `Default` preset
+  boots the same services as before, plus Cooldown (Friend and Guild need it).
+- Companion: a place installed before this release opens with everything ticked, and
+  an install that would remove packages the place has asks for a second click (the
+  status line lists them). Ticking everything is a full install with no pick recorded. `ServerStorage.GaxiaFeatures` still overrides. A
+  full install without a pick keeps using `Config/Features`.
 - The loaders' types list only installed modules, so autocomplete shows what is there.
   The Companion needs script-edit permission to trim them.
 - `GaxiaServer.IsInstalled(name)` / `Gaxia.IsInstalled(key)`. The client bootstrap skips
