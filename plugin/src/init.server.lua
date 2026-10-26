@@ -12,8 +12,9 @@ local Selection = game:GetService("Selection")
 
 local Serializer = require(script:WaitForChild("Serializer")) :: any
 local Runner     = require(script:WaitForChild("Runner"))     :: any
-local Installer  = require(script:WaitForChild("Installer"))  :: any
-local Panel      = require(script:WaitForChild("Panel"))      :: any
+local Installer     = require(script:WaitForChild("Installer"))     :: any
+local PackageSelect = require(script:WaitForChild("PackageSelect")) :: any
+local Panel         = require(script:WaitForChild("Panel"))         :: any
 
 -- ── Toolbar + dock widget ──
 local toolbar = plugin:CreateToolbar("Gaxia")
@@ -132,9 +133,36 @@ function cb.onScriptToInstance()
 end
 
 -- ── Install ──
-function cb.onInstall()
+-- Package picker: the bundled catalogue, pre-ticked with this place's current pick
+-- (from its last install), else the last pick made in this plugin, else Default.
+function cb.getPickerSource(): (any, string?)
+	local manifest, why = Installer.manifest()
+	if not manifest then
+		return nil, why
+	end
+	local initial = Installer.currentPick()
+	if initial == nil then
+		local saved = plugin:GetSetting("package_pick")
+		initial = if type(saved) == "table" then saved else manifest.Presets.Default or {}
+	end
+	return {
+		packages = manifest.Packages,
+		presets = manifest.Presets,
+		initial = initial,
+		resolve = function(picked: { string }): { string }
+			local installed = PackageSelect.closure(manifest, picked)
+			return installed
+		end,
+	}
+end
+
+function cb.onPickChanged(picked: { string })
+	plugin:SetSetting("package_pick", picked)
+end
+
+function cb.onInstall(picked: { string }?)
 	safe("Install", function()
-		local ok, msg = Installer.install({ confirm = false })
+		local ok, msg = Installer.install({ confirm = false, packages = picked })
 		handle.setStatus((ok and "✓ " or "✗ ") .. tostring(msg), ok and "ok" or "err")
 	end)
 end
