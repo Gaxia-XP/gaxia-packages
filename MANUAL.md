@@ -27,6 +27,10 @@
 12. [Troubleshooting](#12-troubleshooting)
 13. [FAQ](#13-faq)
 
+> 🤖 **ใช้ AI agent เขียนเกม?** ให้ agent อ่าน [AGENTS.md](AGENTS.md) ก่อน — มีกฎหลัก + ตาราง "งาน → playbook"
+> และ [playbooks/](playbooks/README.md) มีสูตรทีละขั้นพร้อมโค้ดที่ผ่านการตรวจ type และทดลองรันแล้ว
+> ส่วน [playbooks/api/](playbooks/api/README.md) สร้างจาก source อัตโนมัติ (ชื่อ function ถูกต้องเสมอ)
+
 ---
 
 ## 1. ภาพรวม
