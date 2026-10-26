@@ -3,7 +3,7 @@
 > A red pad explodes every 8 seconds: everyone sees sparks and hears a boom. Players nearby also feel a camera shake, a FOV punch and a white flash.
 
 **Use this when** the user asks for: "an explosion effect", "particles", "a sound effect", "play a sound", "music", "camera shake", "screen shake", "FOV effect", "a spinning part", "a moving platform", "play an animation", "ragdoll", "tween", "game feel", "juice" (ไทย: "เอฟเฟกต์", "เอฟเฟกต์ระเบิด", "พาร์ติเคิล", "เสียง", "เปิดเพลง", "กล้องสั่น", "จอสั่น", "ของหมุน", "แพลตฟอร์มเลื่อน", "เล่นท่า", "แอนิเมชัน", "ตัวละครล้ม", "tween").
-**Packages:** server: `VFX`, `SFX`, `Motion3D`. Client: `Camera`, `TweenUtil`. The scripts below stop with a clear message if one is missing.
+**Packages:** server: `VFX`, `SFX`, `Motion3D`. Client: `Camera`, `TweenUtil`. Optional, only for *Change it*: `Sound` (music, clicks), `Effects` (sparks for one player), `Spring`, `Ragdoll`, `Anim`, `AntiCheat` (explosion damage). The scripts below stop with a clear message if one is missing.
 **You will create:** a Script `ServerScriptService/BoomPad` and a LocalScript `StarterPlayer/StarterPlayerScripts/BoomFeel`.
 
 Who sees what:
@@ -12,7 +12,7 @@ Who sees what:
 |---|---|---|---|
 | `GaxiaServer.VFX` | Script | Particle bursts at a point, effects stuck to a part | Everyone |
 | `GaxiaServer.SFX` | Script | A sound at a point in the world (3D) or for everyone (2D) | Everyone |
-| `GaxiaServer.Motion3D` | Script | Spinning, floating and moving parts (doors, platforms) | Everyone |
+| `GaxiaServer.Motion3D` | Script | Spinning, floating and moving anchored parts (doors, scenery) | Everyone |
 | `GaxiaServer.Anim` | Script | Play an animation on a character or NPC | Everyone |
 | `GaxiaServer.Ragdoll` | Script | Make a character go limp, then stand up | Everyone |
 | `Gaxia.Camera` | LocalScript | Camera shake, field of view (FOV) | Only this player |
@@ -21,7 +21,6 @@ Who sees what:
 | `Gaxia.TweenUtil`, `Gaxia.Spring` | Both | Smoothly change any property (GUI fade, size, colour) | Where it runs |
 
 The pattern: the **server** decides that something happens. It plays the world effect (VFX, SFX) and calls `Net.FireAllClients`. Each **client** adds its own feel (camera, flash).
-
 Assets: the scripts use particles and a sound built into Roblox, so they work with no uploads. To use your own sound, upload it (or pick one in the Toolbox) and copy its ID as `"rbxassetid://123456"`.
 
 ## Step 1 — Create the exploding pad on the server
@@ -34,41 +33,35 @@ local Workspace = game:GetService("Workspace")
 local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
 local Gaxia = require(game:GetService("ReplicatedStorage").Gaxia_Packages)
 
--- Stop early, with a clear message, if a package this script needs is missing.
-assert(GaxiaServer.IsInstalled("VFX"), "BoomPad needs the VFX package: install it (playbooks/start/01-install-packages.md)")
-assert(GaxiaServer.IsInstalled("SFX"), "BoomPad needs the SFX package: install it (playbooks/start/01-install-packages.md)")
-assert(GaxiaServer.IsInstalled("Motion3D"), "BoomPad needs the Motion3D package: install it (playbooks/start/01-install-packages.md)")
-
+for _, package in { "VFX", "SFX", "Motion3D" } do
+	assert(GaxiaServer.IsInstalled(package), `BoomPad needs the {package} package: install it (playbooks/start/01-install-packages.md)`)
+end
 local Net = Gaxia.Net
 local VFX = GaxiaServer.VFX
 local SFX = GaxiaServer.SFX
 local Motion3D = GaxiaServer.Motion3D
-
 local BOOM_EVERY = 8 -- seconds between two explosions
--- A sound built into Roblox. Replace it with your own: "rbxassetid://<number>".
+-- "rbxasset://" = a sound that ships with Roblox. Your own uploads use "rbxassetid://<number>".
 local BOOM_SOUND_ID = "rbxasset://sounds/action_jump_land.mp3"
 
 -- 1. The pad, and a gem that spins above it.
 local pad = Instance.new("Part")
 pad.Name = "BoomPad"
 pad.Size = Vector3.new(8, 1, 8)
-pad.Position = Vector3.new(0, 0.5, 24)
+pad.Position = Vector3.new(0, 0.5, 24) -- 24 studs from the middle of the Baseplate, toward +Z
 pad.Anchored = true
 pad.Color = Color3.fromRGB(220, 60, 60)
 pad.Parent = Workspace
-
-local gem = Instance.new("Part")
+local gem = Instance.new("Part") -- a cube, so you can see it turn
 gem.Name = "BoomGem"
-gem.Shape = Enum.PartType.Ball
 gem.Size = Vector3.new(2, 2, 2)
 gem.Position = Vector3.new(0, 5, 24)
-gem.Anchored = true -- Motion3D moves anchored parts
+gem.Anchored = true -- Spin and Float need an anchored part (an unanchored one falls)
 gem.CanCollide = false
 gem.Material = Enum.Material.Neon
 gem.Color = Color3.fromRGB(255, 210, 60)
 gem.Parent = Workspace
 Motion3D.Spin(gem, Vector3.yAxis, 120) -- 120 degrees per second, forever
-
 -- 2. Register the effect and the sound ONCE, at the top. Play them by name later.
 VFX.Register("Boom", function(holder: Instance)
 	local emitter = Instance.new("ParticleEmitter") -- the default texture is built in
@@ -81,9 +74,9 @@ VFX.Register("Boom", function(holder: Instance)
 end)
 SFX.Register("Boom", { SoundId = BOOM_SOUND_ID, Volume = 1, PitchVariation = 0.1, RollOffMaxDistance = 100 })
 
--- 3. Create the server -> client remote now, so the client's Net.OnClient("BoomFx") finds it.
+-- 3. Create the BoomFx remote now. Without this line, BoomFeel (Step 2) waits 10 seconds for it
+-- and then errors when it starts before the first boom. Anything a client sends here is ignored.
 Net.OnServer("BoomFx", function() end)
-
 print("[BoomPad] ready")
 
 -- 4. Explode forever. This loop never ends, so it is the last thing in the script.
@@ -106,24 +99,21 @@ Create a **LocalScript** in **StarterPlayer → StarterPlayerScripts** named **B
 ```lua
 -- LocalScript: StarterPlayer/StarterPlayerScripts/BoomFeel
 local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
 local Gaxia = require(game:GetService("ReplicatedStorage").Gaxia_Packages)
 
 assert(Gaxia.IsInstalled("Camera"), "BoomFeel needs the Camera package: install it (playbooks/start/01-install-packages.md)")
 assert(Gaxia.IsInstalled("TweenUtil"), "BoomFeel needs the TweenUtil package: install it (playbooks/start/01-install-packages.md)")
-
 local Camera = Gaxia.Camera
 local TweenUtil = Gaxia.TweenUtil
 local player = Players.LocalPlayer
-
 local MAX_DISTANCE = 60 -- players farther than this feel nothing
-
 -- A white frame over the whole screen, invisible until a boom.
 local flashGui = Instance.new("ScreenGui")
 flashGui.Name = "BoomFlash"
 flashGui.ResetOnSpawn = false
 flashGui.IgnoreGuiInset = true -- also cover the top bar
 flashGui.Parent = player:WaitForChild("PlayerGui")
-
 local flash = Instance.new("Frame")
 flash.Size = UDim2.fromScale(1, 1)
 flash.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
@@ -132,24 +122,18 @@ flash.BorderSizePixel = 0
 flash.Parent = flashGui
 
 Gaxia.Net.OnClient("BoomFx", function(position: any)
-	if typeof(position) ~= "Vector3" then
-		return
-	end
+	if typeof(position) ~= "Vector3" then return end -- the server always sends a Vector3
 	local character = player.Character
 	local root = if character then character:FindFirstChild("HumanoidRootPart") else nil
-	if not root or not root:IsA("BasePart") then
-		return -- no character right now (dead or loading)
-	end
+	if not root or not root:IsA("BasePart") then return end -- no character right now (dead or loading)
 	local distance = (root.Position - position).Magnitude
-	if distance > MAX_DISTANCE then
-		return
-	end
+	if distance > MAX_DISTANCE then return end
 	local strength = 1 - distance / MAX_DISTANCE -- 1 = right next to it, 0 = far away
-
-	Camera.Shake(4 * strength, 0.5) -- size (degrees), seconds
-	Camera.SetFOV(70 + 15 * strength, 0.1) -- quick zoom out...
+	Camera.Shake(4 * strength, 0.5) -- tilts the camera up to 4 degrees (a strong kick), for 0.5 seconds
+	local baseFov = Workspace.CurrentCamera.FieldOfView -- the player's normal FOV (a Settings slider may change it)
+	Camera.SetFOV(baseFov + 15 * strength, 0.1) -- quick zoom out...
 	task.delay(0.15, function()
-		Camera.ResetFOV(0.4) -- ...and back to 70
+		Camera.SetFOV(baseFov, 0.4) -- ...and back to the player's FOV
 	end)
 	flash.BackgroundTransparency = 1 - 0.7 * strength
 	TweenUtil.Play(flash, { Time = 0.5 }, { BackgroundTransparency = 1 })
@@ -163,11 +147,10 @@ What it does: the closer the player stands, the stronger the shake, FOV punch an
 
 ## Check that it works
 
-1. Press **Play** in Studio.
-2. Output shows `[BoomPad] ready` and `[BoomFeel] ready`, and no red errors. A yellow ball spins above a red pad.
-3. Every 8 seconds Output shows `[BoomPad] boom`. Orange sparks burst from the pad and a thud plays.
-4. Stand near the pad. Output shows `[BoomFeel] boom at 24 studs, strength 59%` (your numbers differ). The camera shakes and the screen flashes white.
-5. Walk more than 60 studs away. `[BoomPad] boom` still prints, but `[BoomFeel]` does not, and the camera stays still.
+1. Press **Play** in Studio. Output shows `[BoomPad] ready` and `[BoomFeel] ready`, and no red errors. A yellow cube spins above a red pad.
+2. Every 8 seconds Output shows `[BoomPad] boom`. Orange sparks burst from the pad and a thud plays.
+3. Stand near the pad. It is 24 studs from the middle of the Baseplate (`0, 0, 0`), toward +Z (Explorer: **Workspace → BoomPad**, Position `0, 0.5, 24`). Output shows `[BoomFeel] boom at 24 studs, strength 59%` (your numbers differ). The camera shakes and the screen flashes white.
+4. Walk more than 60 studs away. `[BoomPad] boom` still prints, but `[BoomFeel]` does not, and the camera stays still.
 
 ## Common mistakes
 
@@ -176,32 +159,58 @@ What it does: the closer the player stands, the stronger the shake, FOV punch an
 | `Gaxia.Camera.Shake(...)` in a Script | Camera, Sound and Effects in a LocalScript; the server sends `Net.FireAllClients` | Client modules are empty on the server: the call errors. |
 | `GaxiaServer.VFX.PlayAt(...)` in a LocalScript | VFX, SFX, Motion3D, Anim, Ragdoll in a Script | Server packages cannot be required on the client. |
 | `VFX.PlayAt("Boom", ...)` before `VFX.Register("Boom", ...)` | Register every effect and sound once, at the top | PlayAt warns `[VFX] no effect 'Boom'` and shows nothing. Same for SFX: `[SFX] no sound 'Boom'`. |
-| A long sound or music with `SFX.PlayAt` | `Gaxia.Sound.PlayMusic(id)` on the client | SFX deletes every sound after 10 seconds. |
+| A long sound or music with `SFX.PlayAt` | `Gaxia.Sound.PlayMusic(id)` on the client | SFX deletes the sound when it ends, or after 10 seconds if it has not ended. A longer track is cut off. |
 | `Motion3D.Spin(part)` and `Motion3D.Float(part)` on the same part | One of them per part | Float resets the part's rotation every frame, so the spin never shows. |
 | An emitter with `Rate = 0` in `VFX.Register` | A `Rate` above 0 (here 80) | PlayAt turns the emitter on for `Duration` seconds. With `Rate = 0` only the one-time `EmitCount` burst plays, in the same frame the effect appears, so other players can miss it. |
-| `Camera.ResetFOV()` when the game uses another normal FOV | `Camera.SetFOV(yourFov, 0.4)` | ResetFOV always goes back to 70. |
+| `Camera.ResetFOV()` | `Camera.SetFOV(baseFov, 0.4)` (as in BoomFeel) | ResetFOV always goes back to 70, which undoes a FOV the player chose. |
 | `SoundId = "123456"` | `SoundId = "rbxassetid://123456"` | A plain number is not loaded. A wrong ID plays nothing and Output shows a red asset error. |
 | `Anim.Play` with an animation you found online | An animation owned by the game's owner (you or your group) | Roblox only loads animations the place owner may use. Others fail to load and nothing plays. |
 
 ## Change it
 
-- Music for one player (crossfades, loops): `Gaxia.Sound.PlayMusic("rbxassetid://<id>", 2)`. Stop: `Gaxia.Sound.StopMusic(1)`. Volume: `Gaxia.Sound.SetCategoryVolume("music", 0.5)`.
-- A click sound on a button: `Gaxia.Sound.PlayOnce("rbxassetid://<id>", { category = "ui", volume = 0.6 })`.
-- Sparks only this player sees (client): create a `ParticleEmitter` once as a template, then `Gaxia.Effects.EmitParticle(template, CFrame.new(position), 30)`.
-- A floating coin: `Motion3D.Float(coin, 1, 2)` (1 stud up and down, every 2 seconds). Every Spin/Float returns a stop function: `local stop = Motion3D.Float(coin, 1, 2)`, later `stop()`.
-- A door that slides up (server): `Motion3D.To(door, door.CFrame * CFrame.new(0, 10, 0), 0.6, Enum.EasingStyle.Back)`.
-- A moving platform: `Motion3D.Path(platform, { cframeA, cframeB, cframeA }, 2)` (2 seconds per part of the path; it runs once).
-- Knock a player down for 2 seconds (server, package `Ragdoll`):
+- Music for one player (crossfades, loops): `Gaxia.Sound.PlayMusic("rbxassetid://<id>", 2)`. Stop: `Gaxia.Sound.StopMusic(1)`. Volume: `Gaxia.Sound.SetCategoryVolume("music", 0.5)`. A click sound: `Gaxia.Sound.PlayOnce("rbxassetid://<id>", { category = "ui", volume = 0.6 })`.
+- Sparks only this player sees (package `Effects`). At the top of BoomFeel, make a template once (never parented). In the `OnClient` function, call `Gaxia.Effects.EmitParticle(sparks, CFrame.new(position), 30)`:
   ```lua
   -- fragment
-  GaxiaServer.Ragdoll.Enable(character)
-  task.delay(2, function() GaxiaServer.Ragdoll.Disable(character) end)
+  local sparks = Instance.new("ParticleEmitter")
+  sparks.Enabled = false -- only the one-time burst, not a stream that runs for 10 seconds
+  sparks.Lifetime = NumberRange.new(0.3, 0.6)
+  sparks.Speed = NumberRange.new(8, 14)
   ```
-- Ragdoll when a character dies: set `humanoid.BreakJointsOnDeath = false` first, then call `GaxiaServer.Ragdoll.AutoRagdollOnDeath(character)` in `CharacterAdded`. With the default `true`, Roblox removes the joints before Ragdoll runs and nothing happens.
+- A floating coin (server): set `coin.Anchored = true` first, then `Motion3D.Float(coin, 1, 2)` (1 stud up and down, every 2 seconds). Every Spin/Float returns a stop function: `local stop = Motion3D.Float(coin, 1, 2)`, later `stop()`.
+- A door that slides up (server, anchored part): `Motion3D.To(door, door.CFrame * CFrame.new(0, 10, 0), 0.6, Enum.EasingStyle.Back)`. A platform that moves back and forth: `local cframeA = platform.CFrame; local cframeB = cframeA * CFrame.new(20, 0, 0)` (20 studs along X), then `task.spawn(function() while platform.Parent do Motion3D.To(platform, cframeB, 2); task.wait(3); Motion3D.To(platform, cframeA, 2); task.wait(3) end end)`. Players standing on it are **not** carried along: use it for scenery. For a platform players ride, use a Roblox `PrismaticConstraint`. (`Motion3D.Path` runs a list of CFrames once, it does not loop.)
+- Knock a character down for 2 seconds (server, package `Ragdoll`). Test it in Studio Play: the simulator used to check this guide has no physics.
+  ```lua
+  -- fragment
+  local humanoid = character:FindFirstChildOfClass("Humanoid")
+  if humanoid then humanoid.RequiresNeck = false end -- otherwise the limp neck can kill the player
+  GaxiaServer.Ragdoll.Enable(character)
+  task.delay(2, function() GaxiaServer.Ragdoll.Disable(character); if humanoid then humanoid.RequiresNeck = true end end)
+  ```
+- Ragdoll when a character dies (server): add these lines inside `onCharacterAdded(character)` from [start/02](../start/02-server-script.md):
+  ```lua
+  -- fragment
+  local humanoid = character:WaitForChild("Humanoid") :: Humanoid -- wait: AutoRagdollOnDeath returns nil if there is no Humanoid yet
+  humanoid.BreakJointsOnDeath = false -- with the default true, Roblox removes the joints first and nothing happens
+  GaxiaServer.Ragdoll.AutoRagdollOnDeath(character)
+  ```
 - An animation (server, package `Anim`): `GaxiaServer.Anim.Register("Wave", "rbxassetid://<id>")` once, then `GaxiaServer.Anim.Play(character, "Wave", { Priority = Enum.AnimationPriority.Action })`.
-- Damage from an explosion: call `AntiCheat.Combat.RegisterDamage(player, amount)` before `humanoid:TakeDamage(amount)`, as in [zones-and-interactions](zones-and-interactions.md). Otherwise AntiCheat flags the hit as a cheat.
-- Smooth GUI motion: `TweenUtil.Play(frame, TweenUtil.Presets.Bounce, { Size = UDim2.fromOffset(200, 60) })` (presets: `Linear`, `Quick`, `Smooth`, `Bounce`). Menus: `Gaxia.UI.Motion` ([ui](ui.md)).
-- A value that follows a moving target smoothly (client): `local spring = Gaxia.Spring.new(0, 0.3)` (start value, seconds to settle). Set `spring.Target = 1` when the goal changes. In `RunService.RenderStepped`, use the result of `spring:Update(dt)` (for example as a frame's transparency).
+- Damage from an explosion (server): tell AntiCheat first, or it flags the hit as a cheat (as in [zones-and-interactions](zones-and-interactions.md)):
+  ```lua
+  -- fragment
+  local combat = if GaxiaServer.IsInstalled("AntiCheat") then GaxiaServer.AntiCheat.Combat else nil
+  if combat then combat.RegisterDamage(player, 20) end
+  humanoid:TakeDamage(20)
+  ```
+- Smooth GUI motion: `TweenUtil.Play(frame, TweenUtil.Presets.Bounce, { Size = UDim2.fromOffset(200, 60) })` (presets: `Linear`, `Quick`, `Smooth`, `Bounce`). `Gaxia.Tween(frame, TweenInfo.new(0.3), { ... })` does the same with a real TweenInfo; this guide uses TweenUtil because it also takes `{ Time = 0.5 }` tables and presets. Menus: `Gaxia.UI.Motion` ([ui](ui.md)).
+- A value that follows a moving target smoothly (client, package `Spring`). Set `spring.Target = 0` when the goal changes:
+  ```lua
+  -- fragment
+  local spring = Gaxia.Spring.new(1, 0.3) -- start value 1, smoothTime 0.3 seconds
+  game:GetService("RunService").RenderStepped:Connect(function(dt: number)
+  	flash.BackgroundTransparency = spring:Update(dt) -- moves Current toward Target every frame
+  end)
+  ```
 
 ## See also
 

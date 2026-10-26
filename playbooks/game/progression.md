@@ -9,14 +9,13 @@
 How it works:
 
 - `GaxiaServer.Level` saves `Level` and `Experience` in the player's data. `Level.AddXP` adds XP and levels up as many times as the XP allows. `Level.OnLevelUp` fires once per level gained. XP needed to leave level L = `floor(CurveBase * L ^ CurveExponent)` from `GaxiaServer.Config.Level` (default `100 * L^1.5`: level 1 → 100 XP, level 2 → 282 XP, level 3 → 519 XP). Leftover XP carries over.
-- `GaxiaServer.Quest` keeps quest definitions (`Quest.Register`) and each player's active quests (saved). `Quest.Track(player, "collect", "Apple", 1)` adds progress to every active quest with that goal. When all goals are done, Quest pays the reward (Coins/items), removes the quest and fires `Quest.OnQuestComplete`.
+- `GaxiaServer.Quest` keeps quest definitions (`Quest.Register`) and each player's active quests (saved). `Quest.Track(player, "collect", "Apple", 1)` adds progress to every active quest with that goal. When all goals are done, Quest pays the reward (Coins/items), removes the quest and fires `Quest.OnQuestComplete`. With the `Pet` package, an equipped pet's coin bonus multiplies quest Coins ([pets](pets.md)).
 - Quest does **not** remember finished quests and has no XP reward. The game saves finished quests itself (`QuestsDone` below) and gives XP in `OnQuestComplete`.
 - `GaxiaServer.Achievement` saves unlocked achievements. `Achievement.Award` unlocks one directly (returns `false` for an id that was never registered). `Achievement.Track` checks every achievement's `condition` function. An unlock pays its `reward` once. Read unlocks with `Achievement.IsUnlocked(player, id)` or `Achievement.GetUnlocked(player)` (a list of ids).
-- All of these do nothing (or return `false` / level 1) until the player's data is loaded. Wait with `Data.WaitFor(player)` first.
 
 ## Step 1 — Create the quest, achievements and level display
 
-Create a **Script** in **ServerScriptService** named **Progression**. Paste this whole block into it:
+Create a **Script** in **ServerScriptService** named **Progression**. It shows Level in the player list and starts the quest on load. Paste this whole block into it:
 
 ```lua
 -- Script: ServerScriptService/Progression
@@ -30,34 +29,30 @@ assert(GaxiaServer.IsInstalled("Achievement"), "Progression needs the Achievemen
 assert(GaxiaServer.IsInstalled("Player"), "Progression needs the Player package: install it (playbooks/start/01-install-packages.md)")
 
 local Data = GaxiaServer.Data
+local Economy = GaxiaServer.Economy
 local Level = GaxiaServer.Level
 local Quest = GaxiaServer.Quest
 local Achievement = GaxiaServer.Achievement
 local PlayerService = GaxiaServer.Player
 
 local QUEST_ID = "CollectApples"
-local QUEST_XP = 150 -- Quest rewards have no XP field: this script gives it
+-- XP per quest id. Quest rewards have no XP field: this script gives it.
+local QUEST_XP: { [string]: number } = { [QUEST_ID] = 150 }
 
 -- 1. The quest. Quest pays reward.currency/amount (and reward.items) by itself.
 Quest.Register({
-	id = QUEST_ID,
-	name = "Apple Picker",
-	description = "Collect 5 apples",
+	id = QUEST_ID, name = "Apple Picker", description = "Collect 5 apples",
 	goals = { { type = "collect", target = "Apple", count = 5 } },
 	reward = { currency = "Coins", amount = 50 },
 })
 
 -- 2. Achievements. "FirstQuest" is unlocked with Award; "ReachLevel2" by its condition.
 Achievement.Register({
-	id = "FirstQuest",
-	name = "Quest Starter",
-	description = "Finish your first quest",
+	id = "FirstQuest", name = "Quest Starter", description = "Finish your first quest",
 	reward = { currency = "Gems", amount = 5 },
 })
 Achievement.Register({
-	id = "ReachLevel2",
-	name = "Growing Up",
-	description = "Reach level 2",
+	id = "ReachLevel2", name = "Growing Up", description = "Reach level 2",
 	reward = { currency = "Coins", amount = 100 },
 	condition = function(_player: Player, eventType: string, newLevel: any): boolean
 		return eventType == "level" and typeof(newLevel) == "number" and newLevel >= 2
@@ -74,17 +69,17 @@ local function getQuestsDone(player: Player): { [string]: boolean }
 	return done
 end
 
--- 3. React to progress, completion, XP and level-ups.
+-- 3. React to progress, completion, XP and level-ups. goalKey is the goal's target ("Apple").
 Quest.OnGoalProgress:Connect(function(player: Player, questId: string, goalKey: string, current: number, target: number)
 	print(`[Progression] {player.Name} {questId}: {goalKey} {current}/{target}`)
 end)
 
 Quest.OnQuestComplete:Connect(function(player: Player, questId: string, reward)
-	print(`[Progression] {player.Name} finished {questId}, got {reward.amount} {reward.currency}`)
+	print(`[Progression] {player.Name} finished {questId}, reward {reward.amount} {reward.currency} (before pet bonus)`)
 	local done = getQuestsDone(player)
 	done[questId] = true
 	Data.Set(player, "QuestsDone", done)
-	Level.AddXP(player, QUEST_XP)
+	Level.AddXP(player, QUEST_XP[questId] or 0)
 	Achievement.Award(player, "FirstQuest")
 end)
 
@@ -99,14 +94,15 @@ Level.OnLevelUp:Connect(function(player: Player, newLevel: number, oldLevel: num
 end)
 
 Achievement.OnUnlocked:Connect(function(player: Player, id: string, def)
-	print(`[Progression] {player.Name} unlocked achievement {id} ({def.name})`)
+	print(`[Progression] {player.Name} unlocked achievement {id} ({def.name}), now {Economy.Get(player, "Coins")} Coins`)
 end)
 
 -- 4. When the player's data is loaded: show Level, start the quest if not finished before.
 local function onPlayerAdded(player: Player)
 	if Data.WaitFor(player) == nil then
-		return -- the player left before the data loaded
+		return -- the player left, or the data did not load in 30 seconds
 	end
+	-- Adds or updates only the Level column; other columns (Coins) stay.
 	PlayerService.SetupLeaderstats(player, { Level = Level.GetLevel(player) })
 	if not getQuestsDone(player)[QUEST_ID] then
 		-- false when the quest is already active (progress from last time is kept)
@@ -124,11 +120,9 @@ end
 print("[Progression] ready")
 ```
 
-What it does: it registers the quest and achievements, shows Level in the player list, and starts the quest on load. When the quest finishes: Quest pays 50 Coins, this script adds 150 XP (level 1 → 2) and unlocks both achievements.
-
 ## Step 2 — Spawn apples that count for the quest
 
-Create a **Script** in **ServerScriptService** named **AppleSpawner**:
+Create a **Script** in **ServerScriptService** named **AppleSpawner**. It places 8 red apples in a circle 20 studs around the center. Touching one counts 1 apple.
 
 ```lua
 -- Script: ServerScriptService/AppleSpawner
@@ -141,6 +135,7 @@ local Quest = GaxiaServer.Quest
 
 local APPLE_COUNT = 8
 local RESPAWN_SECONDS = 5
+local MAX_DISTANCE = 12 -- studs: a touch from farther away is a cheat
 
 local folder = Instance.new("Folder")
 folder.Name = "Apples"
@@ -162,8 +157,11 @@ local function makeApple(index: number)
 	apple.Touched:Connect(function(hit: BasePart)
 		local character = hit:FindFirstAncestorOfClass("Model")
 		local player = if character then Players:GetPlayerFromCharacter(character) else nil
-		if player == nil or not apple.CanTouch then
+		if player == nil or character == nil or not apple.CanTouch then
 			return -- not a player, or this apple was just picked
+		end
+		if (character:GetPivot().Position - apple.Position).Magnitude > MAX_DISTANCE then
+			return -- too far away: an exploit fired Touched, ignore it
 		end
 		-- Hide the apple so it counts once, then bring it back.
 		apple.CanTouch = false
@@ -183,16 +181,16 @@ end
 print(`[AppleSpawner] ready, {APPLE_COUNT} apples`)
 ```
 
-What it does: it places 8 red balls in a circle 20 studs around the center. Touching one counts 1 apple.
-
 ## Check that it works
+
+Before you press Play: turn on **Enable Studio Access to API Services** (see [player-data](player-data.md)). Without it, item 6 fails.
 
 1. Press **Play** in Studio.
 2. Output shows `[Progression] ready` and `[AppleSpawner] ready, 8 apples`, and no red errors.
 3. Within a few seconds Output shows `[Progression] <YourName> is level 1, apple quest active: true`. The player list shows a **Level** column with `1`.
 4. Walk into an apple. Output shows `[Progression] <YourName> CollectApples: Apple 1/5`.
-5. Touch 5 apples. Output shows, in this order: `finished CollectApples, got 50 Coins`, `+150 XP`, `level 1 -> 2, 232 XP to next`, `unlocked achievement ReachLevel2 (Growing Up)`, `unlocked achievement FirstQuest (Quest Starter)`. The **Level** column shows `2`. The player now has 150 Coins (50 from the quest, 100 from `ReachLevel2`) and 5 Gems. With the `Pet` package and a coin-bonus pet equipped, the quest's Coins are multiplied by that bonus.
-6. With **Enable Studio Access to API Services** on (see [player-data](player-data.md)), stop and press **Play** again: Output shows `is level 2, apple quest active: false`. The quest does not start again.
+5. Touch 5 apples. Output shows, in this order: `finished CollectApples, reward 50 Coins (before pet bonus)`, `+150 XP`, `level 1 -> 2, 232 XP to next`, `unlocked achievement ReachLevel2 (Growing Up), now <N> Coins`, `unlocked achievement FirstQuest (Quest Starter), now <N> Coins`. The **Level** column shows `2`. On a new save `<N>` is `150` (50 quest + 100 `ReachLevel2`); FirstQuest also gave 5 Gems. With an equipped coin pet, `<N>` is higher.
+6. Stop and press **Play** again: Output shows `is level 2, apple quest active: false`. The quest does not start again.
 
 ## Common mistakes
 
@@ -202,6 +200,8 @@ What it does: it places 8 red balls in a circle 20 studs around the center. Touc
 | `reward = { xp = 150 }` in the quest | Give XP in `Quest.OnQuestComplete` with `Level.AddXP` | Quest only pays `currency`/`amount` and `items`. Other fields are ignored. |
 | `Quest.Start` in `PlayerAdded` right away | `Data.WaitFor(player)` first | Before data loads, `Start` returns `false` and `Track` does nothing. |
 | `Quest.Track` from a LocalScript or after a client remote with no checks | Track on the server, from a server event (Touched, a kill, a purchase) | A cheater would finish quests by sending the remote. |
+| Counting every `Touched` | Check the character is near the apple (Step 2) | Exploiters can fire `Touched` from far away. |
+| `Quest.Start` directly inside `Quest.OnQuestComplete` | `task.defer(Quest.Start, player, id)` | Track is still looping the active quests: the new quest can get progress from the same event. |
 | `Quest.Track(player, "Collect", "apple")` | `Quest.Track(player, "collect", "Apple", 1)` | Type and target must match the goal exactly (case too). Types: `"kill"`, `"collect"`, `"reach"`, `"time_played"`. |
 | Two goals with the same `target` in one quest | One `target` name per goal | Progress is saved per target, so both goals share one counter. |
 | `player.leaderstats.Level.Value = 2` or `Data.Set(player, "Level", 2)` | `Level.AddXP` / `Level.SetLevel`, then `GaxiaServer.Player.SetLeaderstat` | Writing the value yourself fires no `OnLevelUp`, and AntiCheat flags a changed leaderstat. |
@@ -209,13 +209,11 @@ What it does: it places 8 red balls in a circle 20 studs around the center. Touc
 
 ## Change it
 
-- To make leveling faster or slower: change `CurveBase` / `CurveExponent` in `GaxiaServer.Config.Level` ([config-and-flags](config-and-flags.md)). For your own formula: `Level.SetCurve(function(level) return level * 100 end)` once at the top of `Progression`.
-- To give XP for anything else (a kill, a sale): call `Level.AddXP(player, amount)` on the server. `OnLevelUp` keeps the leaderboard right.
-- To give items as a quest reward: `reward = { currency = "Coins", amount = 50, items = { Sword = 1 } }` (saved with `GaxiaServer.Item`, see [items-and-inventory](items-and-inventory.md)).
-- To add a quest: one more `Quest.Register({...})` with a new `id`, and `Quest.Start(player, "<id>")` when it should begin (on load, from an NPC, or in `OnQuestComplete` after another quest). For a repeatable quest, do not put it in `QuestsDone`.
-- To show level, XP or quest progress in your own screen UI: [show-values-on-screen](show-values-on-screen.md).
+- To make leveling faster or slower: never edit `GaxiaServer.Config`. Override `Level.CurveBase` / `Level.CurveExponent` with `GaxiaServer.EConfig.Set("Level.CurveBase", 50)` in `ConfigOverrides` ([config-and-flags](config-and-flags.md)). Your own formula: `Level.SetCurve(function(level) return level * 100 end)` at the top of `Progression`.
+- To give XP for anything else (a kill, a sale): call `Level.AddXP(player, amount)` on the server. `OnLevelUp` keeps the leaderboard right. To show level or XP in your own screen UI: [show-values-on-screen](show-values-on-screen.md).
+- To give items as a quest reward: `reward = { currency = "Coins", amount = 50, items = { Sword = 1 } }`. It works on its own: `GaxiaServer.Item` saves any item id, no registration needed ([items-and-inventory](items-and-inventory.md)).
+- To add a quest: one more `Quest.Register({...})` with a new `id`, its XP in `QUEST_XP`, and `Quest.Start(player, "<id>")` when it should begin (on load or from an NPC). After another quest: inside `OnQuestComplete` write `task.defer(Quest.Start, player, "<id>")`, never a direct call. For a repeatable quest, replace `done[questId] = true` with `if questId ~= "<id>" then done[questId] = true end`.
 
 ## See also
 
-- [API: Level](../api/Level.md) · [API: Quest](../api/Quest.md) · [API: Achievement](../api/Achievement.md) · [API: Player](../api/Player.md)
-- [Coins and leaderstats](currency-and-leaderstats.md) · [Player data](player-data.md) · [Live ops](live-ops.md) · [Pets](pets.md)
+- [API: Level](../api/Level.md) · [API: Quest](../api/Quest.md) · [API: Achievement](../api/Achievement.md) · [API: Player](../api/Player.md) · [Coins and leaderstats](currency-and-leaderstats.md) · [Player data](player-data.md) · [Live ops](live-ops.md) · [Pets](pets.md)

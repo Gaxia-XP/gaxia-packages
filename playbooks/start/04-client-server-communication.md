@@ -4,16 +4,14 @@
 
 **Use this when** the user asks for: "a button that does something on the server", "RemoteEvent", "RemoteFunction", "send data from client to server", "the server tells all players", "fire a remote" (ไทย: "ส่งข้อมูลจาก client ไป server", "กดปุ่มแล้วให้ server ทำงาน", "remote", "ยิง event", "server แจ้งทุกคน").
 **Packages:** `Economy` (it also installs `Data`). `Net` is Core: it is always installed.
-**You will create:** a Script `ServerScriptService/PotionStand` and a LocalScript `StarterPlayer/StarterPlayerScripts/PotionStandButton`.
+**You will create:** a Script `ServerScriptService/PotionStand`, a LocalScript `StarterPlayer/StarterPlayerScripts/PotionStandButton`, and (only for the check, then deleted) a Script `ServerScriptService/PotionTestCoins`.
 
 How it works:
 
 - The client never changes the game. It only **asks**: `Gaxia.Net.InvokeServer` (ask and wait for an answer) or `Gaxia.Net.FireServer` (ask, no answer).
-- The server registers the handler once: `Gaxia.Net.OnInvoke` (answers) or `Gaxia.Net.OnServer` (no answer).
+- The server registers each handler once, at the top level of a Script: `Gaxia.Net.OnInvoke` (answers) or `Gaxia.Net.OnServer` (no answer). The client waits up to 10 seconds for a remote the server has not created yet, then errors.
 - The server talks to clients with `Gaxia.Net.FireClient` (one player) or `Gaxia.Net.FireAllClients` (everyone). The client listens with `Gaxia.Net.OnClient`.
-- `Gaxia.Net` works on both sides. A server Script requires `Gaxia_Packages` too (Step 1 has both require lines).
-- Net creates the remotes for you in `ReplicatedStorage.Events.Net`. Never create a RemoteEvent yourself.
-- The client waits up to 10 seconds for a remote the server has not created yet, then errors. So the server registers every handler at the top level of a Script, when the server starts.
+- `Gaxia.Net` works on both sides, so a server Script requires `Gaxia_Packages` too (Step 1 has both require lines). Net creates the remotes for you in `ReplicatedStorage.Events.Net`. Never create a RemoteEvent yourself.
 - Net limits each player to 10 requests per second per remote (burst 20) by default. Extra requests are dropped.
 
 ## Step 1 — Create the server handler
@@ -24,6 +22,7 @@ Create a **Script** in **ServerScriptService** named **PotionStand**. Paste this
 -- Script: ServerScriptService/PotionStand
 local Players = game:GetService("Players")
 local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
+-- Gaxia.Net works on the server too, so this server Script also requires Gaxia_Packages.
 local Gaxia = require(game:GetService("ReplicatedStorage").Gaxia_Packages)
 
 -- Stop early, with a clear message, if a package this script needs is missing.
@@ -34,10 +33,7 @@ local Data = GaxiaServer.Data
 local Economy = GaxiaServer.Economy
 
 -- The SERVER owns the prices. The client only sends a potion name and an amount.
-local PRICES: { [string]: number } = {
-	SpeedPotion = 25,
-	JumpPotion = 40,
-}
+local PRICES: { [string]: number } = { SpeedPotion = 25, JumpPotion = 40 }
 local MAX_AMOUNT = 10 -- most potions in one request
 local COOLDOWN_SECONDS = 1 -- one request per second per player
 
@@ -89,14 +85,14 @@ local function onPotionBuy(player: Player, potionName: any, amount: any): (boole
 	return true, `Bought {amount} {potionName}`
 end
 
--- Register handlers at the TOP LEVEL of the script, never inside a function or after a wait.
+-- Register each handler ONCE, at the TOP LEVEL of the script, never inside a function or after a wait.
 -- { rate = 4, burst = 8 }: at most 4 requests per second per player; extra ones get nil back.
 Net.OnInvoke("PotionBuy", onPotionBuy, { rate = 4, burst = 8 })
 
--- Create the server -> client remote now, so the client's Net.OnClient("PotionAnnounce")
--- finds it at once. Clients are not allowed to use it: this handler ignores them.
+-- Create the server -> client remote now, so the client's Net.OnClient finds it (client messages are ignored).
 Net.OnServer("PotionAnnounce", function() end)
 
+-- One connection for the whole server (not one per player), so it needs no Trove.
 Players.PlayerRemoving:Connect(function(player: Player)
 	lastRequestTime[player] = nil
 end)
@@ -104,7 +100,8 @@ end)
 print("[PotionStand] ready")
 ```
 
-What it does: it checks type, range, existence, cooldown, loaded data and money, in that order. Only then does it change anything.
+What it does: it checks type, range, existence, cooldown, loaded data and money, in that order. Only then does it change anything. A request that fails a later check (data loading, not enough Coins) still starts the 1-second cooldown.
+The handler creates the saved `Potions` table on the first purchase, so it needs no default value. `Potions` keeps this example small. For real items use the `Item` package: [items-and-inventory](../game/items-and-inventory.md).
 
 ## Step 2 — Create the client button
 
@@ -117,7 +114,6 @@ local Gaxia = require(game:GetService("ReplicatedStorage").Gaxia_Packages)
 
 local Net = Gaxia.Net
 local player = Players.LocalPlayer
-
 -- A simple button made in code.
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "PotionStandGui"
@@ -135,16 +131,16 @@ button.Parent = screenGui
 
 local busy = false
 button.Activated:Connect(function()
-	if busy then
-		return -- wait for the answer before asking again
-	end
+	if busy then return end -- wait for the answer before asking again
 	busy = true
 	button.Text = "Buying..."
-	-- Ask the server. Send only WHAT to buy, never the price.
-	local ok, message = Net.InvokeServer("PotionBuy", "SpeedPotion", 2)
-	if ok == nil then
-		-- nil means the server dropped the request (too many requests).
-		message = "No answer, try again"
+	-- Ask the server: send only WHAT to buy, never the price. pcall: the button recovers if the call errors.
+	local called, ok, message = pcall(Net.InvokeServer, "PotionBuy", "SpeedPotion", 2)
+	if not called then
+		warn(`[PotionStandButton] call failed: {tostring(ok)}`)
+		ok, message = nil, "Error, try again"
+	elseif ok == nil then
+		message = "No answer, try again" -- nil: the server dropped the request (too many requests)
 	end
 	print(`[PotionStandButton] answer: {tostring(ok)} {tostring(message)}`)
 	button.Text = tostring(message)
@@ -167,8 +163,25 @@ What it does: it shows one button. A press asks the server and shows the answer 
 
 1. Press **Play** in Studio.
 2. Output shows `[PotionStand] ready` and `[PotionStandButton] ready`, and no red errors.
-3. Wait 3 seconds, then click the button. A new player has 0 Coins, so Output shows `[PotionStandButton] answer: false Not enough Coins (costs 50)`. The server checked and said no: this is correct. (`Your data is still loading` means you clicked too early: click again.)
-4. Give yourself Coins (for example with [game/currency-and-leaderstats](../game/currency-and-leaderstats.md)). Click again. Output shows these three lines (their order may differ): `[PotionStand] <YourName> bought 2 SpeedPotion for 50 Coins`, `[PotionStandButton] <YourName> bought 2 SpeedPotion` and `[PotionStandButton] answer: true Bought 2 SpeedPotion`.
+3. Wait 3 seconds, then click the button. A new player has 0 Coins, so Output shows `[PotionStandButton] answer: false Not enough Coins (costs 50)`. The server checked and said no: this is correct. (`Your data is still loading` means you clicked too early: wait 2 seconds and click again.) If you already have 50 Coins or more (for example from `CoinPayout` in [currency-and-leaderstats](../game/currency-and-leaderstats.md)), you see the lines of item 5 instead: skip to item 6.
+4. Stop. Create a temporary **Script** in **ServerScriptService** named **PotionTestCoins**. It gives you 100 Coins, only in Studio:
+   ```lua
+   -- Script: ServerScriptService/PotionTestCoins
+   -- TEMPORARY: delete this script after the check.
+   local Players = game:GetService("Players")
+   local RunService = game:GetService("RunService")
+   local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
+   assert(GaxiaServer.IsInstalled("Economy"), "PotionTestCoins needs the Economy package: install it (playbooks/start/01-install-packages.md)")
+
+   Players.PlayerAdded:Connect(function(player: Player)
+   	if RunService:IsStudio() and GaxiaServer.Data.WaitFor(player, 120) ~= nil then
+   		GaxiaServer.Economy.Set(player, "Coins", 100)
+   		print(`[PotionTestCoins] {player.Name} now has 100 Coins`)
+   	end
+   end)
+   ```
+5. Press **Play**. Wait until Output shows `[PotionTestCoins] <YourName> now has 100 Coins`, then click. Output shows these three lines (their order may differ): `[PotionStand] <YourName> bought 2 SpeedPotion for 50 Coins`, `[PotionStandButton] <YourName> bought 2 SpeedPotion` and `[PotionStandButton] answer: true Bought 2 SpeedPotion`.
+6. Stop. Delete the Script `PotionTestCoins`.
 
 ## Common mistakes
 
@@ -176,7 +189,7 @@ What it does: it shows one button. A press asks the server and shows the answer 
 |---|---|---|
 | `Net.FireServer("AddCoins", 100)` from the client | Client sends `"PotionBuy", "SpeedPotion", 2`; the server reads the price from `PRICES` | A cheater can send any number. The server must decide prices, amounts and rewards. |
 | Server uses `amount` without checks | Check `typeof`, whole number, `1..MAX_AMOUNT` first | Cheaters send `-5`, `0.5`, `NaN` or `1e300`. |
-| `Net.OnInvoke(...)` inside `Players.PlayerAdded` or after `task.wait` | Call `Net.OnInvoke` / `Net.OnServer` at the top level of a Script | The client waits 10 seconds for the remote, then errors `Remote 'PotionBuy' not registered by server`. |
+| `Net.OnInvoke(...)` inside `Players.PlayerAdded` or after `task.wait` | Call `Net.OnInvoke` / `Net.OnServer` once, at the top level of a Script | Inside `PlayerAdded` it registers again for every player who joins: `Net.OnServer` handlers then run once per registration (double rewards). After a long `task.wait` the client gives up after 10 seconds: `Remote 'PotionBuy' not registered by server`. |
 | The server only calls `Net.FireClient(player, "X", ...)` later; the client calls `Net.OnClient("X", ...)` at start | Also call `Net.OnServer("X", function() end)` at the top of the server Script | Net creates a remote on first use. Without it the client's `Net.OnClient` errors after 10 seconds. |
 | `local ok = Net.FireServer("PotionBuy", ...)` | `local ok, message = Net.InvokeServer("PotionBuy", ...)` | `FireServer` never returns an answer. Use `InvokeServer` with `OnInvoke`. |
 | Same name in `Net.OnServer` in two scripts | One handler per name, named `<Feature><Action>` (`PotionBuy`) | Both handlers run. With `Net.OnInvoke` only the last one works. A name used as both kinds errors: `'X' is a RemoteEvent, expected RemoteFunction`. |
@@ -186,14 +199,15 @@ What it does: it shows one button. A press asks the server and shows the answer 
 
 ## Change it
 
-- To change the rate limit: change `{ rate = 4, burst = 8 }`. `rate` = requests per second, `burst` = how many may come at once. Dropped requests are reported to AntiCheat as soft flags.
-- To reject malformed requests before your handler runs, add `validators`: one check per argument. A failed check drops the request and reports a **hard** AntiCheat flag (with `Config.AntiCheat.Enforce = true` that kicks). So check only what an honest client never sends (types), never ranges or money. With the `Guard` package (`Gaxia.IsInstalled("Guard")`, not `GaxiaServer.IsInstalled`):
+- To change the rate limit: change `{ rate = 4, burst = 8 }`. `rate` = requests per second, `burst` = how many may come at once. Each dropped request is a soft AntiCheat flag. 5 drops for the same remote within a few minutes become a HARD action (a kick once the game turns on enforcing with `GaxiaServer.EConfig.Set("AntiCheat.Enforce", true)`, see [config-and-flags](../game/config-and-flags.md)). So never set `rate` lower than an honest player can click, and keep the client `busy` guard from Step 2.
+- To reject malformed requests before your handler runs, add `validators`: one check per argument. A failed check drops the request and reports a **hard** AntiCheat flag (a kick when enforcing is on, as above). So check only what an honest client never sends (types), never ranges or money. This needs the `Guard` package. In `PotionStand`, **replace** the line `Net.OnInvoke("PotionBuy", onPotionBuy, { rate = 4, burst = 8 })` with these lines (never keep both: only the last registration works):
   ```lua
   -- fragment
+  assert(Gaxia.IsInstalled("Guard"), "PotionStand needs the Guard package: install it (playbooks/start/01-install-packages.md)")
   local Guard = Gaxia.Guard
   Net.OnInvoke("PotionBuy", onPotionBuy, { rate = 4, burst = 8, validators = { Guard.string, Guard.integer } })
   ```
-  `Guard.integer` rejects NaN and infinity. `Guard.numberRange` does NOT reject NaN: keep range checks in the handler.
+  Check Guard with `Gaxia.IsInstalled` (it is a shared package: `GaxiaServer.IsInstalled("Guard")` is always `false`). `Guard.integer` rejects NaN and infinity. `Guard.numberRange` does NOT reject NaN: keep range checks in the handler.
 - To send a message to one player only: `Net.FireClient(player, "PotionAnnounce", ...)`. To everyone except one: `Net.FireOtherClients(player, "PotionAnnounce", ...)`.
 - For a request that needs no answer (for example "I pressed Sprint"): server `Net.OnServer("SprintPress", function(player) ... end)`, client `Net.FireServer("SprintPress")`. The same checks apply.
 - Many small one-way actions that each send one table: the `Command` package (`Gaxia.Command.Register` on the server with a `Guard` schema, `Gaxia.Command.Send` on the client) uses one shared remote. It never replies, so keep `Net.OnInvoke` when the client needs an answer.

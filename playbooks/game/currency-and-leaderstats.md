@@ -27,7 +27,7 @@ assert(GaxiaServer.IsInstalled("Player"), "CoinLeaderstats needs the Player pack
 
 local Data = GaxiaServer.Data
 local Economy = GaxiaServer.Economy
-local PlayerService = GaxiaServer.Player
+local PlayerService = GaxiaServer.Player -- the Gaxia "Player" package (Players above is Roblox's service)
 
 -- The currencies shown in the player list, left to right.
 local SHOWN_CURRENCIES = { "Coins" }
@@ -41,7 +41,8 @@ end)
 
 local function onPlayerAdded(player: Player)
 	-- Balances are in the saved data: wait until it is loaded (nil = the player left).
-	if Data.WaitFor(player) == nil then
+	-- 120 seconds: a slow load still gets its leaderboard columns.
+	if Data.WaitFor(player, 120) == nil then
 		return
 	end
 	-- One column per currency, with the saved balance as the starting value.
@@ -121,15 +122,16 @@ end
 
 | Wrong | Right | Why |
 |---|---|---|
-| `player.leaderstats.Coins.Value += 10` | `Economy.Add(player, "Coins", 10)` | The saved balance does not change, and AntiCheat flags it: Output shows `[AntiCheat] observe mode — would take HARD action against <Name> (...): StatTamper`. With enforcing on, the player is kicked. |
+| `player.leaderstats.Coins.Value += 10` | `Economy.Add(player, "Coins", 10)` | The saved balance does not change. With the AntiCheat package, Output shows `[AntiCheat] observe mode — would take HARD action against <Name> (...): StatTamper`. Once the game turns on enforcing (`GaxiaServer.EConfig.Set("AntiCheat.Enforce", true)`), non-admin players are kicked (the place owner never is, so you see no kick when you test). |
 | Making your own `leaderstats` folder and IntValues | `GaxiaServer.Player.SetupLeaderstats` and `GaxiaServer.Player.SetLeaderstat` | Only these mark the change as allowed for AntiCheat. |
 | `Data.Set(player, "Coins", 100)` | `Economy.Add` / `Economy.Set` | `Data.Set` does not fire `OnTransaction`, so the leaderboard stays old. |
 | Client sends `Net.FireServer("AddCoins", 10)` | The server decides every amount | A cheater can send any number. See [04-client-server-communication](../start/04-client-server-communication.md). |
 | `Economy.Spend(player, "Coins", price)` and give the item anyway | `if Economy.Spend(...) then` give the item `end` | Without the check, players with no Coins get items for free. |
-| `Economy.Add(player, "Coins", 10)` in `PlayerAdded` right away | Wait with `Data.WaitFor(player)` first | Before data loads, `Add` returns `false` and gives nothing. |
-| `Economy.Add(player, "Coins", 0.5)` | Whole numbers only | Amounts are rounded down: 0.5 adds 0. |
-| A price or reward above 1,000,000 | Keep each amount at or below `MaxTransaction` in `GaxiaServer.Config.Economy` | Bigger amounts are cut to 1,000,000: `Spend(player, "Coins", 2000000)` takes only 1,000,000 and returns `true`. |
-| A currency named `Level`, `Inventory` or `Settings` | `Coins`, `Gems` or a new name like `Tokens` | The currency is stored under that name and would overwrite the other data. |
+| `Economy.Add(player, "Coins", 10)` in `PlayerAdded` right away | Wait with `Data.WaitFor(player, 120)` first | Before data loads, `Add` returns `false` and gives nothing. |
+| `Economy.Add` / `Economy.Spend` with `0.5` or `price * 0.9` | Whole numbers above 0 only: `math.ceil(price * 0.9)` | Amounts are rounded down. `Add(player, "Coins", 0.5)` and `Spend(player, "Coins", 0.5)` change nothing and still return `true`. |
+| `Economy.Add(player, "Coins", -10)` to take Coins | `Economy.Spend(player, "Coins", 10)` | `Add` with 0 or a negative amount returns `false` and changes nothing. |
+| A price or reward above 1,000,000 | Keep each amount at or below `Economy.MaxTransaction`, or raise it: `GaxiaServer.EConfig.Set("Economy.MaxTransaction", 5000000)` ([config-and-flags](config-and-flags.md)) | Bigger amounts are cut to 1,000,000: `Spend(player, "Coins", 2000000)` takes only 1,000,000. It returns `true` when the balance is at least 1,000,000, so the item sells at a discount. |
+| A currency named like any saved field (`Level`, `Inventory`, `Pets`, `Quests`, your own `Wins` …) | `Coins`, `Gems` or a new name like `Tokens` | Economy stores the currency under that name and overwrites that data. Full list of taken names: [player-data](player-data.md). |
 | `GaxiaServer.Player.SetLeaderstat` before `GaxiaServer.Player.SetupLeaderstats` | Set up first (Step 1 does it on load) | `SetLeaderstat` does nothing when the column does not exist. |
 
 ## Change it
@@ -139,7 +141,7 @@ end
 - To set an exact balance (admin, reset): `Economy.Set(player, "Coins", 0)`. It skips the per-call limit and stays between 0 and `MaxBalance`.
 - To send Coins from one player to another: `Economy.Transfer(fromPlayer, toPlayer, "Coins", 100)`. It returns `false` and changes nothing if the sender cannot pay.
 - To log every change: `Economy.OnTransaction:Connect(function(player, currency, delta, newBalance, kind) ... end)`. `kind` is `"add"`, `"spend"`, `"set"` or `"transfer"`. A transfer fires `"spend"`/`"add"` first, then `"transfer"` for each player.
-- Limits live in `GaxiaServer.Config.Economy`: `MaxTransaction` (1,000,000 per call) and `MaxBalance` (1,000,000,000; `Add` stops there). How to change them: [config-and-flags](config-and-flags.md).
+- Limits: `Economy.MaxTransaction` (1,000,000 per call) and `Economy.MaxBalance` (1,000,000,000; `Add` stops there). Change them at server start with `GaxiaServer.EConfig.Set("Economy.MaxTransaction", 5000000)`: see [config-and-flags](config-and-flags.md).
 - To show Coins in your own screen UI: [show-values-on-screen](show-values-on-screen.md).
 
 ## See also

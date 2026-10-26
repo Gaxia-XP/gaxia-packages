@@ -3,8 +3,8 @@
 > Your game's settings live in one ModuleScript, Gaxia's limits are changed without editing Gaxia, and an admin can switch a "2x Coins" event on and off live.
 
 **Use this when** the user asks for: "settings", "config", "change a limit", "tune values", "max coins per purchase", "faster leveling", "feature flag", "turn a feature on/off without updating", "double coins event", "where do I put game settings" (ไทย: "ตั้งค่า", "ปรับค่า", "แก้ค่า config", "ค่าสูงสุด", "เปิดปิดฟีเจอร์", "ฟีเจอร์แฟล็ก", "อีเวนต์เงินคูณสอง", "เก็บค่าตั้งค่าเกมไว้ที่ไหน").
-**Packages:** `Economy` (for the round reward). `AntiCheatAdmin` is optional: it adds the `/flag` chat command. `EConfig` and `Flags` are Core (always installed).
-**You will create:** a ModuleScript `ReplicatedStorage/GameConfig`, the Scripts `ServerScriptService/ConfigOverrides` and `ServerScriptService/RoundRewards`, and a LocalScript `StarterPlayer/StarterPlayerScripts/DoubleCoinsBanner`.
+**Packages:** `Economy` (for the round reward). `AntiCheatAdmin` for the `/flag` chat command (Step 5, Checks 4–5). `EConfig` and `Flags` are Core (always installed).
+**You will create:** a ModuleScript `ReplicatedStorage/GameConfig`, the Scripts `ServerScriptService/ConfigOverrides` and `ServerScriptService/RoundRewards`, and a LocalScript `StarterPlayer/StarterPlayerScripts/DoubleCoinsBanner` (Rojo: `GameConfig.lua`, `<Name>.server.lua`, `DoubleCoinsBanner.client.lua`, see [02-server-script](../start/02-server-script.md)).
 
 How it works — there are three layers:
 
@@ -14,17 +14,17 @@ How it works — there are three layers:
 | Overrides | A value on top of a default, by key `"<Section>.<Key>"` | Server: `GaxiaServer.EConfig.Set(key, value)` / `GaxiaServer.EConfig.Clear(key)`. Admin chat: `/flag set <key> <value>`. |
 | `ReplicatedStorage/GameConfig` | Your game's own values (Step 1) | Edit the module. |
 
-- Read an override with `GaxiaServer.EConfig.Get(key, default)` (server) or `Gaxia.Flags.Get(key, default)` (client). Values: numbers, strings or booleans.
+- `EConfig` (effective config) reads an override, else the default. `EConfig.Set` calls `Flags.Set`, so `/flag`, `EConfig` and `Flags` share one store. Read an override with `GaxiaServer.EConfig.Get(key, default)` (server) or `Gaxia.Flags.Get(key, default)` (client). Values: numbers, strings or booleans.
 - An override lasts until that server closes: not saved, not seen by other servers, but read by every client. So `ConfigOverrides` (Step 2) sets them on every server start, and `/flag set` is for live tests and events.
 
-Gaxia keys you can override (anything else in `GaxiaServer.Config` cannot be changed from game code):
+Gaxia keys you can override (the common ones; other packages read more keys, such as `Admin.ActionWhitelistSeconds`, `AntiCheat.Teleport.WhitelistGraceSeconds`, `Idle.DefaultRate`, `Vault.MaxCapacity`, `Mail.MaxMail`, `Leaderboard.CacheTTL`; a key Gaxia never reads does nothing):
 
 | Key | Default | What it changes |
 |---|---|---|
 | `Economy.MaxTransaction` / `Economy.MaxBalance` | 1000000 / 1000000000 | Most one `Add` / `Spend` moves / highest balance |
 | `Player.MaxWalkSpeed` | 500 | Highest speed `GaxiaServer.Player.SetWalkSpeed` sets |
 | `AntiCheat.Enforce` / `AntiCheat.Enabled` | false / true | Kick on hard actions / the whole anti-cheat |
-| `AntiCheat.Detector.<Name>.Enabled` | true | One detector ([anticheat-and-bans](anticheat-and-bans.md)) |
+| `AntiCheat.Detector.<Name>.Enabled` | true (HumanoidState: false) | One of Speed, Fly, NoClip, Teleport, Heartbeat, Heuristic, WorldBounds, HumanoidState ([anticheat-and-bans](anticheat-and-bans.md)) |
 | `Level.CurveBase` / `Level.CurveExponent` / `Level.StartLevel` | 100 / 1.5 / 1 | XP needed = CurveBase × level ^ CurveExponent |
 | `Daily.DaySeconds` / `Daily.ResetWindow` | 86400 / 172800 | Daily reward gap / streak reset |
 | `Pets.EggCost` / `Pets.MaxEquipSlots` / `Inventory.MaxItemCount` | 100 / 3 / 999999 | Egg price / pets equipped at once / most of one item |
@@ -42,13 +42,11 @@ export type GameConfig = {
 	RoundReward: number,
 	DoubleCoins: boolean,
 }
-
 local GameConfig: GameConfig = {
 	RoundSeconds = 60, -- length of one round, in seconds
 	RoundReward = 10, -- Coins each player gets when a round ends
 	DoubleCoins = false, -- default of the live flag "Game.DoubleCoins"
 }
-
 -- Frozen: a script that tries to change a value gets an error.
 return table.freeze(GameConfig)
 ```
@@ -65,8 +63,7 @@ local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Serv
 
 local EConfig = GaxiaServer.EConfig
 
--- Gaxia settings this game changes: ["<Section>.<Key>"] = value (keys: the table above).
--- This runs on every server start, so every server uses them.
+-- Gaxia settings this game changes: ["<Section>.<Key>"] = value. Runs on every server start.
 local OVERRIDES: { [string]: number | boolean | string } = {
 	["Economy.MaxTransaction"] = 5000000, -- default 1000000
 	["Level.CurveBase"] = 50, -- default 100: faster leveling
@@ -78,6 +75,7 @@ for key, value in OVERRIDES do
 end
 
 -- Adds /flag set|get|clear for admins (only with the AntiCheatAdmin package).
+-- Safe to call again from another script: the commands are added only once.
 if GaxiaServer.IsInstalled("AntiCheatAdmin") then
 	GaxiaServer.AntiCheatAdmin.Register()
 end
@@ -102,13 +100,13 @@ assert(GaxiaServer.IsInstalled("Economy"), "RoundRewards needs the Economy packa
 
 local EConfig = GaxiaServer.EConfig
 local Economy = GaxiaServer.Economy
+-- Flags is the one shared module server code uses: there is no GaxiaServer.Flags.
 local Flags = Gaxia.Flags
 
 -- A live flag wins; GameConfig is the default.
 local function isDoubleCoins(): boolean
 	return EConfig.Enabled("Game.DoubleCoins", GameConfig.DoubleCoins)
 end
-
 local function roundReward(): number
 	-- tonumber: "/flag set Game.RoundReward abc" must not break the game.
 	local reward = tonumber(EConfig.Get("Game.RoundReward", GameConfig.RoundReward)) or GameConfig.RoundReward
@@ -139,7 +137,7 @@ What it does: every 60 seconds each player gets 10 Coins, or 20 while the flag `
 
 ## Step 4 — Show the flag on the client
 
-Create a **LocalScript** in **StarterPlayer → StarterPlayerScripts** named **DoubleCoinsBanner**:
+Do Steps 2 and 3 first: the banner reads the server's flag store, which they create. Create a **LocalScript** in **StarterPlayer → StarterPlayerScripts** named **DoubleCoinsBanner**:
 
 ```lua
 -- LocalScript: StarterPlayer/StarterPlayerScripts/DoubleCoinsBanner
@@ -177,42 +175,42 @@ What it does: a yellow "2x COINS!" banner shows at the top of the screen while t
 
 ## Step 5 — Switch the flag live
 
-No code. An admin types in chat (needs the `AntiCheatAdmin` package; roles: [admin-and-chat-commands](admin-and-chat-commands.md)):
+No code. Needs the `AntiCheatAdmin` package and the `admin` role (you are `owner` in a published place you own; otherwise `STAFF` in [admin-and-chat-commands](admin-and-chat-commands.md) Step 1). Type in chat:
 
 - `/flag set Game.DoubleCoins true` turns it on in this server (`true`, `false` and numbers are converted).
 - `/flag get Game.DoubleCoins` shows the value. `/flag clear Game.DoubleCoins` removes the override.
 
-From server code (for example a weekend event): `GaxiaServer.EConfig.Set("Game.DoubleCoins", true)`.
-
 ## Check that it works
+
+Agent: check your scripts against Steps 1–4. The user runs these in Studio. No Studio? Send: "Please press Play, do the checks in the playbook, and paste the Output lines that start with `[ConfigOverrides]`, `[RoundRewards]` and `[DoubleCoinsBanner]`."
 
 1. Press **Play** in Studio.
 2. Output shows `[ConfigOverrides] Economy.MaxTransaction = 5000000`, `[ConfigOverrides] ready`, `[RoundRewards] ready, round = 60s, reward = 10`, `[DoubleCoinsBanner] DoubleCoins = false`, `[DoubleCoinsBanner] ready`, and no red errors.
 3. After 60 seconds Output shows `[RoundRewards] round over: <YourName> +10 Coins`.
-4. Type `/flag set Game.DoubleCoins true`. The banner appears. Output shows `[RoundRewards] DoubleCoins is now true, reward = 20`.
+4. Type `/flag set Game.DoubleCoins true` (needs Step 5's package and role). The banner appears. Output shows `[RoundRewards] DoubleCoins is now true, reward = 20`.
 5. Type `/flag clear Game.DoubleCoins`. The banner disappears.
+6. No `AntiCheatAdmin` or no `admin` role? Do this instead of 4–5: add `GaxiaServer.EConfig.Set("Game.DoubleCoins", true)` at the end of `ConfigOverrides`, press Play: Output shows `[DoubleCoinsBanner] DoubleCoins = true`. Then remove that line.
 
 ## Common mistakes
 
 | Wrong | Right | Why |
 |---|---|---|
-| Editing a module inside `Gaxia_Packages_Server/Config` | An entry in `OVERRIDES` (Step 2) | Install / Update replaces the package. |
-| `Config.Economy.MaxTransaction = 5000000` (writing into `GaxiaServer.Config`) | `EConfig.Set("Economy.MaxTransaction", 5000000)` | `Config` holds Gaxia's defaults; some are read only once at start. |
-| `EConfig.Set("Economy.MaxTransaction", "5000000")`, or `/flag set Economy.MaxTransaction` with no value | A number: `5000000` | Gaxia does not check the type: every `Add` / `Spend` errors until `/flag clear Economy.MaxTransaction`. |
-| A typo such as `"Economy.MaxTransation"` | Copy the key from the table | A wrong key is accepted and does nothing. Check with `/flag get <key>`. |
+| Editing `Gaxia_Packages_Server/Config`, or `Config.Economy.MaxTransaction = 5000000` in a script | An entry in `OVERRIDES` (Step 2) | Install / Update replaces the package. A key Gaxia does not read through `EConfig` needs a framework change, which is not allowed. |
+| `EConfig.Set("Economy.MaxTransaction", "5000000")`, or `/flag set Economy.MaxTransaction` with no value (that sets it to `true`) | A number: `5000000` | Gaxia does not check the type: every `Add` / `Spend` errors until `/flag set Economy.MaxTransaction 5000000` (or `/flag clear`, which returns to Gaxia's default 1000000). |
+| A typo such as `"Economy.MaxTransation"` | Copy the key from the table | A wrong key is accepted and does nothing. `/flag get` only shows what you typed. |
 | `EConfig.Set("Game.Prices", { Sword = 100 })` | Tables go in `GameConfig` | An override must be a number, string or boolean (a table errors). |
 | `Flags.Set(...)` in a LocalScript | Set on the server | `Flags.Set` is server-only; it errors on the client. |
 | An API key or webhook URL in `GameConfig` or an override | A ModuleScript in `ServerStorage` | Clients can read ReplicatedStorage and every override. |
-| Changing anti-cheat detector numbers (`Speed.ToleranceMultiplier`), `BanPolicy`, `Data` store names or admin roles here | Not possible from game code today | Gaxia reads them once from `Config`. Turn a detector off instead; give roles in [StaffRoles](admin-and-chat-commands.md). |
+| Changing anti-cheat detector numbers (`Speed.ToleranceMultiplier`), `BanPolicy`, `Data` store names or admin roles here | Not possible from game code today: turn a detector off instead; give roles in [StaffRoles](admin-and-chat-commands.md) | Gaxia does not read them through `EConfig` (detector numbers are fixed when the server starts). |
 
 ## Change it
 
-- To add a setting: add a line to the type and to the table in `GameConfig`, then read `GameConfig.Name`.
-- To make a setting switchable live: read it as `EConfig.Get("Game.Name", GameConfig.Name)` (server) or `Flags.Get("Game.Name", GameConfig.Name)` (client).
+- To add a setting: add a line to the type and to the table in `GameConfig`, then read `GameConfig.Name`. To make it switchable live: read it as `EConfig.Get("Game.Name", GameConfig.Name)` (server) or `Flags.Get("Game.Name", GameConfig.Name)` (client).
 - Server-only secrets: a ModuleScript `ServerStorage/GameSecrets` shaped like `GameConfig`, required only from Scripts.
 - To read a Gaxia value with its override: `EConfig.Get("Economy.MaxTransaction", Config.Economy.MaxTransaction)`, with `local Config = GaxiaServer.Config`. `EConfig.IsOverridden(key)` tells whether one is set.
+- To switch a flag from server code (for example a weekend event): `GaxiaServer.EConfig.Set("Game.DoubleCoins", true)`.
 - To turn on anti-cheat kicking: [anticheat-and-bans](anticheat-and-bans.md) Step 4.
-- To choose which services start at boot (`ServerStorage/GaxiaFeatures`) or which client modules load at spawn (`ReplicatedStorage/GaxiaClientFeatures`): [01-install-packages](../start/01-install-packages.md), *Change it*. Both **replace** the default list.
+- To choose which services start at boot (`ServerStorage/GaxiaFeatures`) or which client modules load at spawn (`ReplicatedStorage/GaxiaClientFeatures`): [01-install-packages](../start/01-install-packages.md), *Change it*. Both **replace** the default list. Shapes: `return { Services = { "Data", "Player", ... } }` and `return { Client = { { Key = "AntiCheat", RequiresServer = "AntiCheat" }, ... } }`.
 
 ## See also
 

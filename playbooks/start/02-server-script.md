@@ -8,10 +8,12 @@
 
 ## Where server code goes
 
-| Code | Put it in | Type |
-|---|---|---|
-| Code that runs by itself (one per feature) | `ServerScriptService` | **Script** |
-| Settings and helpers that several Scripts share | `ServerStorage/GameModules` (a Folder) | **ModuleScript** |
+| Code | Put it in | Type | File name with Rojo |
+|---|---|---|---|
+| Code that runs by itself (one per feature) | `ServerScriptService` | **Script** | `ServerScriptService/GameServer.server.lua` |
+| Settings and helpers that several Scripts share | `ServerStorage/GameModules` (a Folder) | **ModuleScript** | `ServerStorage/GameModules/GameSettings.lua` |
+
+Without Rojo, create the same names in Studio. With Rojo, `.server.lua` makes a Script and plain `.lua` makes a ModuleScript; map the folders in the game's own `default.project.json`.
 
 Never put game code inside `Gaxia_Packages_Server` or `Gaxia_Packages`: Install / Update replaces them.
 
@@ -25,8 +27,9 @@ Never put game code inside `Gaxia_Packages_Server` or `Gaxia_Packages`: Install 
 -- ModuleScript: ServerStorage/GameModules/GameSettings
 -- Game settings shared by the server Scripts. Change the values here, not in the Scripts.
 local GameSettings = {
-	-- How long (seconds) to wait for a player's saved data before giving up.
-	DataWaitSeconds = 30,
+	-- How long (seconds) to wait for a player's saved data before kicking them.
+	-- A quick rejoin from another server can take about a minute to load.
+	DataWaitSeconds = 90,
 	-- Printed when a player's data is ready.
 	WelcomeText = "Welcome back",
 }
@@ -67,7 +70,11 @@ local function onPlayerAdded(player: Player)
 	-- Wait until the saved data is loaded. nil = the player left or loading took too long.
 	local data = Data.WaitFor(player, GameSettings.DataWaitSeconds)
 	if data == nil then
-		warn(`[GameServer] no data for {player.Name} (left or timed out)`)
+		if player.Parent ~= nil then
+			-- Still in the game but the data never loaded: do not let them play without it.
+			warn(`[GameServer] data for {player.Name} timed out - kicking`)
+			player:Kick("Your data could not load. Please rejoin.")
+		end
 		return
 	end
 
@@ -97,12 +104,16 @@ print("[GameServer] ready")
 
 What it does: handles every player exactly once, waits for their data, and forgets them when they leave.
 Why `Players.PlayerAdded` plus the loop: a signal only reaches handlers that were connected before it fired, so the loop catches players who were already in the game.
+Why the kick: the data may still load later, but this setup code would never run again for that player.
+
+Type `GaxiaServer.` or `Data.` in Studio: autocomplete lists the installed services and their functions (`local Data = GaxiaServer.Data` is typed).
+A name that is not offered does not exist or is not installed. Look it up in [api/INDEX.md](../api/INDEX.md); never guess.
 
 ## How services start (read once)
 
-- `GaxiaServer.<Name>` gives you a service. The first time any Script touches a service, the framework boots.
-- **Boot services** start at server boot: every package you picked, plus every installed package marked "Boot" (`Data`, `Player`, `Monetization`, …). Details: [Install packages](01-install-packages.md).
-- Every other installed service starts the first time your code uses it.
+- `Gaxia_ServerBootstrap` (installed in Step 2 of [Install packages](01-install-packages.md)) boots the framework when the server starts.
+- **Boot services** are already running when your Script runs: every server package you picked, plus every installed package marked "Boot" (`Data`, `Player`, `Monetization`, …). In a full install (**All**) or with `ServerStorage/GaxiaFeatures`, that list decides instead.
+- Every other installed service starts the first time your code uses it (`GaxiaServer.<Name>`). If your Script runs before the bootstrap, that first use boots the framework.
 - So the order in which Roblox runs your Scripts does not matter. You never call a start or init function.
 - `GaxiaServer.IsInstalled("X")` = the package is in this place. `GaxiaServer.IsEnabled("X")` = the service has started. Neither one loads anything.
 
@@ -114,16 +125,18 @@ print(GaxiaServer.IsInstalled("Economy"), GaxiaServer.IsEnabled("Economy"))
 ## How to organize a bigger game
 
 - One **Script** per feature in `ServerScriptService` (`GameServer`, `CoinRewards`, `ShopServer`, …). Every playbook works this way.
-- Shared settings and helper functions go in **ModuleScripts** under `ServerStorage/GameModules`. Scripts `require` them, like `GameSettings` above.
+- Code used by two or more Scripts goes in a **ModuleScript** in `ServerStorage/GameModules` that returns a table of functions. Each Script requires it with `require(ServerStorage.GameModules.<Name>)`, like `GameSettings` above.
 - Each Script starts with the same require line and its own `assert(GaxiaServer.IsInstalled(...))` checks.
 
 ## Check that it works
 
+If you cannot press Play: run the `luau-lsp analyze` command from AGENTS.md section 5 (no `TypeError`), then ask the user to press Play and paste the Output lines below.
+
 1. Press **Play** in Studio.
 2. Output shows `[GameServer] ready` and no red errors.
 3. Output shows `[GameServer] <your name> joined`, then `[GameServer] Welcome back, <your name>: data ready (Coins = 0, Level = 1)`.
-4. Press **Stop**. Output shows `[GameServer] <your name> left after N seconds`.
-5. Output shows `[ProfileService]: Roblox API services unavailable - data will not be saved`? Play still works, but nothing is saved. To save in Studio, publish the place and turn on **Game Settings → Security → Enable Studio Access to API Services**.
+4. `[GameServer] <your name> left after N seconds` prints when a player leaves a running server. Pressing **Stop** in Studio may end the session before it prints: that is not an error.
+5. If Output shows `[ProfileService]: Roblox API services unavailable - data will not be saved`, that is expected in an unpublished place. Play works, but nothing is saved. Ask the user to publish the place and turn on **Game Settings → Security → Enable Studio Access to API Services** ([Player data](../game/player-data.md)).
 
 ## Common mistakes
 
@@ -135,8 +148,9 @@ print(GaxiaServer.IsInstalled("Economy"), GaxiaServer.IsEnabled("Economy"))
 | Only `GaxiaServer.Player.OnPlayerJoined:Connect(...)` | `Players.PlayerAdded` + the `Players:GetPlayers()` loop | `OnPlayerJoined` does not fire again for players who joined before you connected. |
 | `Data.OnLoaded:Connect(...)` to set up each player | `Data.WaitFor(player)` inside `onPlayerAdded` | `OnLoaded` misses players whose data loaded before you connected. |
 | `Data.Get(player, "Coins")` right after the player joins | `Data.WaitFor(player)` first | Data loads a moment later; before that `Get` returns nil. |
-| Not checking `if data == nil then return end` | Keep the check | `WaitFor` returns nil when the player left or the wait timed out. |
-| `repeat task.wait() until Data.IsLoaded(player)` | `Data.WaitFor(player, 30)` | The loop never ends if the player leaves. |
+| Not checking `if data == nil then` | Keep the check | `WaitFor` returns nil when the player left or the wait timed out. |
+| Only `return` when `WaitFor` timed out | Kick the player when `player.Parent ~= nil` (Step 2) | Data can still load later; your setup code would never run for them. |
+| `repeat task.wait() until Data.IsLoaded(player)` | `Data.WaitFor(player, GameSettings.DataWaitSeconds)` | The loop never ends if the player leaves. |
 | `DataStoreService:GetDataStore(...)` | `GaxiaServer.Data` | Gaxia handles saving, session locks and retries. |
 | Editing a module inside `Gaxia_Packages_Server` | A ModuleScript in `ServerStorage/GameModules` | Install / Update replaces the framework and your change is lost. |
 | A Script inside `ServerStorage` | A Script in `ServerScriptService` | Scripts in ServerStorage never run. |
@@ -145,9 +159,33 @@ print(GaxiaServer.IsInstalled("Economy"), GaxiaServer.IsEnabled("Economy"))
 
 ## Change it
 
-- To run code on every respawn: inside `onPlayerAdded`, add `player.CharacterAdded:Connect(function(character) ... end)`.
-- To wait longer for data: change `DataWaitSeconds = 30` in `GameSettings`.
+- To run code on every spawn (first spawn and respawns): above `onPlayerAdded`, add this function. Then inside `onPlayerAdded`, right after the `joined` print and **before** `Data.WaitFor`, add the two lines below it (after the wait, the first spawn is already missed). To also disconnect on leave with a Trove, see [Signals, cleanup and timing](../game/signals-cleanup-and-timing.md).
+
+```lua
+-- fragment
+local function onCharacterAdded(character: Model)
+	print(`[GameServer] {character.Name} spawned`)
+end
+```
+
+```lua
+-- fragment
+player.CharacterAdded:Connect(onCharacterAdded)
+if player.Character then task.spawn(onCharacterAdded, player.Character) end
+```
+
+- To wait longer for data before the kick: change `DataWaitSeconds = 90` in `GameSettings`.
 - To add another feature: create a new Script in `ServerScriptService` with the same require line. Do not grow `GameServer` forever.
+- To share functions between Scripts: create a ModuleScript in `ServerStorage/GameModules` (here `Rewards`), then `local Rewards = require(ServerStorage.GameModules.Rewards)` in each Script:
+
+```lua
+-- fragment
+local Rewards = {}
+function Rewards.Give(player: Player, amount: number)
+	print(`[Rewards] {player.Name} gets {amount}`)
+end
+return Rewards
+```
 
 ## See also
 

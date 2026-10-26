@@ -4,14 +4,17 @@
 
 **Use this when** the user asks for: "a client script", "a LocalScript", "show a message on the player's screen", "bind a key", "where do I put UI code" (ไทย: "สคริปต์ฝั่ง client", "LocalScript", "แสดงข้อความบนจอผู้เล่น", "กดปุ่มแล้วให้ทำอะไร", "โค้ด UI ใส่ตรงไหน").
 **Packages:** `UI.Toast`, `Input` (the script below stops with a clear message if one is missing).
+If the script stops with "needs the … package": add it (repeat Step 2 of [Install packages](01-install-packages.md), see its *Change it*), then press Play again.
 **You will create:** a LocalScript `StarterPlayer/StarterPlayerScripts/GameClient`.
 
 ## Where client code goes
 
-| Code | Put it in | Type |
-|---|---|---|
-| Code for the local player: UI, keys, camera, effects | `StarterPlayer/StarterPlayerScripts` | **LocalScript** |
-| Client helpers that several LocalScripts share | `ReplicatedStorage/GameShared` (a Folder) | **ModuleScript** |
+| Code | Put it in | Type | File name with Rojo |
+|---|---|---|---|
+| Code for the local player: UI, keys, camera, effects | `StarterPlayer/StarterPlayerScripts` | **LocalScript** | `StarterPlayer/StarterPlayerScripts/GameClient.client.lua` |
+| Client helpers that several LocalScripts share | `ReplicatedStorage/GameShared` (a Folder) | **ModuleScript** | `ReplicatedStorage/GameShared/<Name>.lua` |
+
+Without Rojo, create the same names in Studio. With Rojo, `.client.lua` makes a LocalScript and plain `.lua` makes a ModuleScript.
 
 A LocalScript in `StarterPlayerScripts` runs **once** per player, when they join. It does not run again when the character respawns.
 
@@ -26,8 +29,8 @@ local Players = game:GetService("Players")
 local Gaxia = require(game:GetService("ReplicatedStorage").Gaxia_Packages)
 
 -- Stop early, with a clear message, if a package this script needs is missing.
-assert(Gaxia.IsInstalled("UI.Toast"), "GameClient needs the UI.Toast package: install it (playbooks/start/01-install-packages.md)")
-assert(Gaxia.IsInstalled("Input"), "GameClient needs the Input package: install it (playbooks/start/01-install-packages.md)")
+assert(Gaxia.IsInstalled("UI.Toast"), "GameClient needs the UI.Toast package: add it (playbooks/start/01-install-packages.md, Change it)")
+assert(Gaxia.IsInstalled("Input"), "GameClient needs the Input package: add it (playbooks/start/01-install-packages.md, Change it)")
 
 local Toast = Gaxia.UI.Toast
 local Input = Gaxia.Input
@@ -89,6 +92,8 @@ Why `CharacterAdded` plus the `if player.Character` check: the first character m
 - `Gaxia.IsInstalled` never loads anything.
 
 ## Check that it works
+
+If you cannot press Play: run the `luau-lsp analyze` command from AGENTS.md section 5 (no `TypeError`), then ask the user to do these steps and paste the Output lines.
 
 1. Press **Play** in Studio.
 2. Output shows `[GameClient] ready` and no red errors. Client output is in the same Output window.
