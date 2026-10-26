@@ -8,6 +8,37 @@ this framework uses a single rolling version until a public release cut.
 
 ## Unreleased
 
+### Added — pick the packages a game installs
+The framework is split into ~100 packages (`Gaxia_Packages_Server/Packages.lua`). Pick
+the ones a game uses and only those, the packages they need, and Core are installed;
+nothing else is in the place or replicated to clients. A Data-only install loads 37
+server modules at boot instead of 80.
+- **Companion → Install** lists the packages by category, with presets (`Default` = what
+  the framework booted before, `All`, `None`). Packages added because a picked one needs
+  them are marked `[+]`. The picker starts from the place's current pick.
+- **Rojo:** `node tools/packages.mjs build --select Data,Pet --out <dir>` writes the
+  picked tree and a `default.project.json` for `rojo serve` / `rojo build`. Also `list`,
+  `resolve`, `check`, `fix`.
+- **Installed = enabled.** The pick is recorded on both package roots (attribute
+  `GaxiaPackages`). At boot the server starts the picked packages that have
+  `Boot = true` (player hooks, remotes, loops, ProcessReceipt). Other installed services,
+  including the ones installed only as dependencies, start on first use.
+  `ServerStorage.GaxiaFeatures` still overrides. A full install without a pick keeps
+  using `Config/Features`.
+- The loaders' types list only installed modules, so autocomplete shows what is there.
+  The Companion needs script-edit permission to trim them.
+- `GaxiaServer.IsInstalled(name)` / `Gaxia.IsInstalled(key)`. The client bootstrap skips
+  pre-warm entries whose package is not installed.
+- `Lifecycle.Find(name)` (soft dependency): the service if its package is installed, else
+  nil. Quest/Idle (Pet coin multiplier), Player/Admin (AntiCheat whitelist), Admin
+  `/give` (Item, ItemDef), Ban (AntiCheat escalation), Webhook (Ban/AntiCheat/Guild
+  reports), Analytics (Economy/Level/Quest funnel) and AntiCheatAdmin (Analytics audit)
+  now use it, so picking Quest no longer installs Pet and its UI. Behaviour is the same
+  when those packages are installed.
+- Every package's `Requires` is generated from the source (`packages.mjs fix`);
+  `packages.mjs check` and `check-architecture` (R12) fail when the catalogue is stale or a
+  module belongs to no package.
+
 ### Changed — services start only when the game uses them (Features + typed lifecycle)
 The server no longer loads everything at boot. Each service registers its setup with
 `ServiceLifecycle.Define(module, { Name, Needs, Init, Start })`, and its module body does

@@ -44,7 +44,8 @@
 
 ### หลักการใช้งานสำคัญ
 - ทุก asset ถูก **tag ด้วย "Gaxia_Packages"** อัตโนมัติ (CollectionService) — query ได้ทั้งระบบ
-- **โหลดเฉพาะที่ใช้** — service เริ่มเมื่ออยู่ใน Features หรือถูกใช้ครั้งแรก; ที่ไม่ได้ใช้ไม่ถูกโหลดเลย (§4.1)
+- **ติดตั้งเฉพาะที่ใช้** — เลือก package ที่เกมใช้ตอนติดตั้ง (Companion หรือ `tools/packages.mjs`) ได้เฉพาะตัวนั้น + ที่มันต้องพึ่ง (§4.3)
+- **โหลดเฉพาะที่ใช้** — service เริ่มเมื่อถูกเลือกให้บูต หรือถูกใช้ครั้งแรก; ที่ไม่ได้ใช้ไม่ถูกโหลดเลย (§4.1)
 - **Type-annotated** — มี IntelliSense / autocomplete ใน Studio Script Editor รวมถึง payload ของ Signal (§4.2)
 - **Anti-Cheat แยก server/client** — server เป็น authority, client เป็น "tripwire"
 
@@ -231,13 +232,17 @@ local GaxiaServer = require(game.ServerStorage.Gaxia_Packages_Server)
 Service ฝั่ง server **ไม่เริ่มทำงานเพียงเพราะถูก require** อีกต่อไป — แต่ละตัวเริ่ม (สร้าง remote, ต่อ PlayerAdded,
 เริ่ม loop) เมื่อเกิดอย่างใดอย่างหนึ่งก่อน:
 
-1. **อยู่ใน Features** → เริ่มตอน server boot (เรียงตาม dependency อัตโนมัติ)
+1. **อยู่ในรายการ boot** → เริ่มตอน server boot (เรียงตาม dependency อัตโนมัติ)
 2. **เกมแตะ `GaxiaServer.<Name>` ครั้งแรก** → เริ่มตอนนั้น
 3. **มีการเรียก function ของ service นั้นครั้งแรก** (ทางไหนก็ได้ รวมถึง `require` ตรง)
 
 service ที่เกมไม่ได้ใช้เลย **ไม่ถูกโหลดเลย**
 
-**รายการที่เริ่มตอน boot:** `ServerStorage.Gaxia_Packages_Server.Config.Features`
+**รายการที่เริ่มตอน boot** (ตัวแรกที่มีชนะ):
+1. `ServerStorage.GaxiaFeatures` ของเกม (ด้านล่าง)
+2. ถ้าติดตั้งแบบ**เลือก package** (§4.3): package ที่เลือกซึ่งมี `Boot = true` ใน `Packages.lua`
+   (เช่น Data, AntiCheat, Monetization, Admin, Chat) — **ไม่ต้องแก้ Features เอง**
+3. ติดตั้งครบทุกตัว (Rojo `default.project.json` หรือติดตั้งก่อนมีตัวเลือก): `Config.Features`
 ```lua
 Services = { "AntiCheat", "Data", "Player", "Item", "Economy", "Pet", ... }
 ```
@@ -253,7 +258,8 @@ Services = { "AntiCheat", "Data", "Player", "Item", "Economy", "Pet", ... }
 > ```
 > ฝั่ง client ทำแบบเดียวกันด้วย `ReplicatedStorage.GaxiaClientFeatures` (`{ Client = { ... } }`)
 
-**ควรใส่ใน Features เมื่อเกมใช้** (มีงานต้องทำก่อนถูกเรียกครั้งแรก):
+**ควรใส่ใน Features เมื่อเกมใช้** (มีงานต้องทำก่อนถูกเรียกครั้งแรก — ถ้าติดตั้งแบบเลือก package ตัวเหล่านี้มี
+`Boot = true` จึงบูตให้เองเมื่อเลือก):
 
 | Service | ถ้าไม่ใส่ |
 |---|---|
@@ -269,6 +275,8 @@ Services = { "AntiCheat", "Data", "Player", "Item", "Economy", "Pet", ... }
 
 ```lua
 GaxiaServer.IsEnabled("Monetization")   -- true ถ้า service เริ่มทำงานแล้ว (ไม่โหลดอะไรเพิ่ม)
+GaxiaServer.IsInstalled("Pet")          -- true ถ้า package Pet ติดตั้งอยู่ใน place นี้ (ไม่โหลดอะไรเพิ่ม)
+Gaxia.IsInstalled("UI.Toast")           -- เหมือนกันสำหรับ key ฝั่ง shared / client
 GaxiaServer.Lifecycle.GetStarted()      -- { "AntiCheat", "Data", ... } ตามลำดับที่เริ่ม
 ```
 
@@ -302,6 +310,54 @@ Server ประกาศรายชื่อ service ที่ทำงาน�
   ```
   (method ที่เปลี่ยนค่า เช่น `:andThen` คืน `PromiseTypes.AnyPromise`)
 - เครื่องมือตรวจ: `node tools/check-architecture.mjs` (กติกาของ module ใน framework — ต้องมี `luau-ast`)
+- ถ้าติดตั้งแบบเลือก package type ของ `GaxiaServer` / `Gaxia` มีเฉพาะ package ที่ติดตั้ง → autocomplete แสดงเฉพาะของที่ใช้ได้จริง
+
+### 4.3 Packages — เลือกติดตั้งเฉพาะที่ใช้
+
+Framework แบ่งเป็น **~100 package** (รายการเต็ม: `ServerStorage.Gaxia_Packages_Server.Packages` หรือ
+`node tools/packages.mjs list`) เลือกเฉพาะที่เกมใช้ แล้วจะติดตั้ง **package ที่เลือก + package ที่มันต้องพึ่ง + Core**
+เท่านั้น — ตัวอื่นไม่อยู่ใน place เลย (ไม่ replicate ไป client ด้วย)
+
+| | ตัวอย่าง |
+|---|---|
+| **Core** (ติดตั้งเสมอ) | loader ทั้งสอง · Types · Config · ServiceLifecycle · EffectiveConfig · Signal · Trove · NetService · ReplicatedState · Flags · Logger · Constants · Serializer |
+| เลือก `Data` | + DataMigration + Util → server require ตอนบูต ~37 module (ติดตั้งครบ ~80) |
+| เลือก `Quest` | + Data, Migration, Economy, Item, Util |
+| เลือก `Pet` | + Data, Migration, Economy, ItemDef, Loot, Codex, Guard, Util + UI ของ pet (UI.UIController, UI.Toast, UI.Templates, Theme) |
+
+**ใน Studio (Gaxia Companion):** แท็บ **Install** → ติ๊ก package (มีปุ่ม preset `Default` = ชุดที่บูตก่อนหน้านี้,
+`All`, `None`) → **Install / Update** — แถว `[+]` คือที่ถูกเพิ่มให้เพราะ package ที่เลือกต้องใช้ · ครั้งต่อไปที่เปิด
+จะติ๊กตามที่ติดตั้งไว้ใน place นั้น
+> plugin ต้องได้สิทธิ์ **แก้ script** (Script Injection) เพื่อตัด type ของ package ที่ไม่ได้ติดตั้งออกจาก loader —
+> ถ้าไม่ได้รับสิทธิ์ ติดตั้งได้ แต่ Script Analysis จะเตือน type ใน loader
+
+**ใน Rojo:**
+```sh
+node tools/packages.mjs list                                    # ดูทุก package ตามหมวด
+node tools/packages.mjs resolve Data,Pet                        # ดูว่าจะติดตั้งอะไรบ้าง + อะไรบูต
+node tools/packages.mjs build --select Data,Pet --out ../MyGame/gaxia
+node tools/packages.mjs build --preset Default --out build/gaxia
+rojo serve ../MyGame/gaxia/default.project.json
+```
+`build` เขียน `src/` (เฉพาะไฟล์ที่ติดตั้ง, loader ตัด type ให้แล้ว) + `default.project.json` + `gaxia-packages.json`
+(ใช้ `--from <ไฟล์นี้>` build ซ้ำด้วยชุดเดิมหลังอัปเดต Gaxia)
+
+**ติดตั้งแล้ว = เปิดใช้:** package ที่**เลือก**และมี `Boot = true` (มีงานต้องทำก่อนถูกเรียก: player hook, remote,
+loop, ProcessReceipt) เริ่มตอนบูต · ตัวอื่นที่ติดตั้ง (รวมที่ติดมาเป็น dependency) เริ่มเมื่อเกมใช้ครั้งแรก ·
+ค่าที่เลือกบันทึกไว้ที่ attribute `GaxiaPackages` ของทั้งสอง package root · `ServerStorage.GaxiaFeatures` ยัง override ได้
+
+**Soft dependency — ใช้ถ้ามี:** บางการเชื่อมต่อเป็น optional จึงไม่บังคับให้ติดตั้งอีก package
+(เช่น Quest/Idle ใช้ตัวคูณ coin ของ Pet ถ้าติดตั้ง · Player/Admin whitelist AntiCheat ถ้าติดตั้ง ·
+Webhook/Analytics/Ban ฟัง signal ของ package ที่ติดตั้งอยู่ · `/give` ของ Admin ต้องมี Item) ใน service ของเกมเองใช้แบบเดียวกันได้:
+```lua
+type PetApi = { GetCoinMultiplier: (player: Player) -> number }
+local Pet: PetApi? = GaxiaServer.Lifecycle.Find("Pet")   -- nil ถ้าไม่ได้ติดตั้ง · โหลดแต่ไม่ start (เรียก function แล้วจึง start)
+if Pet then amount *= Pet.GetCoinMultiplier(player) end
+```
+
+**แก้ framework (ผู้ดูแล):** หลังเพิ่ม/ลบ `require` ให้รัน `node tools/packages.mjs fix` (สร้าง `Requires` ใหม่) —
+`node tools/packages.mjs check` และ `tools/check-architecture.mjs` (R12) fail ถ้า catalogue ไม่ตรงกับ source
+· module ใหม่ต้องอยู่ใน Core หรือ package ใด package หนึ่งเสมอ
 
 ---
 
@@ -2807,7 +2863,7 @@ end
 ```
 
 ทำอะไร:
-1. `require` GaxiaServer แล้วเรียก `GaxiaServer.Boot()` → เริ่ม services ใน Features (§4.1) ตาม dependency —
+1. `require` GaxiaServer แล้วเรียก `GaxiaServer.Boot()` → เริ่ม services ในรายการ boot (§4.1) ตาม dependency —
    ไม่มีรายชื่อหรือลำดับที่ต้องดูแลเองใน bootstrap อีกต่อไป
 2. ถ้า `AntiCheat` ทำงาน → ผูก `AC.OnAction` กับ default action:
    - `soft` → warn ใน output
@@ -2824,7 +2880,7 @@ end
 ทำอะไร:
 1. Require Gaxia
 2. อ่านรายการจาก `ReplicatedStorage.Gaxia_Packages.Features` (หรือ `ReplicatedStorage.GaxiaClientFeatures` ของเกม)
-3. โหลด module เหล่านั้นตอน spawn — ข้ามตัวที่ต้องพึ่ง service ฝั่ง server ที่ไม่ได้ทำงาน
+3. โหลด module เหล่านั้นตอน spawn — ข้ามตัวที่ไม่ได้ติดตั้ง (§4.3) และตัวที่ต้องพึ่ง service ฝั่ง server ที่ไม่ได้ทำงาน
    (ค่าเริ่มต้น: ClientAntiCheat, Input, Camera, Sound, AdminPanel, ChatFeedback, PetController)
 
 ### 10.3 Custom Bootstrap

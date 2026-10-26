@@ -45,6 +45,22 @@ live; edit in your editor (VS Code / Cursor with the Rojo + luau-lsp extensions)
   Luau releases on PATH, or `LUAU_AST=/path/to/luau-ast`)
 - `rojo build default.project.json -o GaxiaPackages.rbxm` — build a distributable model
 
+## Installing only some packages
+`default.project.json` maps every package (the framework's own development tree). For a
+game that uses only some of them, build a picked tree instead:
+```sh
+node tools/packages.mjs list                                     # packages by category
+node tools/packages.mjs build --select Data,Economy,Pet --out ../MyGame/gaxia
+rojo serve ../MyGame/gaxia/default.project.json                  # or: rojo build … -o Gaxia.rbxm
+```
+It copies the picked packages, what they Require and Core, trims the loaders' types to
+match, and records the pick (`$attributes.GaxiaPackages`) so the server boots the picked
+packages that need it. Re-run with `--from ../MyGame/gaxia/gaxia-packages.json` after
+updating Gaxia. See MANUAL §4.3.
+
+After adding or removing a `require` in the framework, run `node tools/packages.mjs fix`
+(`check` and `check-architecture` fail while `Packages.lua` is stale).
+
 ## Note on the MCP plugin
 Rojo replaces only **file→Studio sync**. The Claude MCP plugin is still used for
 `run_script_in_play_mode`, screenshots, and tests — they coexist (Rojo owns the
