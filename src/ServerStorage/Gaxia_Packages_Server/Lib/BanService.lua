@@ -2,25 +2,18 @@
 -- ─────────────────────────────────────────────────────────────
 -- BanService.lua
 -- Location: ServerStorage/Gaxia_Packages_Server/Lib/BanService
--- Purpose : Persistent bans + an auto-escalation policy. AntiCheat only Kicked
---           (in-memory, cleared on leave) so cheaters rejoined instantly. This
---           persists bans (DataStore, pcall-guarded + session cache so Studio
---           works without API), gates them on PlayerAdded, and escalates repeat
---           hard AntiCheat actions: warn/kick → temp-ban → perm-ban (thresholds
---           in Config.AntiCheat.BanPolicy). Exempt from ALL auto-action: the
---           place creator + roles >= BanPolicy.ExemptRole (escalation only
---           warns; stale creator bans self-heal at the join gate).
+-- Purpose : Persistent bans and the join gate used by moderation. Automatic
+--           AntiCheat policy lives only in AntiCheatEnforcement; this module
+--           persists explicit Ban/Unban calls and provides the shared staff
+--           exemption check used by that one enforcement owner.
 --
 -- Access  : Gaxia.Ban  (server)
 --   Gaxia.Ban.Ban(userId, "Exploiting", 3600)   -- 1h temp ban (nil = permanent)
 --   local banned, reason = Gaxia.Ban.IsBanned(userId)
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
-local Players           = game:GetService("Players")
-local DataStoreService  = game:GetService("DataStoreService")
+local Players = game:GetService("Players")
+local DataStoreService = game:GetService("DataStoreService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
 
 local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
 local Signal = SharedPkg.Signal
@@ -31,18 +24,18 @@ local Config = require(script.Parent.Parent:FindFirstChild("Config") :: ModuleSc
 -- (Config.Admin.Stores.Bans, "override to namespace bans/roles per game").
 -- Read once at load: the store name is fixed for the server lifetime and is a
 -- server-private secret, never a runtime Flag. Falls back to the historic default.
-local BAN_STORE : string = ((Config.Admin or {}).Stores or {}).Bans or "GaxiaBans"
+local BAN_STORE: string = ((Config.Admin or {}).Stores or {}).Bans or "GaxiaBans"
 
 export type Ban = {
 	reason: string,
-	expiresAt: number?,  -- os.time(); nil = permanent
+	expiresAt: number?, -- os.time(); nil = permanent
 	time: number,
 }
 
 local BanService = {}
 
-BanService.OnBan = Signal.new()    -- (userId, ban)
-BanService.OnUnban = Signal.new()  -- (userId)
+BanService.OnBan = Signal.new() -- (userId, ban)
+BanService.OnUnban = Signal.new() -- (userId)
 
 -- Session cache: Ban record, or false = explicitly not banned (so we don't re-hit
 -- the DataStore every check). Lets Studio (no real DataStore) work in-memory.
@@ -219,7 +212,7 @@ local function gate(player: Player): ()
 		return
 	end
 	-- The place creator can never be legitimately banned (manual /ban refuses,
-	-- escalation is exempt) — a record here is stale (e.g. an auto-ban issued
+	-- automatic action is exempt) — a record here is stale (e.g. an old auto-ban issued
 	-- before the exemption existed) and would lock the owner out of their own
 	-- game. Self-heal: drop the record instead of kicking. Creator ONLY: role
 	-- rows load async (racy at join) and lower staff CAN be legitimately banned.
@@ -235,7 +228,7 @@ for _, p in ipairs(Players:GetPlayers()) do
 	task.spawn(gate, p)
 end
 
--- ── Auto-escalation policy (repeat hard AntiCheat actions) ──
+-- ── Automatic-action exemption helper ────────────────────────
 
 -- Lazy AdminCommands ref (sibling Lib module) for the role lookup in the
 -- escalation exemption. Resolved at call time via pcall: a load-time require
@@ -244,11 +237,15 @@ end
 -- covers only the place creator).
 local _adminRef: any = nil
 local function getAdmin(): any
-	if _adminRef ~= nil then return _adminRef end
+	if _adminRef ~= nil then
+		return _adminRef
+	end
 	local mod = script.Parent:FindFirstChild("AdminCommands")
 	if mod and mod:IsA("ModuleScript") then
 		local ok, m = pcall(require, mod)
-		if ok then _adminRef = m end
+		if ok then
+			_adminRef = m
+		end
 	end
 	return _adminRef
 end
@@ -280,61 +277,19 @@ local function isEscalationExempt(userId: number): boolean
 	return false
 end
 
--- Public: AntiCheat.OnAction has TWO enforcing consumers — escalate() here and
--- the bootstrap's default hard-action kick. Both must answer "is this user
--- machine-punishable?" identically, or the exemption only stops the ban while
--- the other consumer still kicks the creator out of their own game.
+-- Public: the sole AntiCheatEnforcement owner calls this before automatic
+-- action. Manual Ban() deliberately remains a low-level administrator API.
 function BanService.IsEscalationExempt(userId: number): boolean
 	return isEscalationExempt(userId)
 end
 
-local strikes: { [number]: number } = {}
-local function escalate(player: Player, reason: string): ()
-	local uid = player.UserId
-	if isEscalationExempt(uid) then
-		warn(`[BanService] escalation exempt for {player.Name} ({uid}) — would have acted on: {reason}`)
-		return
-	end
-	strikes[uid] = (strikes[uid] or 0) + 1
-	local n = strikes[uid]
-	local policy = Config.AntiCheat.BanPolicy or {}
-	local kickAt    : number = (policy.KickAt :: any) or 1
-	local tempBanAt : number = (policy.TempBanAt :: any) or 2
-	local permBanAt : number = (policy.PermBanAt :: any) or 3
-	local tempSecs  : number = (policy.TempBanSeconds :: any) or 3600
-	if n >= permBanAt then
-		BanService.Ban(uid, `Auto: {reason} x{n}`)
-	elseif n >= tempBanAt then
-		BanService.Ban(uid, `Auto: {reason} x{n}`, tempSecs)
-	elseif n >= kickAt then
-		player:Kick(`[AntiCheat] {reason}`)
-	end
-end
-
 Players.PlayerRemoving:Connect(function(p)
-	strikes[p.UserId] = nil
 	-- Evict the ban cache so a rejoin re-reads the store: bans/unbans issued on
 	-- ANOTHER server while this one held a warm entry must take effect here too.
 	-- Only when a real store exists — without one (Studio, no API access) the
 	-- cache IS the ban state and must survive rejoin within the session.
 	if store() then
 		cache[p.UserId] = nil
-	end
-end)
-
--- Subscribe to AntiCheat hard actions (deferred — off the load metamethod path).
-task.spawn(function()
-	-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-	-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-	local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-	local GaxiaServer = require(serverInit :: any)
-	local AC = GaxiaServer.AntiCheat
-	if AC and AC.OnAction then
-		AC.OnAction:Connect(function(player: Player, reason: string, kind: string)
-			if kind == "hard" then
-				escalate(player, reason)
-			end
-		end)
 	end
 end)
 

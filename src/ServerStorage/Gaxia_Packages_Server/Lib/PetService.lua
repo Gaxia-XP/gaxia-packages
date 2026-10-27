@@ -19,13 +19,14 @@
 -- ─────────────────────────────────────────────────────────────
 local CollectionService = game:GetService("CollectionService")
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
+local ServerStorage = game:GetService("ServerStorage")
 
 local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
 local Signal = SharedPkg.Signal
-local Net    = SharedPkg.Net
-local Guard  = SharedPkg.Guard
+local Net = SharedPkg.Net
+local Guard = SharedPkg.Guard
 
 local GaxiaServer: any = nil
 local function server(): any
@@ -39,14 +40,14 @@ local function server(): any
 end
 
 -- ── Constants ──
-local PETS_KEY         : string = "Pets"       -- profile key (outside DEFAULT_PROFILE, like Inventory's "Inv")
-local PET_CATEGORY     : string = "Pet"        -- ItemDef category for the roster
-local CODEX_SET        : string = "Pets"       -- Codex set name for the collection index
-local EGG_TABLE_ID     : string = "BasicEgg"   -- Loot table id
-local EGG_CURRENCY     : string = "Coins"      -- currency an egg costs
-local DEFAULT_EGG_COST : number = 100          -- ultimate fallback if Config absent
-local DEFAULT_SLOTS    : number = 3            -- ultimate fallback if Config absent
-local MAX_UID_LEN      : number = 64           -- reject client uid payloads longer than any legit "u_<n>"
+local PETS_KEY: string = "Pets" -- profile key (outside DEFAULT_PROFILE, like Inventory's "Inv")
+local PET_CATEGORY: string = "Pet" -- ItemDef category for the roster
+local CODEX_SET: string = "Pets" -- Codex set name for the collection index
+local EGG_TABLE_ID: string = "BasicEgg" -- Loot table id
+local EGG_CURRENCY: string = "Coins" -- currency an egg costs
+local DEFAULT_EGG_COST: number = 100 -- ultimate fallback if Config absent
+local DEFAULT_SLOTS: number = 3 -- ultimate fallback if Config absent
+local MAX_UID_LEN: number = 64 -- reject client uid payloads longer than any legit "u_<n>"
 
 -- Effective tunable: runtime Flag override <- Config.Pets default <- fallback.
 local function petGet(key: string, fallback: any): any
@@ -70,27 +71,83 @@ export type PetDef = {
 }
 
 local PET_DEFS: { [string]: PetDef } = {
-	pet_Cat     = { displayName = "Cat",     rarity = "common",    coinBonus = 0.05, weight = 40,  icon = "" },
-	pet_Dog     = { displayName = "Dog",     rarity = "common",    coinBonus = 0.05, weight = 30,  icon = "" },
-	pet_Bunny   = { displayName = "Bunny",   rarity = "uncommon",  coinBonus = 0.10, weight = 12,  icon = "" },
-	pet_Fox     = { displayName = "Fox",     rarity = "uncommon",  coinBonus = 0.12, weight = 10,  icon = "" },
-	pet_Panda   = { displayName = "Panda",   rarity = "rare",      coinBonus = 0.20, weight = 4,   icon = "" },
-	pet_Penguin = { displayName = "Penguin", rarity = "rare",      coinBonus = 0.25, weight = 3,   icon = "" },
-	pet_Tiger   = { displayName = "Tiger",   rarity = "epic",      coinBonus = 0.40, weight = 1.5, icon = "" },
-	pet_Dragon  = { displayName = "Dragon",  rarity = "legendary", coinBonus = 1.00, weight = 0.5, pity = 50, icon = "" },
+	pet_Cat = {
+		displayName = "Cat",
+		rarity = "common",
+		coinBonus = 0.05,
+		weight = 40,
+		icon = "",
+	},
+	pet_Dog = {
+		displayName = "Dog",
+		rarity = "common",
+		coinBonus = 0.05,
+		weight = 30,
+		icon = "",
+	},
+	pet_Bunny = {
+		displayName = "Bunny",
+		rarity = "uncommon",
+		coinBonus = 0.10,
+		weight = 12,
+		icon = "",
+	},
+	pet_Fox = {
+		displayName = "Fox",
+		rarity = "uncommon",
+		coinBonus = 0.12,
+		weight = 10,
+		icon = "",
+	},
+	pet_Panda = {
+		displayName = "Panda",
+		rarity = "rare",
+		coinBonus = 0.20,
+		weight = 4,
+		icon = "",
+	},
+	pet_Penguin = {
+		displayName = "Penguin",
+		rarity = "rare",
+		coinBonus = 0.25,
+		weight = 3,
+		icon = "",
+	},
+	pet_Tiger = {
+		displayName = "Tiger",
+		rarity = "epic",
+		coinBonus = 0.40,
+		weight = 1.5,
+		icon = "",
+	},
+	pet_Dragon = {
+		displayName = "Dragon",
+		rarity = "legendary",
+		coinBonus = 1.00,
+		weight = 0.5,
+		pity = 50,
+		icon = "",
+	},
 }
 
 -- Stable display/iteration order (rarity ascending). Loot weighting is
 -- order-independent, but the egg table + client grid read this for determinism.
 local PET_ORDER: { string } = {
-	"pet_Cat", "pet_Dog", "pet_Bunny", "pet_Fox", "pet_Panda", "pet_Penguin", "pet_Tiger", "pet_Dragon",
+	"pet_Cat",
+	"pet_Dog",
+	"pet_Bunny",
+	"pet_Fox",
+	"pet_Panda",
+	"pet_Penguin",
+	"pet_Tiger",
+	"pet_Dragon",
 }
 
 export type PetInstance = { petId: string, uid: string }
 
 local PetService = {}
 
-PetService.OnPetGranted   = Signal.new() -- (player, petId, uid)
+PetService.OnPetGranted = Signal.new() -- (player, petId, uid)
 PetService.OnEquipChanged = Signal.new() -- (player, equipped: { string })
 
 -- ── Persistence (one blob: owned map + equipped list + uid sequence) ──
@@ -286,7 +343,12 @@ end
 local function defsPublic(): { [string]: any }
 	local out: { [string]: any } = {}
 	for id, d in pairs(PET_DEFS) do
-		out[id] = { displayName = d.displayName, rarity = d.rarity, coinBonus = d.coinBonus, icon = d.icon }
+		out[id] = {
+			displayName = d.displayName,
+			rarity = d.rarity,
+			coinBonus = d.coinBonus,
+			icon = d.icon,
+		}
 	end
 	return out
 end
@@ -304,13 +366,13 @@ function PetService.Snapshot(player: Player): { [string]: any }
 		table.insert(equipped, uid)
 	end
 	return {
-		owned      = owned,
-		equipped   = equipped,
+		owned = owned,
+		equipped = equipped,
 		multiplier = multiplierOf(pets),
-		slots      = maxSlots(),
-		eggCost    = eggCost(),
-		defs       = defsPublic(),
-		order      = PET_ORDER,
+		slots = maxSlots(),
+		eggCost = eggCost(),
+		defs = defsPublic(),
+		order = PET_ORDER,
 	}
 end
 
@@ -350,35 +412,72 @@ local function registerContent(): ()
 	end)
 end
 
--- ── Boot: register client-facing remotes (anti-exploit via Net + Guard) ──
+-- ── Boot: register client-facing RPCs (gateway-owned + server authoritative) ──
 
 local function registerRemotes(): ()
-	-- Initial state pull (RemoteFunction).
-	Net.OnInvoke("PetGetState", function(player: Player): any
-		return PetService.Snapshot(player)
-	end, { rate = 10 })
+	local function activePlayer(context: any): boolean
+		return context.player.Parent == Players
+	end
+
+	-- Initial state pull.
+	Net.Server.RegisterFunction("PetGetState", {
+		schema = Guard.strictInterface({}),
+		budget = "small",
+		rate = 10,
+		concurrency = 1,
+		handler = function(context: any): any
+			return PetService.Snapshot(context.player)
+		end,
+	})
 
 	-- Buy egg. Server is authoritative: it spends, rolls, grants, then re-syncs.
-	Net.OnServer("PetBuyEgg", function(player: Player, payload: any)
-		local ok, result = PetService.BuyEgg(player, payload.egg)
-		Net.FireClient(player, "PetHatch", {
-			ok = ok,
-			petId = if ok then result else nil,
-			reason = if ok then nil else result,
-		})
-		pushSnapshot(player)
-	end, { rate = 4, validators = { Guard.strictInterface({ egg = Guard.string }) } })
+	Net.Server.RegisterEvent("PetBuyEgg", {
+		schema = Guard.strictInterface({ egg = Guard.string }),
+		budget = "tiny",
+		rate = 4,
+		concurrency = 1,
+		mutation = true,
+		validate = activePlayer,
+		handler = function(context: any, payload: any)
+			local player = context.player
+			local ok, result = PetService.BuyEgg(player, payload.egg)
+			Net.FireClient(player, "PetHatch", {
+				ok = ok,
+				petId = if ok then result else nil,
+				reason = if ok then nil else result,
+			})
+			pushSnapshot(player)
+		end,
+	})
 
 	-- Equip / unequip by owned uid. Equip/Unequip re-validate ownership + slots.
-	Net.OnServer("PetEquip", function(player: Player, payload: any)
-		PetService.Equip(player, payload.uid)
-		pushSnapshot(player)
-	end, { rate = 10, validators = { Guard.strictInterface({ uid = Guard.string }) } })
+	Net.Server.RegisterEvent("PetEquip", {
+		schema = Guard.strictInterface({ uid = Guard.string }),
+		budget = "tiny",
+		rate = 10,
+		concurrency = 1,
+		mutation = true,
+		validate = activePlayer,
+		handler = function(context: any, payload: any)
+			local player = context.player
+			PetService.Equip(player, payload.uid)
+			pushSnapshot(player)
+		end,
+	})
 
-	Net.OnServer("PetUnequip", function(player: Player, payload: any)
-		PetService.Unequip(player, payload.uid)
-		pushSnapshot(player)
-	end, { rate = 10, validators = { Guard.strictInterface({ uid = Guard.string }) } })
+	Net.Server.RegisterEvent("PetUnequip", {
+		schema = Guard.strictInterface({ uid = Guard.string }),
+		budget = "tiny",
+		rate = 10,
+		concurrency = 1,
+		mutation = true,
+		validate = activePlayer,
+		handler = function(context: any, payload: any)
+			local player = context.player
+			PetService.Unequip(player, payload.uid)
+			pushSnapshot(player)
+		end,
+	})
 
 	-- Pre-create the server→client remotes so a client's OnClient subscription
 	-- (which WaitForChilds the remote) resolves at join even before the first real

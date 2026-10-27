@@ -18,16 +18,19 @@
 --   -- client:
 --   Gaxia.Command.Send("Buy", { id = "Sword", qty = 1 })
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
+local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local IS_SERVER : boolean = RunService:IsServer()
+-- WHY the extra Studio clause: in Edit mode via tooling IsServer() is false and
+-- client paths would stall/assert. Edit mode has no real client, so server
+-- semantics are the default there; Play mode and live servers are unaffected.
+local IS_SERVER: boolean = RunService:IsServer()
+	or (RunService:IsStudio() and not RunService:IsRunning())
 
 -- Sibling Shared modules (present, pure-enough bodies → FindFirstChild require).
 local Net = require(script.Parent:FindFirstChild("NetService") :: ModuleScript) :: any
 
-local COMMAND_REMOTE : string = "GaxiaCommand"
-local CHANNEL_RATE   : number = 30   -- commands/sec/player across the whole channel
+local COMMAND_REMOTE: string = "GaxiaCommand"
+local CHANNEL_RATE: number = 30 -- commands/sec/player across the whole channel
 
 export type Command = {
 	schema: ((value: any) -> (boolean, string?))?,
@@ -39,27 +42,49 @@ local Command = {}
 local commands: { [string]: Command } = {}
 local serverWired = false
 
+local function commandEnvelope(value: any): boolean
+	if typeof(value) ~= "table" or typeof(value.name) ~= "string" then
+		return false
+	end
+	if #value.name == 0 or #value.name > 64 then
+		return false
+	end
+	for key in pairs(value) do
+		if key ~= "name" and key ~= "payload" then
+			return false
+		end
+	end
+	return true
+end
+
 local function ensureServerChannel(): ()
 	if serverWired then
 		return
 	end
 	serverWired = true
-	Net.OnServer(COMMAND_REMOTE, function(player: Player, name: any, payload: any)
-		if typeof(name) ~= "string" then
-			return
-		end
-		local cmd = commands[name]
-		if not cmd then
-			return -- unknown command — drop
-		end
-		if cmd.schema then
-			local ok = cmd.schema(payload)
-			if not ok then
-				return -- payload failed its schema — drop
+	Net.Server.RegisterEvent(COMMAND_REMOTE, {
+		schema = commandEnvelope,
+		budget = "medium",
+		rate = CHANNEL_RATE,
+		concurrency = 1,
+		mutation = true,
+		validate = function(context: any): boolean
+			return context.player.Parent == Players
+		end,
+		handler = function(context: any, envelope: any)
+			local cmd = commands[envelope.name]
+			if not cmd then
+				return -- unknown command — drop
 			end
-		end
-		cmd.handler(player, payload)
-	end, { rate = CHANNEL_RATE })
+			if cmd.schema then
+				local ok = cmd.schema(envelope.payload)
+				if not ok then
+					return -- payload failed its schema — drop
+				end
+			end
+			cmd.handler(context.player, envelope.payload)
+		end,
+	})
 end
 
 -- ── Public API ──
@@ -84,7 +109,7 @@ end
 -- Client: send a command to the server.
 function Command.Send(name: string, payload: any?): ()
 	assert(not IS_SERVER, "Command.Send is client-only")
-	Net.FireServer(COMMAND_REMOTE, name, payload)
+	Net.Client.Fire(COMMAND_REMOTE, { name = name, payload = payload })
 end
 
 return Command

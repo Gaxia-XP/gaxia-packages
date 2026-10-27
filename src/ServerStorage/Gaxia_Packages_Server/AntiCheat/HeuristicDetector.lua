@@ -73,7 +73,7 @@ function HeuristicDetector.Sample(player: Player, snapshot: any): any?
 
 	if variance < MAX_VARIANCE then
 		windows[uid] = {} -- reset after flagging so we don't spam every tick
-		return { reason = "Heuristic:SustainedSpeed", severity = SEVERITY }
+		return { reason = "Heuristic:SustainedSpeed", severity = SEVERITY, source = "server" }
 	end
 	return nil
 end

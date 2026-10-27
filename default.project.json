@@ -1,6 +1,13 @@
 {
   "name": "GaxiaPackages",
-  "globIgnorePaths": ["**/*.spec.lua", "**/*.spec.luau"],
+  "globIgnorePaths": [
+    "**/*.spec.lua",
+    "**/*.spec.luau",
+    "**/*.test.lua",
+    "**/*.test.luau",
+    "**/__tests__/**",
+    "**/jest.config.luau"
+  ],
   "tree": {
     "$className": "DataModel",
 
@@ -8,7 +15,10 @@
       "$ignoreUnknownInstances": true,
       "Gaxia_Packages": {
         "$path": "src/ReplicatedStorage/Gaxia_Packages",
-        "$ignoreUnknownInstances": true
+        "$ignoreUnknownInstances": true,
+        "Packages": {
+          "$path": "Packages"
+        }
       }
     },
 
@@ -16,7 +26,10 @@
       "$ignoreUnknownInstances": true,
       "Gaxia_Packages_Server": {
         "$path": "src/ServerStorage/Gaxia_Packages_Server",
-        "$ignoreUnknownInstances": true
+        "$ignoreUnknownInstances": true,
+        "ServerPackages": {
+          "$path": "ServerPackages"
+        }
       }
     },
 

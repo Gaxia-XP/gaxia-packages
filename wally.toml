@@ -1,0 +1,25 @@
+[package]
+name = "gaxia-xp/gaxia-packages"
+version = "1.0.0"
+registry = "https://github.com/UpliftGames/wally-index"
+realm = "shared"
+private = true
+
+[dependencies]
+Comm = "sleitnick/comm@1.0.1"
+Component = "sleitnick/component@2.4.8"
+Janitor = "howmanysmall/janitor@=1.18.3"
+Observers = "sleitnick/observers@=1.0.0"
+# Shared Wally dependencies use the published release. Gaxia.Promise keeps the
+# compatible post-tag upstream snapshot in Shared/Promise.lua.
+Promise = "evaera/promise@4.0.0"
+Signal = "sleitnick/signal@2.0.3"
+Spring = "sleitnick/spring@=1.0.0"
+Symbol = "sleitnick/symbol@=2.0.1"
+TableUtil = "sleitnick/table-util@=1.2.1"
+T = "osyrisrblx/t@=3.1.1"
+Trove = "sleitnick/trove@1.8.0"
+ZonePlus = "mattschrubb/zoneplus@=3.2.0"
+
+[server-dependencies]
+ProfileStore = "lm-loleris/profilestore@=1.0.3"

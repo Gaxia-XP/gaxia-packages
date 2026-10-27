@@ -19,10 +19,11 @@
 local CollectionService = game:GetService("CollectionService")
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
+local ServerStorage = game:GetService("ServerStorage")
 
 local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
 local Signal = SharedPkg.Signal
+local Net = SharedPkg.Net
 
 local GaxiaServer: any = nil
 local function server(): any
@@ -35,14 +36,14 @@ local function server(): any
 	return GaxiaServer
 end
 
-local POOL_TTL : number = 120
+local POOL_TTL: number = 120
 
 type Party = { id: string, leader: any, members: { any } }
 
 local PartyService = {}
 
 PartyService.OnPartyChanged = Signal.new() -- (partyId)
-PartyService.OnMatchFound = Signal.new()   -- (matchType, parties, accessCode)
+PartyService.OnMatchFound = Signal.new() -- (matchType, parties, accessCode)
 
 local parties: { [string]: Party } = {}
 local playerParty: { [number]: string } = {}
@@ -158,7 +159,11 @@ local function poolName(matchType: string): string
 	return `mm_{matchType}`
 end
 
-function PartyService.QueueForMatch(partyId: string, matchType: string, placeId: number): (boolean, string)
+function PartyService.QueueForMatch(
+	partyId: string,
+	matchType: string,
+	placeId: number
+): (boolean, string)
 	local p = parties[partyId]
 	if not p then
 		return false, "no such party"
@@ -168,7 +173,13 @@ function PartyService.QueueForMatch(partyId: string, matchType: string, placeId:
 		table.insert(memberIds, m.UserId)
 	end
 	local entry = { partyId = partyId, memberIds = memberIds, size = #p.members, placeId = placeId }
-	server().Memory.MapSet(poolName(matchType), partyId, entry, partyGet("PoolTTL", POOL_TTL), os.time())
+	server().Memory.MapSet(
+		poolName(matchType),
+		partyId,
+		entry,
+		partyGet("PoolTTL", POOL_TTL),
+		os.time()
+	)
 	return true, "ok"
 end
 
@@ -178,7 +189,10 @@ end
 
 -- Pull oldest queued parties until `neededPlayers` is reached; if a full match
 -- forms, remove those parties from the pool, reserve a server, and return it.
-function PartyService.PollMatch(matchType: string, neededPlayers: number): { parties: { any }, accessCode: string?, placeId: number? }?
+function PartyService.PollMatch(
+	matchType: string,
+	neededPlayers: number
+): { parties: { any }, accessCode: string?, placeId: number? }?
 	local pool = server().Memory.MapRange(poolName(matchType), partyGet("PoolScanLimit", 50), true) -- oldest first
 	local chosen: { any } = {}
 	local total = 0
@@ -220,7 +234,8 @@ function PartyService.StartMatch(partyId: string, placeId: number): (boolean, an
 			table.insert(toSend, m)
 		end
 	end
-	local ok, err = server().Teleport.ToPrivate(toSend, placeId, code, { Data = { partyId = partyId } })
+	local ok, err =
+		server().Teleport.ToPrivate(toSend, placeId, code, { Data = { partyId = partyId } })
 	return ok, err
 end
 
@@ -473,7 +488,97 @@ do
 	end
 end
 
--- ── RemoteFunction surface ──
+-- ── Network surface ──
+-- Party mutations and reads use separate logical Net RPCs. The legacy
+-- Events/Party/InviteAction endpoint deliberately has no replacement
+-- handler; Events/Party/InviteInbound remains the outbound compatibility
+-- channel until its consumers migrate.
+local MAX_USER_ID = 9007199254740991 -- largest integer exactly representable by Luau numbers
+
+type FieldValidators = { [string]: (any) -> boolean }
+
+local function isFiniteInteger(value: any): boolean
+	return typeof(value) == "number"
+		and value == value
+		and value ~= math.huge
+		and value ~= -math.huge
+		and value % 1 == 0
+end
+
+local function isUserId(value: any): boolean
+	return isFiniteInteger(value) and value > 0 and value <= MAX_USER_ID
+end
+
+local function isPartyId(value: any): boolean
+	return typeof(value) == "string" and #value <= 64 and string.match(value, "^party_%d+$") ~= nil
+end
+
+local function exactSchema(fields: FieldValidators): (any) -> boolean
+	return function(payload: any): boolean
+		if typeof(payload) ~= "table" then
+			return false
+		end
+		for key, value in pairs(payload) do
+			if typeof(key) ~= "string" then
+				return false
+			end
+			local validate = fields[key]
+			if not validate or not validate(value) then
+				return false
+			end
+		end
+		for key in pairs(fields) do
+			if payload[key] == nil then
+				return false
+			end
+		end
+		return true
+	end
+end
+
+local EMPTY_SCHEMA = exactSchema({})
+
+local function isCurrentPlayer(context: any, _payload: any): boolean
+	local player = context.player
+	return typeof(player) == "Instance"
+		and player:IsA("Player")
+		and player.Parent == game:GetService("Players")
+end
+
+local function operationResult(ok: boolean, reason: string?): { ok: boolean, reason: string? }
+	return { ok = ok, reason = reason }
+end
+
+local function registerRead(name: string, schema: (any) -> boolean, handler: (any, any) -> any): ()
+	Net.Server.RegisterFunction(name, {
+		schema = schema,
+		handler = handler,
+		rate = 2,
+		burst = 4,
+		budget = "tiny",
+		concurrency = 1,
+	})
+end
+
+local function registerMutation(
+	name: string,
+	schema: (any) -> boolean,
+	handler: (any, any) -> any,
+	rate: number?,
+	burst: number?
+): ()
+	Net.Server.RegisterFunction(name, {
+		schema = schema,
+		handler = handler,
+		validate = isCurrentPlayer,
+		mutation = true,
+		rate = rate or 3,
+		burst = burst or 4,
+		budget = "tiny",
+		concurrency = 1,
+	})
+end
+
 do
 	local Events = ReplicatedStorage:FindFirstChild("Events") or Instance.new("Folder")
 	Events.Name = "Events"
@@ -481,35 +586,54 @@ do
 	local PartyFolder = Events:FindFirstChild("Party") or Instance.new("Folder")
 	PartyFolder.Name = "Party"
 	PartyFolder.Parent = Events
-	local Action = PartyFolder:FindFirstChild("InviteAction") or Instance.new("RemoteFunction")
-	Action.Name = "InviteAction"
-	Action.Parent = PartyFolder
 	local Inbound = PartyFolder:FindFirstChild("InviteInbound") or Instance.new("RemoteEvent")
 	Inbound.Name = "InviteInbound"
 	Inbound.Parent = PartyFolder
 
-	Action.OnServerInvoke = function(player: Player, e: any): (boolean, any)
-		if typeof(e) ~= "table" or typeof(e.type) ~= "string" then
-			return false, "bad envelope"
-		end
-		if e.type == "invite" then
-			return PartyService.Invite(player, e.target)
-		end
-		if e.type == "accept" then
-			return PartyService.AcceptInvite(player, e.partyId)
-		end
-		if e.type == "decline" then
-			return PartyService.DeclineInvite(player, e.partyId)
-		end
-		if e.type == "cancel" then
-			PartyService.CancelInvite(player, e.target)
-			return true
-		end
-		if e.type == "pending" then
-			return true, PartyService.GetPendingInvites(player)
-		end
-		return false, "unknown action"
-	end
+	registerMutation(
+		"Party.Invite",
+		exactSchema({ targetUserId = isUserId }),
+		function(context, payload)
+			local ok, reason = PartyService.Invite(context.player, payload.targetUserId)
+			return operationResult(ok, reason)
+		end,
+		0.5,
+		2
+	)
+	registerMutation(
+		"Party.AcceptInvite",
+		exactSchema({ partyId = isPartyId }),
+		function(context, payload)
+			local ok, reason = PartyService.AcceptInvite(context.player, payload.partyId)
+			return operationResult(ok, reason)
+		end,
+		nil,
+		nil
+	)
+	registerMutation(
+		"Party.DeclineInvite",
+		exactSchema({ partyId = isPartyId }),
+		function(context, payload)
+			local ok, reason = PartyService.DeclineInvite(context.player, payload.partyId)
+			return operationResult(ok, reason)
+		end,
+		nil,
+		nil
+	)
+	registerMutation(
+		"Party.CancelInvite",
+		exactSchema({ targetUserId = isUserId }),
+		function(context, payload)
+			PartyService.CancelInvite(context.player, payload.targetUserId)
+			return operationResult(true, nil)
+		end,
+		nil,
+		nil
+	)
+	registerRead("Party.GetPendingInvites", EMPTY_SCHEMA, function(context, _payload)
+		return PartyService.GetPendingInvites(context.player)
+	end)
+
 	PartyService.OnInvite:Connect(function(toPlayer, partyId, fromName)
 		Inbound:FireClient(toPlayer, { type = "invite", partyId = partyId, fromName = fromName })
 	end)

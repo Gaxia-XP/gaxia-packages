@@ -4,7 +4,7 @@
 -- Location: ServerStorage/Gaxia_Packages_Server/Lib/DataMigration
 -- Purpose : Schema versioning for DataManager profiles. Register
 --           migration functions and run them in order on load.
--- Integration: After ProfileService Reconcile, call
+-- Integration: After ProfileStore Reconcile, call
 --           DataMigration.Migrate(profile.Data) to upgrade old
 --           saves to the current schema before gameplay starts.
 -- ─────────────────────────────────────────────────────────────

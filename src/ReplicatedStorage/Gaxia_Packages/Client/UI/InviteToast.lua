@@ -29,6 +29,7 @@ if not RunService:IsClient() then
 end
 
 local Toast = require(script.Parent:WaitForChild("Toast")) :: any
+local Gaxia = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
 
 local function waitRemote(folderName: string, name: string): Instance?
 	local Events = ReplicatedStorage:WaitForChild("Events", 10)
@@ -43,11 +44,12 @@ local function waitRemote(folderName: string, name: string): Instance?
 end
 
 local FriendInbound = waitRemote("Friend", "Inbound") :: RemoteEvent?
-local FriendAction = waitRemote("Friend", "Action") :: RemoteFunction?
 local GuildInbound = waitRemote("Guild", "Inbound") :: RemoteEvent?
-local GuildAction = waitRemote("Guild", "Action") :: RemoteFunction?
 local PartyInbound = waitRemote("Party", "InviteInbound") :: RemoteEvent?
-local PartyAction = waitRemote("Party", "InviteAction") :: RemoteFunction?
+
+local function invokeSocial(name: string, payload: { [string]: any }): ()
+	Gaxia.Net.Client.Invoke(name, payload)
+end
 
 local function show(text: string, onAccept: () -> (), onDecline: () -> ()): ()
 	-- Feature-detect a future ShowAction(text, acceptLabel, onAccept, declineLabel, onDecline).
@@ -64,7 +66,7 @@ local function show(text: string, onAccept: () -> (), onDecline: () -> ()): ()
 	local _ = onDecline
 end
 
-if FriendInbound and FriendAction then
+if FriendInbound then
 	FriendInbound.OnClientEvent:Connect(function(msg)
 		if typeof(msg) ~= "table" then
 			return
@@ -72,15 +74,15 @@ if FriendInbound and FriendAction then
 		if msg.type == "request" then
 			local from = msg.from
 			show(`{tostring(msg.fromName or "?")} sent you a friend request`, function()
-				(FriendAction :: RemoteFunction):InvokeServer({ type = "accept", from = from })
+				invokeSocial("Friend.AcceptRequest", { fromUserId = from })
 			end, function()
-				(FriendAction :: RemoteFunction):InvokeServer({ type = "decline", from = from })
+				invokeSocial("Friend.DeclineRequest", { fromUserId = from })
 			end)
 		end
 	end)
 end
 
-if GuildInbound and GuildAction then
+if GuildInbound then
 	GuildInbound.OnClientEvent:Connect(function(msg)
 		if typeof(msg) ~= "table" then
 			return
@@ -90,23 +92,17 @@ if GuildInbound and GuildAction then
 			show(
 				`{tostring(msg.fromName or "?")} invited you to {tostring(msg.name or "a guild")}`,
 				function()
-					(GuildAction :: RemoteFunction):InvokeServer({
-						type = "accept",
-						guildId = guildId,
-					})
+					invokeSocial("Guild.AcceptInvite", { guildId = guildId })
 				end,
 				function()
-					(GuildAction :: RemoteFunction):InvokeServer({
-						type = "decline",
-						guildId = guildId,
-					})
+					invokeSocial("Guild.DeclineInvite", { guildId = guildId })
 				end
 			)
 		end
 	end)
 end
 
-if PartyInbound and PartyAction then
+if PartyInbound then
 	PartyInbound.OnClientEvent:Connect(function(msg)
 		if typeof(msg) ~= "table" then
 			return
@@ -114,9 +110,9 @@ if PartyInbound and PartyAction then
 		if msg.type == "invite" then
 			local partyId = msg.partyId
 			show(`{tostring(msg.fromName or "?")} invited you to a party`, function()
-				(PartyAction :: RemoteFunction):InvokeServer({ type = "accept", partyId = partyId })
+				invokeSocial("Party.AcceptInvite", { partyId = partyId })
 			end, function()
-				(PartyAction :: RemoteFunction):InvokeServer({ type = "decline", partyId = partyId })
+				invokeSocial("Party.DeclineInvite", { partyId = partyId })
 			end)
 		end
 	end)

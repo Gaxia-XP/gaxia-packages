@@ -25,7 +25,7 @@ local StarterGui        = game:GetService("StarterGui")
 
 local LocalPlayer : Player = Players.LocalPlayer
 local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Maid = SharedPkg.Maid
+local Janitor = SharedPkg.Janitor
 
 -- ── Constants ──
 local DEFAULT_DELAY : number = 0.5
@@ -39,7 +39,7 @@ local Module = {}
 type Entry = {
 	target : GuiObject,
 	getText : () -> string,
-	maid : any,
+	janitor : any,
 }
 
 local _entries : { [GuiObject]: Entry } = {}
@@ -249,11 +249,11 @@ function Module.Attach(target: GuiObject, text: string | () -> string): ()
 		getText = function(): string return s end
 	end
 
-	local maid = Maid.new()
+	local janitor = Janitor.new()
 	local entry : Entry = {
 		target = target,
 		getText = getText,
-		maid = maid,
+		janitor = janitor,
 	}
 	_entries[target] = entry
 
@@ -268,7 +268,7 @@ function Module.Attach(target: GuiObject, text: string | () -> string): ()
 			end
 		end)
 	end)
-	maid:GiveTask(enterConn)
+	janitor:Add(enterConn)
 
 	local leaveConn = target.MouseLeave:Connect(function()
 		if _activeTarget == target then
@@ -277,14 +277,14 @@ function Module.Attach(target: GuiObject, text: string | () -> string): ()
 			_hoverToken += 1
 		end
 	end)
-	maid:GiveTask(leaveConn)
+	janitor:Add(leaveConn)
 
 	local destroyConn = target.AncestryChanged:Connect(function(_, parent)
 		if parent == nil then
 			Module.Detach(target)
 		end
 	end)
-	maid:GiveTask(destroyConn)
+	janitor:Add(destroyConn)
 end
 
 function Module.Detach(target: GuiObject): ()
@@ -293,7 +293,7 @@ function Module.Detach(target: GuiObject): ()
 	if _activeTarget == target then
 		hideTooltip()
 	end
-	entry.maid:Destroy()
+	entry.janitor:Destroy()
 	_entries[target] = nil
 end
 

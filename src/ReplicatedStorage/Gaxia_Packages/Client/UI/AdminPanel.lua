@@ -6,15 +6,13 @@
 --           Three tabs — Players (click a player → role-permitted actions),
 --           Commands (role-filtered list → per-arg form → run), Audit (live
 --           feed of command results). Pure front-end: every action round-trips
---           through Events/Admin/Action and the server re-validates the
+--           through logical Admin gateway RPCs and the server re-validates the
 --           caller's role (AdminCommands.Run). Self-owns its toolbar button
 --           (moderator+ only), F2 hotkey, and role-hint subscription.
 --
 -- Access  : Gaxia.UI.AdminPanel  (client)
 --   Gaxia.UI.AdminPanel.Open() / .Close() / .Toggle()
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -37,30 +35,36 @@ end
 local Theme = require(script.Parent.Parent.Parent.Shared.Theme)
 local Components = require(script.Parent.Components)
 local Toast = require(script.Parent.Toast)
+local SharedPkg = require(script.Parent.Parent.Parent) :: any
+local Net = SharedPkg.Net
 
--- ── Remote handles (resolved lazily; created by AdminCommands at boot) ──
-local function adminAction(): RemoteFunction?
-	local events = ReplicatedStorage:WaitForChild("Events", 10)
-	local folder = events and events:WaitForChild("Admin", 10)
-	local action = folder and folder:WaitForChild("Action", 10)
-	return action :: RemoteFunction?
-end
-
--- invoke(envelope) -> (ok: boolean, result: any). Assumes the server handler
--- returns (boolean, any): pcall prepends its own success bool, so on a clean
--- call `a` = the server's ok and `b` = its value/reason.
-local function invoke(envelope: any): (boolean, any)
-	local action = adminAction()
-	if not action then
+-- Keeps the panel's existing (ok, data) convention while the gateway returns
+-- an outer transport result ({ ok, data | code }).
+local function invoke(name: string, payload: any): (boolean, any)
+	local called, response = pcall(function()
+		return Net.Client.Invoke(name, payload)
+	end)
+	if not called or typeof(response) ~= "table" then
 		return false, "admin service offline"
 	end
-	local ok, a, b = pcall(function()
-		return action:InvokeServer(envelope)
-	end)
-	if not ok then
-		return false, tostring(a)
+	if response.ok ~= true then
+		return false, response.code or "admin request rejected"
 	end
-	return a, b
+	local result = response.data
+	if typeof(result) ~= "table" or typeof(result.ok) ~= "boolean" then
+		return false, "admin service returned an invalid response"
+	end
+	return result.ok, result.data
+end
+
+-- The schema endpoint supplies canonical command names. An alias never forms
+-- an RPC name, so panel actions cannot select a command through a generic
+-- server-side execution envelope.
+local function invokeCommand(command: any, args: { string }): (boolean, any)
+	if typeof(command) ~= "table" or typeof(command.name) ~= "string" then
+		return false, "invalid admin command"
+	end
+	return invoke(`Admin.Command.{command.name:lower()}`, { args = args })
 end
 
 -- ── Module state ──
@@ -93,8 +97,8 @@ local function clearBody(): ()
 	-- Luau accepts it) so renderAudit can register/clear it.
 	local onLeave = (Panel :: any)._onLeaveTab
 	if onLeave then
-		onLeave()
-		;(Panel :: any)._onLeaveTab = nil
+		onLeave();
+		(Panel :: any)._onLeaveTab = nil
 	end
 	for _, c in ipairs(body:GetChildren()) do
 		c:Destroy()
@@ -201,11 +205,11 @@ local function openUnbanList(cmd: any): ()
 	header.TextSize = 15
 	header.Parent = b
 
-	local okB, bans = invoke({ type = "bans" })
+	local okB, bans = invoke("Admin.Bans", {})
 	local banList = (okB and typeof(bans) == "table") and bans or {}
 
 	local function runUnban(userId: string)
-		local ok, reason = invoke({ type = "run", name = cmd.name, args = { userId } })
+		local ok, reason = invokeCommand(cmd, { userId })
 		Toast.Show({
 			Title = ok and "Admin" or "Blocked",
 			Text = (typeof(reason) == "string" and reason ~= "") and reason
@@ -248,7 +252,8 @@ local function openUnbanList(cmd: any): ()
 				local label = Instance.new("TextLabel")
 				label.Size = UDim2.new(1, -96, 1, -4)
 				label.BackgroundTransparency = 1
-				label.Text = `{item.name or "?"} ({item.userId})  —  {tostring(item.reason)}  ·  {expires}`
+				label.Text =
+					`{item.name or "?"} ({item.userId})  —  {tostring(item.reason)}  ·  {expires}`
 				label.TextColor3 = tokens.Color.Text
 				label.TextXAlignment = Enum.TextXAlignment.Left
 				label.TextTruncate = Enum.TextTruncate.AtEnd
@@ -392,7 +397,7 @@ local function openArgForm(cmd: any, players: { any }, preset: { [number]: strin
 			for i = 1, #cmd.args do
 				args[i] = getters[i] and getters[i]() or ""
 			end
-			local ok, reason = invoke({ type = "run", name = cmd.name, args = args })
+			local ok, reason = invokeCommand(cmd, args)
 			Toast.Show({
 				-- Show the server's own message (e.g. "Banned X" / "You can't
 				-- target yourself") when present; fall back to a generic line.
@@ -460,7 +465,7 @@ openPlayerActions = function(target: any, players: { any }, cmdList: { any }): (
 				Parent = frame,
 				OnClick = function()
 					if #item.args == 1 then
-						local ok, reason = invoke({ type = "run", name = item.name, args = { target.name } })
+						local ok, reason = invokeCommand(item, { target.name })
 						Toast.Show({
 							Title = ok and "Admin" or "Blocked",
 							Text = (typeof(reason) == "string" and reason ~= "") and reason
@@ -497,8 +502,8 @@ renderCommands = function(): ()
 	local b = body :: Frame
 	local tokens = Theme.Get()
 
-	local okS, schema = invoke({ type = "schema" })
-	local okP, players = invoke({ type = "players" })
+	local okS, schema = invoke("Admin.Schema", {})
+	local okP, players = invoke("Admin.Players", {})
 	if not okS or typeof(schema) ~= "table" then
 		local empty = Instance.new("TextLabel")
 		empty.Size = UDim2.new(1, 0, 0, 28)
@@ -544,8 +549,8 @@ renderPlayers = function(): ()
 	local b = body :: Frame
 	local tokens = Theme.Get()
 
-	local okP, players = invoke({ type = "players" })
-	local okS, schema = invoke({ type = "schema" })
+	local okP, players = invoke("Admin.Players", {})
+	local okS, schema = invoke("Admin.Schema", {})
 	local playerList = (okP and typeof(players) == "table") and players or {}
 	local cmdList = (okS and typeof(schema) == "table") and schema or {}
 
@@ -640,8 +645,7 @@ renderAudit = function(): ()
 			end
 		end)
 	end
-
-	;(Panel :: any)._onLeaveTab = function()
+	(Panel :: any)._onLeaveTab = function()
 		if conn then
 			conn:Disconnect()
 			conn = nil
@@ -714,7 +718,7 @@ end
 -- ── Role hint: pull at load + subscribe to server push ──
 task.spawn(function()
 	-- Pull (covers module-loaded-after-server-push race).
-	local ok, hint = invoke({ type = "role" })
+	local ok, hint = invoke("Admin.Role", {})
 	if ok and typeof(hint) == "table" then
 		Panel.SetRole(hint)
 	end

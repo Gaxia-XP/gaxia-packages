@@ -8,9 +8,8 @@
 	          to catch tools that pre-date the listener.
 ]]
 
-
-local Players           = game:GetService("Players")
-local ServerStorage     = game:GetService("ServerStorage")
+local Players = game:GetService("Players")
+local ServerStorage = game:GetService("ServerStorage")
 
 -- ── Config (server-side, see ServerStorage/Gaxia_Packages_Server/Config) ──
 -- FindFirstChild (not WaitForChild): detectors are required THROUGH the server
@@ -29,12 +28,16 @@ local function findOwner(tool: Tool): Player?
 	local backpack = tool:FindFirstAncestorOfClass("Backpack")
 	if backpack then
 		local p = backpack.Parent
-		if p and p:IsA("Player") then return p :: Player end
+		if p and p:IsA("Player") then
+			return p :: Player
+		end
 	end
 	local char = tool:FindFirstAncestorOfClass("Model")
 	if char then
 		for _, player in ipairs(Players:GetPlayers()) do
-			if player.Character == char then return player end
+			if player.Character == char then
+				return player
+			end
 		end
 	end
 	return nil
@@ -46,12 +49,16 @@ local function scanPlayer(player: Player, ToolService: any)
 	local backpack = player:FindFirstChildOfClass("Backpack")
 	if backpack then
 		for _, child in ipairs(backpack:GetChildren()) do
-			if child:IsA("Tool") then ToolService.Track(child) end
+			if child:IsA("Tool") then
+				ToolService.Track(child)
+			end
 		end
 	end
 	if player.Character then
 		for _, child in ipairs(player.Character:GetChildren()) do
-			if child:IsA("Tool") then ToolService.Track(child) end
+			if child:IsA("Tool") then
+				ToolService.Track(child)
+			end
 		end
 	end
 end
@@ -72,20 +79,32 @@ function ToolDuplicationGuard.Init(orchestrator: any): ()
 	end
 	local ok, Tool = pcall(require, toolMod)
 	if not ok or not Tool or not (Tool :: any).OnDuplicate then
-		warn(`[ToolDuplicationGuard] ToolService.OnDuplicate signal not found — guard disabled ({tostring(Tool)})`)
+		warn(
+			`[ToolDuplicationGuard] ToolService.OnDuplicate signal not found — guard disabled ({tostring(
+				Tool
+			)})`
+		)
 		return
 	end
 
 	Tool.OnDuplicate:Connect(function(dupe: Tool)
 		local owner = findOwner(dupe)
-		if owner then
-			orchestratorRef.Flag(owner, "ToolDupe", Config.AntiCheat.ToolDupe.Severity)
+		if
+			owner
+			and (
+				not orchestratorRef.IsDetectorEnabled
+				or orchestratorRef.IsDetectorEnabled(ToolDuplicationGuard.Name)
+			)
+		then
+			orchestratorRef.Flag(owner, "ToolDupe", Config.AntiCheat.ToolDupe.Severity, "server")
 		end
 	end)
 
 	-- Scan existing + future players for already-present tools so initial state
 	-- (e.g. dev rejoining a place with manually-placed tools) is covered.
-	for _, p in ipairs(Players:GetPlayers()) do scanPlayer(p, Tool) end
+	for _, p in ipairs(Players:GetPlayers()) do
+		scanPlayer(p, Tool)
+	end
 	Players.PlayerAdded:Connect(function(p)
 		-- Wait briefly so the default Roblox character setup has time to populate the Backpack.
 		task.wait(1)
