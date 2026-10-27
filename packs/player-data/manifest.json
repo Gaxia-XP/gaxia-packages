@@ -1,0 +1,65 @@
+{
+  "pack": "player_data",
+  "place": [
+    "ServerStorage",
+    "GaxiaPackages",
+    "PlayerData"
+  ],
+  "require": "require(game:GetService(\"ServerStorage\").GaxiaPackages.PlayerData.DataManager)",
+  "modules": [
+    {
+      "name": "DataManager",
+      "class": "ModuleScript",
+      "file": "DataManager.luau",
+      "sha256": "ee5e1dc4fe5de5f0a3e28b24963767339a4835bfaf69a1b9fa6e77831241708e",
+      "editable": false,
+      "from": "src/ServerStorage/Gaxia_Packages_Server/Lib/DataManager/init.lua"
+    },
+    {
+      "name": "DataConfig",
+      "class": "ModuleScript",
+      "file": "DataConfig.luau",
+      "sha256": "eed496cc1406a0156757b849636edd936ff586aec76b6dd5f37a5381426d81b5",
+      "editable": true
+    },
+    {
+      "name": "DataMigration",
+      "class": "ModuleScript",
+      "file": "DataMigration.luau",
+      "sha256": "378c35c901cbe8a3752925046f07d602c0153ec121c2cf0ed551241fc9b11143",
+      "editable": false,
+      "from": "src/ServerStorage/Gaxia_Packages_Server/Lib/DataMigration.lua"
+    },
+    {
+      "name": "ProfileStore",
+      "class": "ModuleScript",
+      "file": "ProfileStore.luau",
+      "sha256": "ad43737203688b8e88cab34ebe8c483000c157e53bfb41e35f1b49ee89d0c95f",
+      "editable": false,
+      "upstream": {
+        "wally": "lm-loleris/profilestore@1.0.3",
+        "path": "ServerPackages/_Index/lm-loleris_profilestore@1.0.3/profilestore/ProfileStore.luau",
+        "license": "Apache-2.0"
+      }
+    },
+    {
+      "name": "Signal",
+      "class": "ModuleScript",
+      "file": "Signal.luau",
+      "sha256": "a2c3a044ad291f1b8ea7d9ab38147d0ca8807c22532a45f31f33c79b89b74124",
+      "editable": false,
+      "upstream": {
+        "wally": "sleitnick/signal@2.0.3",
+        "path": "Packages/_Index/sleitnick_signal@2.0.3/signal/init.luau",
+        "license": "MIT"
+      }
+    },
+    {
+      "name": "NOTICE",
+      "class": "ModuleScript",
+      "file": "NOTICE.luau",
+      "sha256": "0360acd4c878e60e01d8c0e916f8549df96da465b331b67da2e9380d30eafb54",
+      "editable": false
+    }
+  ]
+}
