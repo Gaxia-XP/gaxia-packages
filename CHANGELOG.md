@@ -120,8 +120,9 @@ this framework uses a single rolling version until a public release cut.
 - **Mail:** `Send` now returns `(string?, string?)`: `nil, "data not loaded"` when the
   recipient's data is not loaded (the mail used to be dropped while `Send` still returned an
   id), and nothing is stored or fired. **Behaviour change:** check the result before
-  remembering a gift as sent. When the inbox is over `Mail.MaxMail`, claimed or expired mail
-  is trimmed first, then the oldest; the new mail is never trimmed (it could be when several
+  remembering a gift as sent. When the inbox is over `Mail.MaxMail`, finished mail (claimed,
+  expired, or read with no attachments) is trimmed first, then the oldest, so an unclaimed
+  gift outlives newer read text-only mail; the new mail is never trimmed (it could be when several
   mails were sent in the same second), so `OnReceive`'s mail is never nil.
 - **Inventory:** every per-player call checks the player's data is loaded. `Add` now returns
   `(string?, string?)`: `nil, "data not loaded"` before the data loads (it used to return an
@@ -132,6 +133,12 @@ this framework uses a single rolling version until a public release cut.
   'next'`) or skips/repeats quests; a quest started during a `Track` gets no progress from
   that event. Finished quests are saved in the player's data (`QuestsCompleted`, times
   completed per quest id); new `Quest.GetCompletedCount(player, questId)`.
+  **Migration:** `QuestsCompleted` starts empty for every existing save: quests finished
+  before this version are not in it, so `IsComplete` is `false` and `GetCompletedCount` is
+  `0` for them. A game that kept its own record (the old progression playbook's
+  `QuestsDone = { [questId] = true }`) must keep reading it, e.g.
+  `Quest.IsComplete(player, id) or QuestsDone[id] == true` (the progression playbook does),
+  or a live game restarts finished quests and pays their reward again.
   **Behaviour change:** `Quest.IsComplete` is `true` only for a quest the player finished
   (and that is not active again); it used to be `true` for every inactive quest, also one
   never started. `OnQuestComplete` gets a 4th argument `paid: number`, the currency amount

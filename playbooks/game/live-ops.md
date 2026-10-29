@@ -214,7 +214,7 @@ end)
 print("[MailButton] ready")
 ```
 
-What it does: the server sends a welcome mail with 250 Coins (saved in the inbox). The inbox keeps at most `Mail.MaxMail` (50) mails: past that, `Send` removes claimed or expired mail first, then the oldest, never the new one. A click on the button claims every gift; **your code gives** what `Mail.Claim` returns.
+What it does: the server sends a welcome mail with 250 Coins (saved in the inbox). The inbox keeps at most `Mail.MaxMail` (50) mails: past that, `Send` removes finished mail first (claimed, expired, or read with no attachments), then the oldest, never the new one: an unclaimed gift outlives newer read text-only mail. A click on the button claims every gift; **your code gives** what `Mail.Claim` returns.
 
 ## Step 4 — A global top-10 board
 

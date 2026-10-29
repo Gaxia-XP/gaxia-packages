@@ -86,6 +86,14 @@ Achievement.OnUnlocked:Connect(function(player: Player, id: string, def)
 	print(`[Progression] {player.Name} unlocked achievement {id} ({def.name}), now {Economy.Get(player, "Coins")} Coins`)
 end)
 
+-- Saves from before Quest recorded finished quests: older versions of this script kept
+-- them in the player's own QuestsDone field ({ [questId] = true }). Keep reading it, or a
+-- player who finished the quest then gets it (and its reward) again.
+local function finishedInOldSave(player: Player, questId: string): boolean
+	local legacy = Data.Get(player, "QuestsDone")
+	return typeof(legacy) == "table" and legacy[questId] == true
+end
+
 -- 4. When the player's data is loaded: show Level, start the quest if not finished before.
 local function onPlayerAdded(player: Player)
 	if Data.WaitFor(player, 120) == nil then
@@ -93,7 +101,7 @@ local function onPlayerAdded(player: Player)
 	end
 	-- Adds or updates only the Level column; other columns (Coins) stay.
 	PlayerService.SetupLeaderstats(player, { Level = Level.GetLevel(player) })
-	if not Quest.IsComplete(player, QUEST_ID) then
+	if not (Quest.IsComplete(player, QUEST_ID) or finishedInOldSave(player, QUEST_ID)) then
 		-- false when the quest is already active (progress from last time is kept)
 		Quest.Start(player, QUEST_ID)
 	end
@@ -187,6 +195,7 @@ Before you press Play: turn on **Enable Studio Access to API Services** (see [pl
 | Wrong | Right | Why |
 |---|---|---|
 | Your own saved table of finished quests | `Quest.IsComplete(player, id)` / `Quest.GetCompletedCount(player, id)` (Step 1) | Quest saves finished quests itself (in `QuestsCompleted`). Both answer `false` / `0` before the data loads. |
+| Deleting the old `QuestsDone` check in a live game | Keep reading `QuestsDone` next to `Quest.IsComplete` (`finishedInOldSave` in Step 1) | `QuestsCompleted` only has quests finished after the update. Without the old record, players who already finished a quest get it, and its reward, again. |
 | `reward = { xp = 150 }` in the quest | Give XP in `Quest.OnQuestComplete` with `Level.AddXP` | Quest only pays `currency`/`amount` and `items`. Other fields are ignored. |
 | `Quest.Start` in `PlayerAdded` right away | `Data.WaitFor(player, 120)` first | Before data loads, `Start` returns `false` and `Track` does nothing. |
 | `Quest.Track` from a LocalScript or after a client remote with no checks | Track on the server, from a server event (Touched, a kill, a purchase) | A cheater would finish quests by sending the remote. |

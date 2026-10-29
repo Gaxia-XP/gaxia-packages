@@ -62,8 +62,20 @@ local function seqOf(id: string): number
 	return tonumber(string.match(id, "%d+$")) or 0
 end
 
--- Trim mail when the box holds more than the cap: expired or claimed mail goes
--- first, then the oldest. `keepId` (the mail just sent) is never trimmed.
+-- True when the mail has nothing left to give: claimed, expired, or read with no
+-- attachments (a text-only mail can never be claimed, so "read" is its finished state).
+local function isFinished(mail: any, now: number): boolean
+	if mail.claimed == true or isExpired(mail, now) then
+		return true
+	end
+	local att = mail.attachments
+	local noAttachments = att == nil or (typeof(att) == "table" and next(att) == nil)
+	return noAttachments and mail.read == true
+end
+
+-- Trim mail when the box holds more than the cap: finished mail (claimed, expired,
+-- or read without attachments) goes first, then the oldest. `keepId` (the mail just
+-- sent) is never trimmed.
 local function enforceCap(box: { [string]: any }, keepId: string): ()
 	local now = os.time()
 	local ids: { string } = {}
@@ -80,9 +92,9 @@ local function enforceCap(box: { [string]: any }, keepId: string): ()
 	if toRemove <= 0 then
 		return
 	end
-	-- 0 = expired/claimed (trim first), 1 = still claimable or unread
+	-- 0 = finished (trim first), 1 = still claimable or unread
 	local function tier(m: any): number
-		return if (m.claimed == true or isExpired(m, now)) then 0 else 1
+		return if isFinished(m, now) then 0 else 1
 	end
 	table.sort(ids, function(a: string, b: string): boolean
 		local ma, mb = box[a], box[b]
@@ -109,8 +121,8 @@ end
 
 -- Store a mail in the player's mailbox; returns its id, or nil and "data not loaded"
 -- while the recipient's data is not loaded (nothing is stored, OnReceive does not fire).
--- When the box is over Mail.MaxMail, expired/claimed mail is trimmed first, then the
--- oldest; the new mail is always kept.
+-- When the box is over Mail.MaxMail, finished mail (claimed, expired, or read with no
+-- attachments) is trimmed first, then the oldest; the new mail is always kept.
 function MailService.Send(toPlayer: Player, input: MailInput): (string?, string?)
 	if not DataManager.IsLoaded(toPlayer) then
 		return nil, "data not loaded"
