@@ -810,6 +810,11 @@ end
 -- If a player's profile says they're in a guild but the guild no longer exists,
 -- clear it. Avoids zombie membership after a disband on another server.
 local function reconcileOnJoin(player: Player): ()
+	-- Runs from PlayerAdded, before the profile has loaded: wait for it, or the
+	-- GuildId reads as nil and an orphan is never cleared.
+	if DataManager.WaitFor(player, 60) == nil then
+		return
+	end
 	local gid = playerGuildId(player)
 	if not gid then
 		return
@@ -827,7 +832,11 @@ local function reconcileOnJoin(player: Player): ()
 		return
 	end
 	if data == nil then
-		setPlayerGuildId(player, nil)
+		-- Only clear the GuildId this check was about (the player may have
+		-- left meanwhile, or the field may have changed during the yield).
+		if player.Parent ~= nil and playerGuildId(player) == gid then
+			setPlayerGuildId(player, nil)
+		end
 	else
 		-- Hydrate cache as a side benefit.
 		local decoded = decodeGuild(data)

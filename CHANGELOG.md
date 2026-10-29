@@ -207,6 +207,11 @@ this framework uses a single rolling version until a public release cut.
   guild" check and could leave a guild the player's profile did not point to. Friend
   changes (`SendRequest`, `AcceptRequest`, `DeclineRequest`, `Remove`, `Block`,
   `Unblock`, `SetFavorite`) do the same; `GetList` / `GetBlocks` are empty until then.
+- **Guild: a stale guild is cleared at join.** The join-time check that clears
+  `profile.Social.GuildId` when the guild no longer exists (disbanded or deleted on
+  another server) ran before the player's data loaded, so it never did anything and
+  the player was stuck (`Create` / `AcceptInvite`: "already in a guild", `Leave`: "not
+  in a guild"). It now waits for the data first.
 - **Guild: failure reasons no longer carry a script position** (`"guild full"`, not
   `"…GuildService:510: guild full"`).
 - **GuildLock: Studio fallback.** When MemoryStore is unavailable in Studio (place not
