@@ -521,6 +521,11 @@ and `AntiCheat.<Detector>` show the cost in a live server.
   the package.
 - MANUAL told games to `require(... .init)`, which errors under Rojo. Require the package
   ModuleScript itself.
+- The settings remote (`ReplicatedStorage.Events.Gaxia_Settings`) had no rate limit and
+  warned on every rejected key or value, so one client could flood Output. It is now
+  rate-limited per player (token bucket: 10 calls in a burst, 5 per second; extra calls
+  return nil) and its rejection warnings are shown at most once per 10 s per kind (a
+  rejected key is cut to 40 characters). The client API is unchanged.
 
 ### Removed / deprecated
 - `Shared/Comm` removed. It required a non-existent `Option` module and nothing used it.

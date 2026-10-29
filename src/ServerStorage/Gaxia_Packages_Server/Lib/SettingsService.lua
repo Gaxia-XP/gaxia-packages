@@ -14,8 +14,11 @@
 --   Gaxia.Settings.Set(player, "Music", false)
 -- Client  : RemoteFunction ReplicatedStorage.Events.Gaxia_Settings
 --   remote:InvokeServer("get"|"getAll"|"set", key, value)
+--           Rate-limited per player (token bucket, REMOTE_RATE / REMOTE_BURST):
+--           over budget the call returns nil. Rejection warnings are throttled.
 -- ─────────────────────────────────────────────────────────────
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players           = game:GetService("Players")
 
 -- ── Dependencies ──
 local Lifecycle   = require(script.Parent.ServiceLifecycle)
@@ -23,6 +26,10 @@ local DataManager = require(script.Parent.DataManager)
 
 local SETTINGS_KEY : string = "Settings"        -- Profile.Data.Settings
 local REMOTE_NAME  : string = "Gaxia_Settings"
+local REMOTE_RATE  : number = 5                -- client calls refilled per second, per player
+local REMOTE_BURST : number = 10               -- bucket capacity (calls in a burst)
+local WARN_INTERVAL: number = 10               -- seconds between two warnings of one kind
+local MAX_KEY_SHOWN: number = 40               -- chars of a rejected key shown in Output
 
 local SettingsService = {}
 
@@ -34,6 +41,20 @@ local whitelist: { [string]: (value: any) -> boolean } = {
 	Music = isBool,
 	SFX   = isBool,
 }
+
+-- Warnings a client can trigger are throttled per kind. The kinds are bounded
+-- ("unknown", "invalid:<whitelisted key>", "rate"), so a client sending endless
+-- different keys cannot grow this table or flood Output.
+local lastWarn: { [string]: number } = {}
+local function throttledWarn(kind: string, message: string): ()
+	local now = os.clock()
+	local last = lastWarn[kind]
+	if last and now - last < WARN_INTERVAL then
+		return
+	end
+	lastWarn[kind] = now
+	warn(message)
+end
 
 -- ── Public API ──
 
@@ -68,11 +89,12 @@ end
 function SettingsService.Set(player: Player, key: string, value: any): boolean
 	local check = whitelist[key]
 	if not check then
-		warn(`[SettingsService] rejected unknown setting '{tostring(key)}'`)
+		local shown = string.sub(tostring(key), 1, MAX_KEY_SHOWN)
+		throttledWarn("unknown", `[SettingsService] rejected unknown setting '{shown}' (repeats are not shown for {WARN_INTERVAL} s)`)
 		return false
 	end
 	if not check(value) then
-		warn(`[SettingsService] rejected invalid value for '{key}'`)
+		throttledWarn(`invalid:{key}`, `[SettingsService] rejected invalid value for '{key}' (repeats are not shown for {WARN_INTERVAL} s)`)
 		return false
 	end
 	local settings = DataManager.Get(player, SETTINGS_KEY)
@@ -97,7 +119,31 @@ local function getOrCreateEvents(): Instance
 	return folder
 end
 
+-- Per-player token bucket for the remote. Weak keys + PlayerRemoving cleanup.
+type Bucket = { tokens: number, lastClock: number }
+local buckets: { [Player]: Bucket } = setmetatable({}, { __mode = "k" }) :: any
+
+local function consume(player: Player): boolean
+	local now = os.clock()
+	local b = buckets[player]
+	if not b then
+		b = { tokens = REMOTE_BURST, lastClock = now }
+		buckets[player] = b
+	end
+	b.tokens = math.min(REMOTE_BURST, b.tokens + (now - b.lastClock) * REMOTE_RATE)
+	b.lastClock = now
+	if b.tokens >= 1 then
+		b.tokens -= 1
+		return true
+	end
+	return false
+end
+
 local function onServerInvoke(player: Player, op: any, key: any, value: any): any
+	if not consume(player) then
+		throttledWarn("rate", `[SettingsService] {player.Name} is calling {REMOTE_NAME} too fast; extra calls return nil`)
+		return nil
+	end
 	if op == "get" and typeof(key) == "string" then
 		return SettingsService.Get(player, key)
 	elseif op == "getAll" then
@@ -125,6 +171,9 @@ Lifecycle.Define(SettingsService, {
 			return r
 		end)()
 		remote.OnServerInvoke = onServerInvoke
+		Players.PlayerRemoving:Connect(function(player: Player)
+			buckets[player] = nil
+		end)
 	end,
 })
 
