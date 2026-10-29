@@ -29,8 +29,10 @@ Details: [playbooks/start/01-install-packages.md](playbooks/start/01-install-pac
 node tools/packages.mjs check                     # package catalogue matches the source
 node tools/gen-api.mjs                            # regenerate playbooks/api
 LUAU_AST=/path/to/luau-ast node tools/check-architecture.mjs --complete
-node tools/check-playbooks.mjs --v2               # every playbook code block type-checks
+node tools/check-playbooks.mjs --v2 --run         # every playbook code block type-checks, then runs headless
+node tools/run-game.mjs --self-test               # the headless harness still catches the bugs it should
+node tools/run-game.mjs --quiet --players 3       # boot the whole framework headless: no errors, no hangs
 node scaffold.mjs new:service <Name>              # add a service, fully wired
 ```
 
-See [playbooks/framework/change-the-framework.md](playbooks/framework/change-the-framework.md).
+See [playbooks/framework/change-the-framework.md](playbooks/framework/change-the-framework.md). The headless harness (`run-game.mjs`: boot the framework and a game's scripts with no Studio) is described in [tools/harness/README.md](tools/harness/README.md).

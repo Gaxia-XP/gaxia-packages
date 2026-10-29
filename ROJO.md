@@ -43,6 +43,8 @@ live; edit in your editor (VS Code / Cursor with the Rojo + luau-lsp extensions)
 - `stylua src/` — format    ·    `selene src/` — lint
 - `node tools/check-architecture.mjs` — service architecture rules (needs `luau-ast` from the
   Luau releases on PATH, or `LUAU_AST=/path/to/luau-ast`)
+- `node tools/run-game.mjs --game <dir>` — run the framework and your game scripts headless (no Studio)
+  and list every error; see [tools/harness/README.md](tools/harness/README.md)
 - `rojo build default.project.json -o GaxiaPackages.rbxm` — build a distributable model
 
 ## Installing only some packages

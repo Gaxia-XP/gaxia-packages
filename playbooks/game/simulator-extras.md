@@ -649,6 +649,7 @@ If you cannot press Play, ask the user to do these steps and paste the Output li
 | Auto-collect saved in player data | Check the pass on every join (`OwnsGamePass`) | Passes can be refunded; the pass is the truth. |
 | Testing the real coin loop in Studio with `StudioTestCoins = 1000` | Set `StudioTestCoins = 0` in `SimMultiplier` (and delete the Script `StudioTestCoins` from example-simulator) | Both top your Coins up on every Play in Studio. They never give Coins in a live game. |
 | Expecting the boost to pause while offline | It keeps counting (`os.time`) | This is on purpose: the saved end time works with no extra code. |
+| `math.min(seconds, BoostMaxMinutes * 60)` in the `RegisterProduct` grant (Robux boost, Change it) | Check the cap in `SimBuyBoostRobux` before `PromptProduct`; the grant adds the full minutes | The receipt is marked granted either way: a capped grant takes Robux and gives 0 to 5 minutes less. |
 
 ## Change it
 
@@ -681,9 +682,9 @@ local BOOST_PRODUCT_ID = 0 -- your developer product ID (a number). 0 = not set 
 if BOOST_PRODUCT_ID ~= 0 then
 	-- Runs once per purchase. error() means "not given yet": Roblox retries later (for example when the data is not loaded).
 	Monetization.RegisterProduct(BOOST_PRODUCT_ID, function(player: Player, receipt)
-		-- The player paid Robux, so never refuse: add the minutes, but stop at BoostMaxMinutes.
+		-- The player paid Robux, so never refuse and never cut: add the FULL minutes.
+		-- (The cap is checked BEFORE the Robux window opens, below. Never math.min here: that takes Robux for nothing.)
 		local seconds = SimMultiplier.BoostSecondsLeft(player) + SimMultiplier.BoostMinutes * 60
-		seconds = math.min(seconds, SimMultiplier.BoostMaxMinutes * 60)
 		if not Data.Set(player, SimMultiplier.BoostEndsField, os.time() + seconds) then
 			error("SimBoostRobux: the boost was not saved, Roblox will retry")
 		end
@@ -692,12 +693,21 @@ if BOOST_PRODUCT_ID ~= 0 then
 end
 
 -- The client asks to open the Robux window. It sends nothing: the server knows the product.
-Net.OnServer("SimBuyBoostRobux", function(player: Player)
+-- Check everything BEFORE the window opens: once the player pays, the grant above must give the full boost.
+Net.OnInvoke("SimBuyBoostRobux", function(player: Player): (boolean, string)
 	if BOOST_PRODUCT_ID == 0 then
 		warn("[SimBoostRobux] no Product ID: paste it into BOOST_PRODUCT_ID in SimBoostRobux")
-	else
-		Monetization.PromptProduct(player, BOOST_PRODUCT_ID)
+		return false, "The Robux boost is not set up yet"
 	end
+	if not Data.IsLoaded(player) then
+		return false, "Your data is still loading"
+	end
+	-- The same rule as the Coins boost in SimExtrasShop: do not sell time over the cap.
+	if SimMultiplier.BoostSecondsLeft(player) + SimMultiplier.BoostMinutes * 60 > SimMultiplier.BoostMaxMinutes * 60 then
+		return false, `Boosts stack up to {SimMultiplier.BoostMaxMinutes} minutes`
+	end
+	Monetization.PromptProduct(player, BOOST_PRODUCT_ID)
+	return true, "Opening the Robux window"
 end, { rate = 2, burst = 4 })
 
 print("[SimBoostRobux] ready")
@@ -710,10 +720,20 @@ print("[SimBoostRobux] ready")
 panel.Size = UDim2.fromOffset(346, 138) -- one more row of buttons
 local robuxBoostButton = makeButton("RobuxBoostButton", 7, Color3.fromRGB(0, 170, 120))
 robuxBoostButton.Text = "2x Boost (Robux)"
-robuxBoostButton.Activated:Connect(function() Net.FireServer("SimBuyBoostRobux") end)
+robuxBoostButton.Activated:Connect(function()
+	-- The server opens the Robux window, or answers why not (for example the 30 minute cap).
+	local called, ok, message = pcall(Net.InvokeServer, "SimBuyBoostRobux")
+	if not called or ok == nil then
+		ok, message = false, "No answer, try again"
+	end
+	print(`[SimExtrasHud] Robux boost: {tostring(ok)} {tostring(message)}`)
+	if ok ~= true then
+		Toast.Show({ Title = "Upgrades", Text = tostring(message), Variant = "error", Duration = 4 })
+	end
+end)
 ```
 
-4. Check: press **Play**. Output shows `[SimBoostRobux] ready`. Click **2x Boost (Robux)**. With ID `0`, Output warns `no Product ID`. With your ID and API access on, a test window opens; buy it. Output shows `bought a 2x boost for Robux`, and the boost label counts down.
+4. Check: press **Play**. Output shows `[SimBoostRobux] ready`. Click **2x Boost (Robux)**. With ID `0`, Output warns `no Product ID` and a toast says `not set up yet`. With your ID and API access on, a test window opens; buy it. Output shows `bought a 2x boost for Robux`, and the boost label counts down. Buy boosts until about 30 minutes are left, then click again: the window does **not** open and a toast says `Boosts stack up to 30 minutes`.
 
 ## See also
 

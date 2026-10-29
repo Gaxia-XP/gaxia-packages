@@ -27,11 +27,11 @@ No row fits (farm, shooter, racing, …)? Pick **Every game**, then one package 
 |---|---|
 | Every game | `Data`, `Player`, `AntiCheat`, `Admin`, `Input` |
 | Simulator (collect, upgrade, rebirth) | `Economy`, `Item`, `Pet`, `Level`, `Quest`, `DailyReward`, `Leaderboard`, `Shop`, `UI.Toast` |
-| Obby | `Zone`, `Cooldown`, `Leaderboard`, `Monetization`, `UI.Toast` |
+| Obby | `Monetization` (skip stage with Robux) is all [game/obby-checkpoints](../game/obby-checkpoints.md) needs. Add later: `Zone`, `Leaderboard`, `UI.Toast` |
 | Tycoon | `Economy` (+ `Player` from the row above) is all [game/tycoon](../game/tycoon.md) needs. Add later: `Idle`, `Placement`, `Visit`, `Interaction`, `Shop`, `UI.Toast` |
 | RPG / adventure | `Inventory`, `ItemDef`, `Level`, `Quest`, `Loot`, `Interaction`, `Zone`, `Dialog`, `AI`, `Anim`, `Shop`, `UI.Toast` |
 | Social hangout | `Friend`, `Party`, `Settings`, `Chat`, `Anim`, `UI.Toast` |
-| Fighting | `Cooldown`, `Anim`, `Ragdoll`, `VFX`, `SFX`, `Camera`, `Level`, `Leaderboard`, `UI.Toast` |
+| Fighting | `Economy`, `Tool`, `Cooldown` are what [game/combat-and-npcs](../game/combat-and-npcs.md) needs. Add later: `Anim`, `Ragdoll`, `VFX`, `SFX`, `Camera`, `Level`, `Leaderboard`, `UI.Toast` |
 
 Feature → package: coins/gems `Economy` · items `Item` · shop `Shop` · Robux sales `Monetization` · pets `Pet` · XP/levels `Level` · quests `Quest` · daily reward `DailyReward` · leaderboard `Leaderboard` · areas `Zone` · "press E" `Interaction` · pop-up messages `UI.Toast`. Anything else: [full list](../api/README.md).
 

@@ -47,7 +47,7 @@ luau-lsp analyze --flag:LuauSolverV2=true --platform=roblox --sourcemap=sourcema
 | `…/Gaxia_Packages/Features.lua` | Client modules the client bootstrap loads at spawn. |
 | `src/ServerScriptService/`, `src/StarterPlayer/` | The two bootstraps. |
 | `plugin/` | The Gaxia Companion Studio plugin (installer, package picker). `plugin.project.json` bundles `src/` as its payload. |
-| `tools/`, `scaffold.mjs` | `packages.mjs`, `gen-api.mjs`, `check-architecture.mjs`, `check-playbooks.mjs`; the service scaffold. |
+| `tools/`, `scaffold.mjs` | `packages.mjs`, `gen-api.mjs`, `check-architecture.mjs`, `check-playbooks.mjs`, `run-game.mjs` and `harness/` (the headless runtime, see `tools/harness/README.md`); the service scaffold. |
 | `playbooks/` | Agent recipes. `playbooks/api/` is generated: never edit it. |
 
 To add a server service, follow [add a service](add-a-service.md). To add a detector, follow [add an anti-cheat detector](add-an-anticheat-detector.md).

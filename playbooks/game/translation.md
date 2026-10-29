@@ -14,7 +14,7 @@ How it works:
 
 ## Step 1 — Write the texts for each language
 
-In **ReplicatedStorage**, create a **Folder** named **GameShared**. In it, create a **ModuleScript** named **Strings**. Paste this whole block into it:
+In **ReplicatedStorage**, find the **Folder** **GameShared**. If it is not there, create it (other playbooks use the same folder; do not make a second one). In it, create a **ModuleScript** named **Strings**. Paste this whole block into it:
 
 ```lua
 -- ModuleScript: ReplicatedStorage/GameShared/Strings

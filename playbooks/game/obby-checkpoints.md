@@ -89,10 +89,15 @@ local function onCheckpointTouched(checkpoint: BasePart, hit: BasePart)
 	if player == nil or humanoid == nil or not Data.IsLoaded(player) then
 		return
 	end
-	-- Exploiters can fake touches: the body must really be near the checkpoint.
+	-- Exploiters can fake touches: the body must really be ON the checkpoint
+	-- (over its top, within 3 studs of its edges), not just somewhere near it.
 	local root = humanoid.RootPart
-	local maxDistance = checkpoint.Size.Magnitude / 2 + 10
-	if root == nil or (root.Position - checkpoint.Position).Magnitude > maxDistance then
+	if root == nil then
+		return
+	end
+	local rel = checkpoint.CFrame:PointToObjectSpace(root.Position) -- the root, seen from the checkpoint
+	local half = checkpoint.Size / 2
+	if math.abs(rel.X) > half.X + 3 or math.abs(rel.Z) > half.Z + 3 or rel.Y < -half.Y or rel.Y > half.Y + 8 then
 		return
 	end
 	local stage = checkpoint:GetAttribute("Stage")
@@ -347,7 +352,7 @@ print("[ObbySkipButton] ready")
 | Teleport right away in `PlayerAdded` | Teleport in `CharacterAdded`, after `Data.WaitFor` | The body spawns again after every death. The data is not loaded yet when the first body spawns. |
 | `humanoid.Health = 0` alone in a kill brick | `Combat.RegisterDamage(humanoid, humanoid.Health)` first | AntiCheat treats every health drop it was not told about as a hard `Combat` cheat. |
 | `Data.Set(player, "ObbyStage", stage)` whenever any checkpoint is touched | Only when `stage == current + 1` | Touching an old checkpoint would send the player back. A far checkpoint would skip stages. |
-| Trusting `Touched` alone | Also check the distance from the body to the checkpoint | Exploiters can fake touches and run through every stage in a second. |
+| Trusting `Touched` alone, or only a distance (`Magnitude < 20`) | Check that the body is over the checkpoint's top (`PointToObjectSpace`, Step 2) | Exploiters can fake touches. With a loose distance they fake a touch on the next checkpoint from their own, reset, and finish the obby without one jump. The footprint check stops that; it cannot stop a flying exploiter, which is the anti-cheat's job. |
 | Adding the Step 5 button without Step 4 | Do Step 4 first | Output warns `is still waiting: the server has not created remote 'ObbyMessage'` and the button does nothing. |
 | Saving the checkpoint Part in data | Save the stage number | DataStores cannot save Instances. |
 | A checkpoint with the tag but no `Stage` attribute (or a string `"3"`) | A **number** attribute `Stage` | ObbyCheckpoints warns and ignores the part. |

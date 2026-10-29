@@ -10,7 +10,7 @@ How it works:
 
 - Roles, lowest to highest: `default` (everyone), `moderator`, `admin`, `owner`. A role can do everything a lower role can.
 - The place creator gets `owner` automatically in a place owned by a **user**. In a group-owned place nobody does: use `STAFF` (Step 1).
-- Admin saves roles in a DataStore, so the place must be **published**. Unpublished, every staff command answers "Permission denied.".
+- Admin saves roles in a DataStore, so publish the place to keep them. Unpublished (or with Studio API access off), roles are not saved: a `STAFF` role works only until the server closes, and the creator is **not** given `owner` automatically, so add your own UserId to `STAFF`.
 - `GaxiaServer.Admin.Register` makes a staff command (chat and F2 panel); `GaxiaServer.Chat.Register` one for **everyone**. A handler gets the typed words as strings (`/givecoins Bob 100` → `{ "Bob", "100" }`) and returns the chat line shown to the caller.
 - A command typed in chat runs **once**, however many players are in the server. Only the caller sees the command line and the reply.
 
@@ -199,7 +199,7 @@ Agent: check your scripts against Steps 1–3. The user runs these in Studio. No
 | No range check on an amount | `if not (amount >= 1 and amount <= max) then` | `/givecoins me nan` or `-5` must be refused. |
 | A command named `help`, `kick`, `ban`, `give`, `role`, …, or one name in both `Chat.Register` and `Admin.Register` | A new name, such as `givecoins` | The later one replaces the other, with no warning. |
 | Only deleting someone's `STAFF` line, or only `/role <player> default` | Delete the `STAFF` line **and** add the UserId to `REMOVED` | The role is saved in a DataStore, and a `STAFF` line gives it back on every join. |
-| "Permission denied." for your own staff command in Studio | Publish the place, then Play | Admin cannot start in an unpublished place. |
+| "Permission denied." for your own staff command in Studio | Add your UserId to `STAFF` (Step 1), or publish the place | You have no role. The creator gets `owner` automatically only in a **published**, user-owned place. |
 | Testing "normal player" behaviour alone in **Play** as the place owner | **Clients and Servers** test players | The owner may run everything and is never auto-kicked. |
 
 ## Change it

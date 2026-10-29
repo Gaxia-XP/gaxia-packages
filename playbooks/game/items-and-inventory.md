@@ -3,7 +3,7 @@
 > Players own saved items (apples, swords), see the counts on screen, and hold a real Tool for each owned tool item.
 
 **Use this when** the user asks for: "items", "inventory", "give the player an item", "remove an item", "how many X does the player have", "give a tool / sword", "equip", "trading" (ไทย: "ไอเทม", "กระเป๋า", "ให้ไอเทมผู้เล่น", "ลบไอเทม", "นับไอเทม", "ให้ดาบ", "ให้ tool", "สวมใส่", "เทรด", "แลกของ").
-**Packages:** pick `Item` and `Tool` in the installer before Step 1 (`Item` brings `Data`). Only the Simulator row in start/01 lists `Item`, and no row lists `Tool`: pick them by name. Each script stops with a clear message if one is missing.
+**Packages:** pick `Item` and `Tool` in the installer before Step 1 (`Item` brings `Data`). Only the Simulator row in start/01 lists `Item`, and only the Fighting row lists `Tool`: pick them by name. Each script stops with a clear message if one is missing.
 **You will create:** the Scripts `ServerScriptService/ItemManager` and `ServerScriptService/ToolGiver`, and a LocalScript `StarterPlayer/StarterPlayerScripts/ItemCounter`.
 
 | You need | Use |

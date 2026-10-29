@@ -8,6 +8,58 @@ this framework uses a single rolling version until a public release cut.
 
 ## Unreleased
 
+### Added — headless harness (`tools/run-game.mjs`)
+
+Boots the framework and a game's scripts in Lune, with no Studio, and reports every
+error, hang and `warn` with the file to edit. Docs: `tools/harness/README.md`.
+
+- `node tools/run-game.mjs` boots the full framework. `--game <dir>` adds game scripts
+  laid out like the Explorer (Rojo file names); `--packages Data,Economy` boots only those
+  packages (+ their dependencies); `--build <dir>` boots a `packages.mjs build --out` tree.
+- Options: `--players N`, `--seconds S`, `--scenario steps.lua`, `--quiet`, `--json`,
+  `--no-studio`, `--datastore ok|fail|studio-off`, `--memorystore ok|fail` (every
+  MemoryStore call errors), `--http`, `--signals deferred|immediate`, `--bare`.
+- Exit code: `0` clean, `1` game errors / hangs / `GAME LAYOUT` (some `--game` code did not
+  run), `2` harness or scenario error.
+- `node tools/run-game.mjs --self-test` proves the harness catches the bugs it should
+  (for example `w-chat-command-once`). `node tools/check-playbooks.mjs --run` runs every
+  playbook's scripts in it and clicks their buttons.
+- Scenario helpers: `harness.join(name, userId?)` (a given UserId, for a rejoin),
+  `leave`, `advance`, `runServer` / `runClient`, `buttons` / `clickAll` / `clickButton`,
+  `chat`, `fireServer` / `invokeServer`, `autoBuy` / `purchase`,
+  `touch(part, hitPart, endAfter?)`, `touchEnded`, `touchWith(player, part, endAfter?, limb?)`
+  (no physics: parts touch only when a scenario says so; nothing fires outside the
+  Workspace or with `CanTouch = false`) and `activateTool(player, toolName)`.
+  `Tool:Activate()` / `Deactivate()` fire `Activated` / `Deactivated` while the tool is
+  equipped, like Roblox.
+- **Behaviour change:** notes at the top of a `--game` folder (`PACKAGES.txt`,
+  `README.md`, `*.json`, `*.txt`) are ignored. Only a `.lua` / `.luau` file there is a
+  `GAME LAYOUT` failure.
+
+### Added — playbooks
+
+- Seven game playbooks, each with an `AGENTS.md` router row:
+  [combat-and-npcs](playbooks/game/combat-and-npcs.md),
+  [npc-dialog-and-cutscenes](playbooks/game/npc-dialog-and-cutscenes.md),
+  [obby-checkpoints](playbooks/game/obby-checkpoints.md),
+  [rounds-and-teams](playbooks/game/rounds-and-teams.md),
+  [simulator-extras](playbooks/game/simulator-extras.md),
+  [translation](playbooks/game/translation.md) and [tycoon](playbooks/game/tycoon.md).
+- The Obby and Fighting rows of `start/01-install-packages` now list what
+  obby-checkpoints and combat-and-npcs need (`Monetization`; `Economy`, `Tool`, `Cooldown`).
+
+### Fixed — playbooks
+
+- simulator-extras, Robux boost: the grant cut paid time at `BoostMaxMinutes`, so a player
+  at the cap paid Robux for nothing. The Robux window now opens only when the boost fits
+  under the cap (the same rule as the Coins boost), and the grant adds the full minutes.
+- obby-checkpoints: the anti-exploit check was a sphere (+10 studs) that reached the next
+  checkpoint from the respawn point, so a faked touch + reset finished the obby with no
+  jumps. It now checks that the body is over the checkpoint's top.
+- admin-and-chat-commands: unpublished, Admin keeps roles in memory (a `STAFF` role works
+  until the server closes); "Permission denied." means no role, not "Admin did not start".
+- translation: reuse `ReplicatedStorage.GameShared` instead of making a second one.
+
 ### Fixed — chat commands ran once per player (chat-dispatch)
 - **A chat command runs once per typed message.** `ChatCommandSystem` ran the command
   from `TextChannel.ShouldDeliverCallback`, which Roblox calls once per recipient, so with
@@ -238,8 +290,6 @@ this framework uses a single rolling version until a public release cut.
   fractional vault counts reached `Guild.VaultDeposit` / `VaultWithdraw`. The public
   functions check their arguments too: a userId must be a whole number (`"invalid
   target"`), vault counts a whole number of 1 or more (`"bad count"`).
-- Harness: `--memorystore fail` (every MemoryStore call errors) and
-  `harness.join(name, userId)` in scenarios.
 
 ### Fixed — hardening (monetization-shop)
 - **`Monetization.OwnsGamePass`** no longer caches a failed Roblox check: when
@@ -426,7 +476,14 @@ this framework uses a single rolling version until a public release cut.
 - **`Journal` and `AntiCheatAdmin` boot by default** (`Config/Features` and the `Default`
   preset), so flags are journaled from boot and `/acflags` `/acban` `/ac` … work without
   game code touching them.
-- Harness: `harness.join(name, userId)` joins with a given UserId (a rejoin), for probes.
+
+### Fixed — hardening (settings)
+
+- The settings remote (`ReplicatedStorage.Events.Gaxia_Settings`) had no rate limit and
+  warned on every rejected key or value, so one client could flood Output. It is now
+  rate-limited per player (token bucket: 10 calls in a burst, 5 per second; extra calls
+  return nil) and its rejection warnings are shown at most once per 10 s per kind (a
+  rejected key is cut to 40 characters). The client API is unchanged.
 
 ### Added — pick the packages a game installs
 The framework is split into ~100 packages (`Gaxia_Packages_Server/Packages.lua`). Pick
@@ -542,11 +599,6 @@ and `AntiCheat.<Detector>` show the cost in a live server.
   the package.
 - MANUAL told games to `require(... .init)`, which errors under Rojo. Require the package
   ModuleScript itself.
-- The settings remote (`ReplicatedStorage.Events.Gaxia_Settings`) had no rate limit and
-  warned on every rejected key or value, so one client could flood Output. It is now
-  rate-limited per player (token bucket: 10 calls in a burst, 5 per second; extra calls
-  return nil) and its rejection warnings are shown at most once per 10 s per kind (a
-  rejected key is cut to 40 characters). The client API is unchanged.
 
 ### Removed / deprecated
 - `Shared/Comm` removed. It required a non-existent `Option` module and nothing used it.
