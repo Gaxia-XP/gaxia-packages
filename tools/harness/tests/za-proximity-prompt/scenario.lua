@@ -1,0 +1,10 @@
+harness.advance(1)
+local p = harness.join("Player1")
+harness.advance(2)
+print("open:", harness.prompt(p, "Workspace.Chest.OpenPrompt"))
+-- an Instance from runServer works too
+local prompt = harness.runServer([[return workspace.Chest.OpenPrompt]])
+print("open again:", harness.prompt(p, prompt))
+print("locked:", harness.prompt(p, "Workspace.Chest.LockedPrompt"))
+print("hold:", harness.prompt(p, "Workspace.Chest.HoldPrompt"))
+harness.advance(1)

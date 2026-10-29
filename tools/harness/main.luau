@@ -628,6 +628,71 @@ function harness.activateTool(p, toolName)
 	return true
 end
 
+-- harness.prompt(player, prompt): the player triggers a ProximityPrompt (a path
+-- like "Workspace.Chest.Prompt", or an Instance from runServer), as if they
+-- pressed its key. Like Roblox: a prompt with HoldDuration > 0 fires
+-- PromptButtonHoldBegan, that many seconds pass, then Triggered(player) fires
+-- on the server and on that player's client, then PromptButtonHoldEnded /
+-- TriggerEnded. ProximityPromptService fires PromptButtonHoldBegan /
+-- PromptTriggered / PromptTriggerEnded (prompt, player) the same way. Returns
+-- false (with a note) when Roblox would not show the prompt: Enabled = false,
+-- ProximityPromptService.Enabled = false, or the prompt is not in the Workspace.
+-- Distance and line of sight are not checked (no physics).
+function harness.prompt(p, prompt)
+	local plr = playerByName(p)
+	local cw = plr.clientWorld
+	local raw = nil
+	if type(prompt) == "string" then
+		raw = findPath(prompt, server)
+		if raw == nil then
+			scenarioError("harness.prompt: argument 2: no instance at " .. prompt, 2)
+		end
+	else
+		raw = I.import(prompt)
+		if type(raw) ~= "table" or not I.isRaw[raw] then
+			scenarioError("harness.prompt: argument 2 must be a prompt path (\"Workspace.Chest.Prompt\") or a ProximityPrompt, got " .. typeof(prompt), 2)
+		end
+	end
+	if not raw.class.isA.ProximityPrompt then
+		scenarioError(string.format("harness.prompt: argument 2 (%s) is a %s, not a ProximityPrompt", I.fullName(raw), raw.ClassName), 2)
+	end
+	local pps = I.service("ProximityPromptService")
+	local why = nil
+	if not inWorkspace(raw) then
+		why = I.fullName(raw) .. " is not in the Workspace"
+	elseif readable(raw, server, "Enabled") == false or (cw and readable(raw, cw, "Enabled") == false) then
+		why = I.fullName(raw) .. ".Enabled = false"
+	elseif cw and readable(pps, cw, "Enabled") == false then
+		why = "ProximityPromptService.Enabled = false"
+	end
+	if why then
+		H.emit({ t = "scenario", text = "note: harness.prompt did nothing: " .. why .. " (Roblox would not show the prompt)", time = S.clock })
+		return false
+	end
+	local worlds = { server }
+	if cw and I.visible(raw, cw) then
+		table.insert(worlds, cw)
+	end
+	local function fire(promptEvent, serviceEvent)
+		for _, world in worlds do
+			H.sig.fireWorld(raw.sigs and raw.sigs[promptEvent], world, plr)
+			H.sig.fireWorld(pps.sigs and pps.sigs[serviceEvent], world, raw, plr)
+		end
+		S.flush()
+	end
+	local hold = readable(raw, server, "HoldDuration")
+	if type(hold) == "number" and hold > 0 then
+		fire("PromptButtonHoldBegan", "PromptButtonHoldBegan")
+		S.advance(hold)
+	end
+	fire("Triggered", "PromptTriggered")
+	if type(hold) == "number" and hold > 0 then
+		fire("PromptButtonHoldEnded", "PromptButtonHoldEnded")
+	end
+	fire("TriggerEnded", "PromptTriggerEnded")
+	return true
+end
+
 local scenarioRun = 0
 local function runSource(world, source)
 	scenarioRun += 1

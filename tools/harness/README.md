@@ -93,6 +93,7 @@ print(harness.runClient(p, [[return #game.Players.LocalPlayer.PlayerGui:GetChild
 -- harness.touchWith(p, "Workspace.Lava")                       -- your part: the player's character touches it
 -- harness.touch("Workspace.Button", "Workspace.Crate", 0.5)    -- two parts touch (not both Anchored), the touch ends 0.5 s later
 -- harness.activateTool(p, "Sword")                             -- your tool: equip it (from the Backpack) and click
+-- harness.prompt(p, "Workspace.Chest.ProximityPrompt")         -- your prompt: the player presses its key (E)
 harness.leave(p)
 ```
 
@@ -123,6 +124,16 @@ first (another equipped tool goes back to the Backpack; `Unequipped` / `Equipped
 for a tool with `Enabled = false` or `ManualActivationOnly = true`, which a click does not activate. In game code,
 `Tool:Activate()` / `Tool:Deactivate()` fire `Activated` / `Deactivated` only in the world that called them, and
 only while the tool is equipped (parented to a character), like Roblox.
+
+**Prompts.** `harness.prompt(player, prompt)` triggers a ProximityPrompt (a path such as
+`"Workspace.Chest.ProximityPrompt"`, or an Instance returned by `runServer`) as if the player pressed its key:
+`Triggered(player)` fires on the server and on that player's client, and `ProximityPromptService.PromptTriggered(prompt, player)`
+fires too; `TriggerEnded` / `PromptTriggerEnded` follow. A prompt with `HoldDuration > 0` first fires
+`PromptButtonHoldBegan`, then that many simulated seconds pass. It returns `false` (with a note) for a prompt with
+`Enabled = false`, when `ProximityPromptService.Enabled` is false, or for a prompt outside the Workspace, since
+Roblox would not show it. Distance and line of sight are not checked (no physics). A prompt made by
+`GaxiaServer.Interaction.Register` is a child of the part: find its path with
+`harness.runServer([[return workspace.Chest:FindFirstChildOfClass("ProximityPrompt")]])`.
 
 ## How faithful is it?
 

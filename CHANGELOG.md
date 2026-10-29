@@ -30,9 +30,14 @@ error, hang and `warn` with the file to edit. Docs: `tools/harness/README.md`.
   `touch(part, hitPart, endAfter?)`, `touchEnded`, `touchWith(player, part, endAfter?, limb?)`
   (no physics: parts touch only when a scenario says so; nothing fires outside the
   Workspace, with `CanTouch = false`, or between two `Anchored` parts, since Roblox needs
-  one of them to be simulated) and `activateTool(player, toolName)`.
+  one of them to be simulated), `activateTool(player, toolName)` and `prompt(player, prompt)`
+  (fires `ProximityPrompt.Triggered(player)` on the server and the player's client, and
+  `ProximityPromptService.PromptTriggered`, after `HoldDuration`; nothing for a prompt with
+  `Enabled = false` or outside the Workspace).
   `Tool:Activate()` / `Deactivate()` fire `Activated` / `Deactivated` while the tool is
   equipped, like Roblox.
+- `Humanoid:TakeDamage` is skipped while the character has a ForceField of any name (Roblox
+  checks the class), not when it has some other child named `ForceField`.
 - **Behaviour change:** notes at the top of a `--game` folder (`PACKAGES.txt`,
   `README.md`, `*.json`, `*.txt`) are ignored. Only a `.lua` / `.luau` file there is a
   `GAME LAYOUT` failure.

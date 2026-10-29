@@ -696,9 +696,15 @@ I.define("Humanoid", {
 					error("Unable to cast string to float", 2)
 				end
 			end
+			-- Roblox skips the damage while the character has a ForceField:
+			-- any child of class ForceField, whatever its name.
 			local model = raw.Parent
-			if model and I.findChild(model, "ForceField", nil) then
-				return
+			if model then
+				for _, c in model.children do
+					if c.class.isA.ForceField then
+						return
+					end
+				end
 			end
 			self.Health = I.getProp(raw, "Health") - amount
 		end,

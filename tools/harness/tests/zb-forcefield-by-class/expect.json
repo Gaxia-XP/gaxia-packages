@@ -1,0 +1,12 @@
+{
+  "description": "(zb) Humanoid:TakeDamage is blocked by a ForceField of any name (checked by class), not by another instance named \"ForceField\"",
+  "framework": false,
+  "exit": 0,
+  "errorCount": 0,
+  "players": 1,
+  "seconds": 3,
+  "prints": [
+    { "contains": "[Shield] shielded health 100", "world": "server" },
+    { "contains": "[Shield] fake-shield health 70", "world": "server" }
+  ]
+}

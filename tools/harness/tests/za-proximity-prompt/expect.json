@@ -1,0 +1,16 @@
+{
+  "description": "(za) harness.prompt fires ProximityPrompt.Triggered(player) on the server and the player's client, and ProximityPromptService.PromptTriggered; an Enabled = false prompt fires nothing; HoldDuration passes first",
+  "framework": false,
+  "exit": 0,
+  "errorCount": 0,
+  "prints": [
+    { "contains": "[Chest] server opened #1 by Player1", "world": "server" },
+    { "contains": "[Chest] server opened #2 by Player1", "world": "server" },
+    { "contains": "[ChestFx] client saw Player1", "world": "client:Player1" },
+    { "contains": "[Service] OpenPrompt triggered by Player1", "world": "server" },
+    { "contains": "[Chest] hold began by Player1", "world": "server" },
+    { "contains": "[Service] HoldPrompt triggered by Player1", "world": "server" }
+  ],
+  "notPrints": ["[Chest] server locked prompt triggered", "[Service] LockedPrompt"],
+  "summary": ["open: true", "open again: true", "locked: false", "Workspace.Chest.LockedPrompt.Enabled = false", "hold: true"]
+}
