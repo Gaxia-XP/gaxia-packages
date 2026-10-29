@@ -35,4 +35,7 @@ node tools/run-game.mjs --quiet --players 3       # boot the whole framework hea
 node scaffold.mjs new:service <Name>              # add a service, fully wired
 ```
 
+CI (`.github/workflows/checks.yml`) runs these checks on every push and pull request, with the pinned tools from
+`bash tools/ci/install-tools.sh <dir>` (use the same script to get them locally).
+
 See [playbooks/framework/change-the-framework.md](playbooks/framework/change-the-framework.md). The headless harness (`run-game.mjs`: boot the framework and a game's scripts with no Studio) is described in [tools/harness/README.md](tools/harness/README.md).

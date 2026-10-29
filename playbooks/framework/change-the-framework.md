@@ -12,6 +12,7 @@ Run every command from the repo root.
 ## Step 1 — Install the tools and save a baseline (once per change)
 
 1. Run `rokit install`. This installs `rojo`, `lune`, `stylua` and `selene`.
+   Linux x86_64 shortcut for steps 1–3 (without stylua and selene): `bash tools/ci/install-tools.sh <dir>` puts the pinned rojo, lune, luau-lsp, luau-ast and Roblox definitions that CI uses into `<dir>/bin` and `<dir>/defs`; then set `PATH=<dir>/bin:$PATH` and `ROBLOX_DEFS=<dir>/defs/globalTypes.d.luau`. CI (`.github/workflows/checks.yml`) runs the checks on every push and pull request.
 2. Download `luau-lsp` from https://github.com/JohnnyMorganz/luau-lsp/releases (the repo was last checked with 1.70.0) and `luau-ast` from https://github.com/luau-lang/luau/releases (latest). Put both on your PATH. Check: `luau-lsp --version` prints a version and `luau-ast` prints `Usage:`.
 3. Download the Roblox definitions file into the repo root, and hide it and the `lsp-*.txt` files from git (this changes no tracked file):
 
