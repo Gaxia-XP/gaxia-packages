@@ -6,7 +6,7 @@
 
 - Package: `Shop` · Category: Economy & items
 - Starts at server boot: only when picked; otherwise the first time game code uses it
-- Installing it also installs: [Economy](Economy.md), [Level](Level.md), [Monetization](Monetization.md)
+- Installing it also installs: [Data](Data.md), [Economy](Economy.md), [Level](Level.md), [Monetization](Monetization.md)
 - Check it is installed: `GaxiaServer.IsInstalled("Shop")` on the server
 
 ## `GaxiaServer.Shop`
@@ -23,11 +23,12 @@ local Shop = GaxiaServer.Shop
 
 ### Functions
 
-- `Shop.RegisterItem(id: string, def: ShopItem): ()`
+- `Shop.RegisterItem(id: string, def: ShopItemDef): ()`
+  Add (or replace) an item. `def.id` may be left out: the item's id is always `id`. `def.grant` is required unless `def.devProductId` is set (a Robux item is granted by the product's Monetization.RegisterProduct function, never by Shop).
 - `Shop.Get(id: string): ShopItem?`
 - `Shop.GetCatalog(): { ShopItem }`
 - `Shop.Purchase(player: Player, id: string): (boolean, PurchaseFailure?)`
-  Server-authoritative purchase. Returns (ok, reason); reason is nil on success.
+  Server-authoritative purchase. Returns (ok, reason); reason is nil on success. Returns false, "not_loaded" (and checks / spends nothing) while the buyer's data is not loaded, so a just-joined player is not told "insufficient_funds".
 
 ### Types
 
@@ -44,6 +45,16 @@ export type ShopItem = {
     grant: (player: Player) -> (),
     [string]: any,
 }
-export type PurchaseFailure = "unknown_item" | "requires_gamepass" | "level_too_low" | "prompted_robux"
-    | "insufficient_funds" | "grant_failed"
+export type ShopItemDef = {
+    id: string?,
+    cost: number?,
+    currency: string?,
+    levelReq: number?,
+    gamePassReq: number?,
+    devProductId: number?,
+    grant: ((player: Player) -> ())?,
+    [string]: any,
+}
+export type PurchaseFailure = "unknown_item" | "not_loaded" | "requires_gamepass" | "level_too_low"
+    | "prompted_robux" | "insufficient_funds" | "grant_failed"
 ```

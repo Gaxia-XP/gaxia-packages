@@ -231,6 +231,31 @@ this framework uses a single rolling version until a public release cut.
 - Harness: `--memorystore fail` (every MemoryStore call errors) and
   `harness.join(name, userId)` in scenarios.
 
+### Fixed — hardening (monetization-shop)
+- **`Monetization.OwnsGamePass`** no longer caches a failed Roblox check: when
+  `UserOwnsGamePassAsync` errors it returns `false` and asks Roblox again on the next
+  call (it used to answer `false` until the player rejoined). A real "not owned" is still
+  cached for the session. The doc comment now says so.
+- **Game passes bought in this server count at once.** Monetization listens to
+  `MarketplaceService.PromptGamePassPurchaseFinished`; when `wasPurchased` is true it marks
+  the pass as owned (`OwnsGamePass` returns `true`) and fires the new signal
+  **`Monetization.OnGamePassPurchased(player, gamePassId)`**. A `Shop` item with
+  `gamePassReq` can be bought right after the pass. playbooks/game/robux-purchases.md uses
+  the signal instead of connecting `PromptGamePassPurchaseFinished` itself.
+- **`ProcessedReceipts` is bounded.** Each player keeps the last 100 granted PurchaseIds
+  (oldest dropped first) instead of every purchase forever. Behaviour change: the values are
+  now an order number (`1, 2, 3 …`) instead of `true`; old `true` records still block a
+  re-grant and are the first to be dropped. A receipt older than the last 100 grants is
+  no longer recognised (Roblox only re-sends receipts that were never acknowledged).
+- **`Shop.RegisterItem(id, def)`** takes a `Shop.ShopItemDef`: `def.id` is optional (the
+  `id` argument is always used), and `def.grant` is optional for a `devProductId` item
+  (Monetization's `RegisterProduct` grants it). A coin item without `grant` still errors.
+  `Shop.Get` / `GetCatalog` still return a `ShopItem` with `id` and `grant` set.
+- **`Shop.Purchase`** returns `false, "not_loaded"` (new `PurchaseFailure` value) while the
+  buyer's data is not loaded, and checks or spends nothing. Behaviour change: it used to
+  answer `insufficient_funds` (or `level_too_low`) for a player whose data was loading.
+  playbooks/game/shop.md maps the new reason to a message.
+
 ### Added — pick the packages a game installs
 The framework is split into ~100 packages (`Gaxia_Packages_Server/Packages.lua`). Pick
 the ones a game uses and only those, the packages they need, and Core are installed;

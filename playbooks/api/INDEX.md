@@ -183,7 +183,7 @@ GaxiaServer.Inventory.GetEquipment(player: Player): { [string]: string }   → I
 GaxiaServer.Inventory.OnAdd : Signal<Player, Instance_>   → Inventory.md
 GaxiaServer.Inventory.OnRemove : Signal<Player, string, string>   → Inventory.md
 GaxiaServer.Inventory.OnEquip : Signal<Player, string, string?>   → Inventory.md
-GaxiaServer.Shop.RegisterItem(id: string, def: ShopItem): ()   → Shop.md
+GaxiaServer.Shop.RegisterItem(id: string, def: ShopItemDef): ()   → Shop.md
 GaxiaServer.Shop.Get(id: string): ShopItem?   → Shop.md
 GaxiaServer.Shop.GetCatalog(): { ShopItem }   → Shop.md
 GaxiaServer.Shop.Purchase(player: Player, id: string): (boolean, PurchaseFailure?)   → Shop.md
@@ -192,6 +192,7 @@ GaxiaServer.Monetization.PromptProduct(player: Player, productId: number): ()   
 GaxiaServer.Monetization.PromptGamePass(player: Player, gamePassId: number): ()   → Monetization.md
 GaxiaServer.Monetization.OwnsGamePass(player: Player, gamePassId: number): boolean   → Monetization.md
 GaxiaServer.Monetization.OnPurchase : Signal<Player, number, ReceiptInfo>   → Monetization.md
+GaxiaServer.Monetization.OnGamePassPurchased : Signal<Player, number>   → Monetization.md
 GaxiaServer.Trade.Request(from: Player, to: Player): (string?, string?)   → Trade.md
 GaxiaServer.Trade.GetActiveTrade(player: Player): string?   → Trade.md
 GaxiaServer.Trade.GetTrade(tradeId: string): Trade?   → Trade.md

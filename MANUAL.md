@@ -1840,8 +1840,9 @@ Shop.RegisterItem("SpeedBoost", {
     grant = function(p) applyBoost(p) end,
 })
 local ok, reason = Shop.Purchase(player, "SpeedBoost")
--- reason ∈ unknown_item / requires_gamepass / level_too_low /
+-- reason ∈ unknown_item / not_loaded / requires_gamepass / level_too_low /
 --           prompted_robux / insufficient_funds / grant_failed
+Shop.RegisterItem("GemPack", { devProductId = 123456 }) -- Robux item: ไม่ต้องมี grant
 local catalog = Shop.GetCatalog()
 ```
 
@@ -1868,7 +1869,8 @@ Mon.OnPurchase:Connect(function(player, productId, receipt) end)
 **กลไก:**
 - `HandleReceipt` ตรวจ `ProcessedReceipts` ใน profile ก่อน — ถ้าเคย grant แล้วคืน `PurchaseGranted` ทันที (ไม่ double-grant)
 - PurchaseId persist + `Data.Save` nudge ก่อน return — crash ก็ไม่หาย
-- `OwnsGamePass` cache per-player (weak table) — ไม่ yield ซ้ำบน server loop
+- `OwnsGamePass` cache per-player (weak table) — ไม่ yield ซ้ำบน server loop; ถ้า Roblox check error จะคืน `false` แต่ไม่ cache (ถามใหม่ครั้งหน้า); ซื้อ pass ใน server นี้ (`PromptGamePassPurchaseFinished`) → cache เป็น `true` ทันที + ยิง `Mon.OnGamePassPurchased(player, passId)`
+- `ProcessedReceipts` เก็บแค่ 100 PurchaseId ล่าสุดต่อผู้เล่น (ตัดอันเก่าสุดทิ้ง) — data ไม่โตไม่จำกัด
 - `MarketplaceService.ProcessReceipt` ผูกตอน service **Init** → ต้องใส่ `"Monetization"` ใน Features (§4.1) หรือ touch `GaxiaServer.Monetization` ตอน boot — ไม่งั้น receipt แรกมาถึงก่อนผูก = ผู้เล่นไม่ได้ของ
 - เกมที่มี ProcessReceipt router ของตัวเอง (ส่งต่อให้ `Mon.HandleReceipt`): ต้องให้ Monetization เริ่มก่อน (Features / touch `GaxiaServer.Monetization`) **แล้วค่อย** assign router — ถ้า assign ก่อน Init ของ Monetization จะเขียนทับ router
 - Types: `Monetization.ReceiptInfo`, `Monetization.GrantFn` (callback ของ `RegisterProduct`)

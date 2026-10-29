@@ -42,15 +42,16 @@ local function giveItem(itemId: string, count: number): (player: Player) -> ()
 end
 
 -- The catalogue. Prices live ONLY here, on the server. `name` is the text on the button.
-Shop.RegisterItem("Apple", { id = "Apple", name = "Apple", cost = 10, currency = "Coins", grant = giveItem("Apple", 1) })
-Shop.RegisterItem("AppleBox", { id = "AppleBox", name = "Box of 10 Apples", cost = 80, currency = "Coins", grant = giveItem("Apple", 10) })
-Shop.RegisterItem("WoodenSword", { id = "WoodenSword", name = "Wooden Sword", cost = 150, currency = "Coins", grant = giveItem("WoodenSword", 1) })
+Shop.RegisterItem("Apple", { name = "Apple", cost = 10, currency = "Coins", grant = giveItem("Apple", 1) })
+Shop.RegisterItem("AppleBox", { name = "Box of 10 Apples", cost = 80, currency = "Coins", grant = giveItem("Apple", 10) })
+Shop.RegisterItem("WoodenSword", { name = "Wooden Sword", cost = 150, currency = "Coins", grant = giveItem("WoodenSword", 1) })
 
 local ONE_TIME: { [string]: boolean } = { WoodenSword = true } -- owned once at most (Tools, upgrades)
 
 -- Text the player sees for each failure reason from Shop.Purchase.
 local MESSAGES: { [string]: string } = {
-	unknown_item = "That item is not for sale", requires_gamepass = "You need a game pass for this",
+	unknown_item = "That item is not for sale", not_loaded = "Your data is still loading",
+	requires_gamepass = "You need a game pass for this",
 	level_too_low = "Your level is too low", insufficient_funds = "Not enough Coins",
 	grant_failed = "Something went wrong, your Coins were returned", prompted_robux = "Finish the Robux purchase in the window",
 }
@@ -73,7 +74,7 @@ Net.OnInvoke("ShopBuy", function(player: Player, itemId: any): (boolean, string)
 		return false, MESSAGES.unknown_item
 	end
 	if not Data.IsLoaded(player) then
-		return false, "Your data is still loading" -- Shop would say "Not enough Coins"
+		return false, MESSAGES.not_loaded -- before Item.Has: it reads the saved data too
 	end
 	if ONE_TIME[itemId] and Item.Has(player, itemId) then
 		return false, "You already own it"
@@ -193,15 +194,15 @@ What it does: it asks the server for the list once, makes one button per item, a
 | `Economy.Spend` and `Item.Give` in your own remote | `Shop.Purchase(player, itemId)` | Shop checks the gates and gives the Coins back when the grant fails. |
 | `grant = function(player) Item.Give(player, "Apple", 1) end` | `giveItem("Apple", 1)`, which calls `error()` when `Give` fails | Without an error the Coins are taken and nothing is given. |
 | Selling a Tool or upgrade with no ownership check | Add it to `ONE_TIME` (the script checks `Item.Has` first) | Shop sells it again and again: each click takes Coins and only raises the count. |
-| `Shop.RegisterItem("Apple", { cost = 10, grant = ... })` | Add `id = "Apple"` to the table | The type of the table needs `id`; Script Analysis shows an error without it. |
+| `MESSAGES` without `not_loaded` | Keep a message for every reason | `Shop.Purchase` returns `not_loaded` while the buyer's data is still loading (right after join); it checks and takes nothing. |
 
 ## Change it
 
-- To add an item: one more `Shop.RegisterItem("Id", { id = "Id", name = "...", cost = 100, currency = "Coins", grant = giveItem("Id", 1) })`. The frame grows by itself.
+- To add an item: one more `Shop.RegisterItem("Id", { name = "...", cost = 100, currency = "Coins", grant = giveItem("Id", 1) })`. The frame grows by itself. The item's `id` is the first argument (you can leave `id` out of the table).
 - To sell for Gems: `currency = "Gems"`. To give something other than an item, write your own `grant` and call `error("...")` when it fails (the Coins come back).
 - To need a level: add `levelReq = 5`. Players gain levels from `GaxiaServer.Level.AddXP(player, 50)` ([progression](progression.md)).
-- To need a game pass: add `gamePassReq = 123456789`. A pass bought in this server counts only after the player rejoins (the check is cached, see [robux-purchases](robux-purchases.md)).
-- To sell an item for Robux: add `devProductId = <your product id>`. The button shows `Robux` and `Shop.Purchase` opens the Robux window. Keep a `grant` (required, not used): `Monetization.RegisterProduct` gives the item ([robux-purchases](robux-purchases.md)).
+- To need a game pass: add `gamePassReq = 123456789`. A pass bought in this server counts at once (see [robux-purchases](robux-purchases.md)).
+- To sell an item for Robux: `Shop.RegisterItem("GemPack", { name = "100 Gems", devProductId = <your product id> })`, with no `grant`. The button shows `Robux` and `Shop.Purchase` opens the Robux window (it returns `false, "prompted_robux"`). `Monetization.RegisterProduct` gives the reward when Roblox sends the receipt ([robux-purchases](robux-purchases.md)).
 - To hide the shop behind a button: add these lines at the end of `CoinShopUI`, above the `print`:
   ```lua
   -- fragment

@@ -10,9 +10,9 @@ How it works:
 
 - A **developer product** can be bought many times (100 Gems). A **game pass** is bought once and owned forever (VIP).
 - `Monetization.RegisterProduct(productId, grantFn)` says what a product gives. Monetization owns `MarketplaceService.ProcessReceipt` (it binds it when the server boots).
-- Each purchase runs `grantFn(player, receipt)` **once**: the purchase id is saved in the player's data (`ProcessedReceipts`).
+- Each purchase runs `grantFn(player, receipt)` **once**: the purchase id is saved in the player's data (`ProcessedReceipts`, the last 100 per player).
 - If the player left, the data is not loaded, or `grantFn` errors, the purchase is not lost. Roblox retries later (for example when the player rejoins).
-- Game passes have no receipt. Check `Monetization.OwnsGamePass` on join, and apply the perk again right after a purchase.
+- Game passes have no receipt. Check `Monetization.OwnsGamePass` on join, and apply the perk right after a purchase with `Monetization.OnGamePassPurchased`.
 
 ## Step 1 — Create the product and the pass on Roblox
 
@@ -28,7 +28,6 @@ Create a **Script** in **ServerScriptService** named **RobuxStore**. Paste this 
 ```lua
 -- Script: ServerScriptService/RobuxStore
 local Players = game:GetService("Players")
-local MarketplaceService = game:GetService("MarketplaceService")
 local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
 local Gaxia = require(game:GetService("ReplicatedStorage").Gaxia_Packages)
 
@@ -73,9 +72,9 @@ local function onPlayerAdded(player: Player)
 	end
 end
 
--- Fires on the server when a game pass window closes. wasPurchased = the player paid.
-MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player: Player, gamePassId: number, wasPurchased: boolean)
-	if wasPurchased and gamePassId == GAME_PASSES.VIP then
+-- Fires when a player buys a game pass in this server. OwnsGamePass is true for it from now on.
+Monetization.OnGamePassPurchased:Connect(function(player: Player, gamePassId: number)
+	if gamePassId == GAME_PASSES.VIP then
 		applyVip(player)
 	end
 end)
@@ -182,8 +181,9 @@ What it does: two buttons ask the server to open the Robux window. The VIP butto
 | `grantFn` saves to your own DataStore | Change the player's data (`Economy`, `Item`, `Data.Set`) | The receipt record is saved in the same profile, so both save together. |
 | `RegisterProduct` inside `PlayerAdded` or after `task.wait` | At the top level of `RobuxStore` | Until it is registered, receipts for it wait (they are retried later). |
 | Client sends a product ID or "give me Gems" | Client sends a name; the server looks up the ID | A cheater can send any value. |
-| Perk applied only after `OwnsGamePass` on join | Also use `PromptGamePassPurchaseFinished` | `OwnsGamePass` is cached: once it returned `false` (also when the Roblox check failed), it keeps returning `false` until the player rejoins. |
-| Other scripts call `Monetization.OwnsGamePass` for VIP | They read `player:GetAttribute("VIP") == true` | The attribute turns on right after a purchase; the cached `OwnsGamePass` stays `false` this session. |
+| Perk applied only after `OwnsGamePass` on join | Also connect `Monetization.OnGamePassPurchased` | The join check runs once. Without the signal the perk waits until the next join. |
+| Other scripts call `Monetization.OwnsGamePass` for VIP | They read `player:GetAttribute("VIP") == true` | The first `OwnsGamePass` call for a pass waits for Roblox (and returns `false` when that check fails, then asks again next time). The attribute is instant. |
+| `MarketplaceService.PromptGamePassPurchaseFinished:Connect(...)` | `Monetization.OnGamePassPurchased:Connect(...)` | Monetization already listens: it marks the pass as owned (`OwnsGamePass` returns `true`) and then fires the signal. |
 | VIP perk saved in player data | Check the pass on every join | Passes can be refunded or removed; the pass is the truth. |
 
 ## Change it
@@ -198,7 +198,7 @@ What it does: two buttons ask the server to open the Robux window. The VIP butto
   local amount = if player:GetAttribute("VIP") == true then COINS_PER_PAYOUT * 2 else COINS_PER_PAYOUT
   if Economy.Add(player, "Coins", amount) then
   ```
-- To sell a shop item for Robux: give the `Shop` item `devProductId = PRODUCTS.Gems100` ([shop](shop.md)). Its reward still comes from `RegisterProduct`.
+- To sell a shop item for Robux: `Shop.RegisterItem("Gems100", { name = "100 Gems", devProductId = PRODUCTS.Gems100 })` ([shop](shop.md)), with no `grant`. Its reward still comes from `RegisterProduct`.
 - Monetization starts at server boot whenever it is installed with picked packages. In a full install it starts the first time a script uses `GaxiaServer.Monetization`; `RobuxStore` does that at the top. Never assign `ProcessReceipt` anywhere else.
 
 ## See also

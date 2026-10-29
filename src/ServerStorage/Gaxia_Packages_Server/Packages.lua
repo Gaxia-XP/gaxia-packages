@@ -124,7 +124,7 @@ local Packages: Types.PackageManifest = {
 			Name = "Shop", Category = "Economy & items",
 			Description = "Server-authoritative shop catalogue with soft-currency and Robux items.",
 			Server = { "Lib/ShopService" },
-			Requires = { "Economy", "Level", "Monetization" },
+			Requires = { "Data", "Economy", "Level", "Monetization" },
 		},
 		{
 			Name = "Monetization", Category = "Economy & items", Boot = true,

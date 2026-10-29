@@ -28,7 +28,7 @@ local Monetization = GaxiaServer.Monetization
 - `Monetization.PromptProduct(player: Player, productId: number): ()`
 - `Monetization.PromptGamePass(player: Player, gamePassId: number): ()`
 - `Monetization.OwnsGamePass(player: Player, gamePassId: number): boolean`
-  Cached ownership check (UserOwnsGamePassAsync yields + can error; cache per player).
+  Does the player own the game pass? Yields the first time for each (player, pass) (UserOwnsGamePassAsync); the answer is then cached for the session. A failed Roblox check returns false and is NOT cached, so the next call asks Roblox again. A pass bought in this server (PromptGamePassPurchaseFinished) counts as owned at once. Refunds or revokes during the session are only seen after the player rejoins.
 
 ### Signals
 
@@ -36,6 +36,8 @@ Connect with `:Connect(function(...) end)`; the parameters are the payload types
 
 - `Monetization.OnPurchase` — `Signal<Player, number, ReceiptInfo>`
   (player, productId, receiptInfo) after a product's grant succeeded and was recorded
+- `Monetization.OnGamePassPurchased` — `Signal<Player, number>`
+  (player, gamePassId) when a player buys a game pass in this server (MarketplaceService.PromptGamePassPurchaseFinished with wasPurchased = true). OwnsGamePass returns true for that pass from then on.
 
 ### Fields
 
