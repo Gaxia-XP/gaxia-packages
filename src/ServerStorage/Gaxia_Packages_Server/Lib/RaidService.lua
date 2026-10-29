@@ -192,12 +192,12 @@ function RaidService.Resolve(raidId: string, success: boolean): (boolean, RaidSu
 	local currency = raidGet("Currency")
 	local loot = 0
 	if success then
-		local cap = RaidService.ComputeLoot(
+		local cap = math.min(RaidService.ComputeLoot(
 			VaultService.GetValue(defender),
 			EconomyService.Get(defender, currency),
 			raidGet("LootFraction"),
 			raidGet("MaxLoot")
-		)
+		), EconomyService.GetMaxTransaction()) -- Economy refuses amounts above its per-call limit
 		if cap > 0 then
 			-- Debit defender first; only keep it if the attacker credit lands.
 			-- NOTE: deliberately NO pet Coins multiplier here — raid loot is a

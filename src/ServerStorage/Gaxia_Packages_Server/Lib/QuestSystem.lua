@@ -113,7 +113,8 @@ local function grantReward(player: Player, def: QuestDef): ()
 		if Pet then
 			local ok, mult = pcall(Pet.GetCoinMultiplier, player)
 			if ok and typeof(mult) == "number" and mult == mult then
-				amount = math.floor(amount * mult)
+				-- Economy refuses (does not clamp) amounts above its per-call limit.
+				amount = math.min(math.floor(amount * mult), EconomyService.GetMaxTransaction())
 			end
 		end
 		pcall(EconomyService.Add, player, reward.currency, amount)

@@ -139,6 +139,9 @@ function IdleService.Collect(player: Player): (number, number)
 				-- Flip to exceed-cap by dropping the `math.min(…, cap)` wrapper.
 				granted = math.min(math.floor(earnings * coinMultiplierFor(player)), cap)
 			end
+			-- Economy refuses (does not clamp) amounts above its per-call limit:
+			-- pay at most that much, as the limit did before.
+			granted = math.min(granted, EconomyService.GetMaxTransaction())
 			EconomyService.Add(player, currency, granted)
 		end
 		-- Fire + return the POST-multiplier amount actually credited (not the base),

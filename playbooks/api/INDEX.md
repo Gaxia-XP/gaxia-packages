@@ -148,6 +148,8 @@ GaxiaServer.Economy.Add(player: Player, currency: string, amount: number): boole
 GaxiaServer.Economy.Spend(player: Player, currency: string, amount: number): boolean   → Economy.md
 GaxiaServer.Economy.Set(player: Player, currency: string, amount: number): boolean   → Economy.md
 GaxiaServer.Economy.Transfer(from: Player, to: Player, currency: string, amount: number): boolean   → Economy.md
+GaxiaServer.Economy.GetMaxTransaction(): number   → Economy.md
+GaxiaServer.Economy.GetMaxBalance(): number   → Economy.md
 GaxiaServer.Economy.OnTransaction : Signal<Player, string, number, number, TransactionKind>   → Economy.md
 GaxiaServer.Item.Give(player: Player, itemId: string, count: number?): (boolean, number?)   → Item.md
 GaxiaServer.Item.Remove(player: Player, itemId: string, count: number?): boolean   → Item.md

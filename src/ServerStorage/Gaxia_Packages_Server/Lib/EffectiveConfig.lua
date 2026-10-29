@@ -22,16 +22,36 @@ local Flags = require(ReplicatedStorage.Gaxia_Packages.Shared.Flags)
 
 local EConfig = {}
 
+-- Overrides whose type did not match the default, already warned about
+-- (key + type + value), so a bad override warns once, not on every read.
+local warnedMismatch: { [string]: boolean } = {}
+
 -- Effective value: runtime Flag override (if one is set) else the static default.
+-- An override whose type differs from the default's (a string or `true` for a
+-- number setting) is ignored with a warning and the default is returned.
+-- With a nil default any override is returned as is.
 function EConfig.Get(flagKey: string, default: any): any
 	local override = Flags.Get(flagKey, nil)
-	if override ~= nil then
-		return override
+	if override == nil then
+		return default
 	end
-	return default
+	if default ~= nil and typeof(override) ~= typeof(default) then
+		local key = `{flagKey}|{typeof(override)}|{tostring(override)}`
+		if not warnedMismatch[key] then
+			warnedMismatch[key] = true
+			warn(
+				`[EConfig] ignoring override {flagKey} = {tostring(override)} ({typeof(override)}): `
+					.. `this setting is a {typeof(default)}, so {tostring(default)} is used. `
+					.. `Set a {typeof(default)} (for example /flag set {flagKey} {tostring(default)}) or /flag clear {flagKey}`
+			)
+		end
+		return default
+	end
+	return override
 end
 
--- Boolean convenience: effective value coerced to a strict boolean.
+-- Boolean convenience: effective value coerced to a strict boolean (a non-boolean
+-- override is ignored with a warning, so the default applies).
 function EConfig.Enabled(flagKey: string, default: boolean): boolean
 	return EConfig.Get(flagKey, default) == true
 end

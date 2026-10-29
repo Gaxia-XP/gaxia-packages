@@ -19,9 +19,9 @@ local EConfig = GaxiaServer.EConfig
 ### Functions
 
 - `EConfig.Get(flagKey: string, default: any): any`
-  Effective value: runtime Flag override (if one is set) else the static default.
+  Effective value: runtime Flag override (if one is set) else the static default. An override whose type differs from the default's (a string or `true` for a number setting) is ignored with a warning and the default is returned. With a nil default any override is returned as is.
 - `EConfig.Enabled(flagKey: string, default: boolean): boolean`
-  Boolean convenience: effective value coerced to a strict boolean.
+  Boolean convenience: effective value coerced to a strict boolean (a non-boolean override is ignored with a warning, so the default applies).
 - `EConfig.IsOverridden(flagKey: string): boolean`
   True if a runtime override is currently set for this key (ignores the default).
 - `EConfig.Set(flagKey: string, value: any): ()`
