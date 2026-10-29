@@ -33,7 +33,7 @@ error, hang and `warn` with the file to edit. Docs: `tools/harness/README.md`.
   one of them to be simulated), `activateTool(player, toolName)` and `prompt(player, prompt)`
   (fires `ProximityPrompt.Triggered(player)` on the server and the player's client, and
   `ProximityPromptService.PromptTriggered`, after `HoldDuration`; nothing for a prompt with
-  `Enabled = false` or outside the Workspace).
+  `Enabled = false`, outside the Workspace, or not in a BasePart, Attachment or Model).
   `Tool:Activate()` / `Deactivate()` fire `Activated` / `Deactivated` while the tool is
   equipped, like Roblox.
 - `Humanoid:TakeDamage` is skipped while the character has a ForceField of any name (Roblox

@@ -636,8 +636,9 @@ end
 -- TriggerEnded. ProximityPromptService fires PromptButtonHoldBegan /
 -- PromptTriggered / PromptTriggerEnded (prompt, player) the same way. Returns
 -- false (with a note) when Roblox would not show the prompt: Enabled = false,
--- ProximityPromptService.Enabled = false, or the prompt is not in the Workspace.
--- Distance and line of sight are not checked (no physics).
+-- ProximityPromptService.Enabled = false, the prompt is not in the Workspace,
+-- or its parent is not a BasePart, Attachment or Model. Distance and line of
+-- sight are not checked (no physics).
 function harness.prompt(p, prompt)
 	local plr = playerByName(p)
 	local cw = plr.clientWorld
@@ -656,10 +657,16 @@ function harness.prompt(p, prompt)
 	if not raw.class.isA.ProximityPrompt then
 		scenarioError(string.format("harness.prompt: argument 2 (%s) is a %s, not a ProximityPrompt", I.fullName(raw), raw.ClassName), 2)
 	end
+	if plr.props.Character == nil then
+		scenarioError("harness.prompt: " .. plr.Name .. " has no character yet (it spawns 0.1 s after join: harness.advance(1) first)", 2)
+	end
 	local pps = I.service("ProximityPromptService")
+	local parent = raw.Parent
 	local why = nil
 	if not inWorkspace(raw) then
 		why = I.fullName(raw) .. " is not in the Workspace"
+	elseif not (parent.class.isA.BasePart or parent.class.isA.Attachment or parent.class.isA.Model) then
+		why = I.fullName(raw) .. " is in a " .. parent.ClassName .. " (a prompt shows only in a BasePart, an Attachment or a Model)"
 	elseif readable(raw, server, "Enabled") == false or (cw and readable(raw, cw, "Enabled") == false) then
 		why = I.fullName(raw) .. ".Enabled = false"
 	elseif cw and readable(pps, cw, "Enabled") == false then

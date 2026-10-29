@@ -11,6 +11,6 @@
     { "contains": "[Chest] hold began by Player1", "world": "server" },
     { "contains": "[Service] HoldPrompt triggered by Player1", "world": "server" }
   ],
-  "notPrints": ["[Chest] server locked prompt triggered", "[Service] LockedPrompt"],
-  "summary": ["open: true", "open again: true", "locked: false", "Workspace.Chest.LockedPrompt.Enabled = false", "hold: true"]
+  "notPrints": ["[Chest] server locked prompt triggered", "[Service] LockedPrompt", "[Service] ShelfPrompt"],
+  "summary": ["open: true", "open again: true", "locked: false", "Workspace.Chest.LockedPrompt.Enabled = false", "folder: false", "a prompt shows only in a BasePart, an Attachment or a Model", "hold: true"]
 }

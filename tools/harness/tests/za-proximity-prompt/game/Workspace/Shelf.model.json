@@ -1,0 +1,6 @@
+{
+  "className": "Folder",
+  "children": [
+    { "name": "ShelfPrompt", "className": "ProximityPrompt", "properties": { "ActionText": "Take" } }
+  ]
+}

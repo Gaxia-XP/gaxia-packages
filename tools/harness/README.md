@@ -130,8 +130,9 @@ only while the tool is equipped (parented to a character), like Roblox.
 `Triggered(player)` fires on the server and on that player's client, and `ProximityPromptService.PromptTriggered(prompt, player)`
 fires too; `TriggerEnded` / `PromptTriggerEnded` follow. A prompt with `HoldDuration > 0` first fires
 `PromptButtonHoldBegan`, then that many simulated seconds pass. It returns `false` (with a note) for a prompt with
-`Enabled = false`, when `ProximityPromptService.Enabled` is false, or for a prompt outside the Workspace, since
-Roblox would not show it. Distance and line of sight are not checked (no physics). A prompt made by
+`Enabled = false`, when `ProximityPromptService.Enabled` is false, for a prompt outside the Workspace, or for a
+prompt whose parent is not a BasePart, an Attachment or a Model (a prompt in a Folder), since Roblox would not show
+it. The player needs a character (`harness.advance(1)` after `join`). Distance and line of sight are not checked (no physics). A prompt made by
 `GaxiaServer.Interaction.Register` is a child of the part: find its path with
 `harness.runServer([[return workspace.Chest:FindFirstChildOfClass("ProximityPrompt")]])`.
 
