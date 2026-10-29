@@ -99,7 +99,8 @@ end
 
 -- Server-authoritative purchase. Returns (ok, reason); reason is nil on success.
 -- Returns false, "not_loaded" (and checks / spends nothing) while the buyer's data
--- is not loaded, so a just-joined player is not told "insufficient_funds".
+-- is not loaded, so a just-joined player is not told "insufficient_funds". This holds for
+-- every item: a Robux item does not prompt and a free item does not grant until then.
 function Shop.Purchase(player: Player, id: string): (boolean, PurchaseFailure?)
 	local item = catalog[id]
 	if not item then

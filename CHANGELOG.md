@@ -253,7 +253,9 @@ this framework uses a single rolling version until a public release cut.
   `Shop.Get` / `GetCatalog` still return a `ShopItem` with `id` and `grant` set.
 - **`Shop.Purchase`** returns `false, "not_loaded"` (new `PurchaseFailure` value) while the
   buyer's data is not loaded, and checks or spends nothing. Behaviour change: it used to
-  answer `insufficient_funds` (or `level_too_low`) for a player whose data was loading.
+  answer `insufficient_funds` (or `level_too_low`) for a player whose data was loading;
+  a Robux item (`devProductId`) also no longer opens the purchase prompt, and a free item
+  (cost 0 / nil) no longer runs its `grant`, until the buyer's data is loaded.
   playbooks/game/shop.md maps the new reason to a message.
 
 ### Added — pick the packages a game installs

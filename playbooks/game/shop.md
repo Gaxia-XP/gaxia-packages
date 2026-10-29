@@ -194,7 +194,7 @@ What it does: it asks the server for the list once, makes one button per item, a
 | `Economy.Spend` and `Item.Give` in your own remote | `Shop.Purchase(player, itemId)` | Shop checks the gates and gives the Coins back when the grant fails. |
 | `grant = function(player) Item.Give(player, "Apple", 1) end` | `giveItem("Apple", 1)`, which calls `error()` when `Give` fails | Without an error the Coins are taken and nothing is given. |
 | Selling a Tool or upgrade with no ownership check | Add it to `ONE_TIME` (the script checks `Item.Has` first) | Shop sells it again and again: each click takes Coins and only raises the count. |
-| `MESSAGES` without `not_loaded` | Keep a message for every reason | `Shop.Purchase` returns `not_loaded` while the buyer's data is still loading (right after join); it checks and takes nothing. |
+| `MESSAGES` without `not_loaded` | Keep a message for every reason | `Shop.Purchase` returns `not_loaded` while the buyer's data is still loading (right after join); it checks and takes nothing, and does not open the Robux prompt or run a free item's `grant` either. |
 
 ## Change it
 

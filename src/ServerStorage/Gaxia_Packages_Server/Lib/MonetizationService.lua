@@ -107,15 +107,16 @@ function Monetization.OwnsGamePass(player: Player, gamePassId: number): boolean
 	local ok, owns = pcall(function(): boolean
 		return MarketplaceService:UserOwnsGamePassAsync(player.UserId, gamePassId)
 	end)
-	if not ok then
-		return false -- Roblox check failed: do not cache, retry on the next call
-	end
-	local result = owns == true
-	-- A purchase that finished while this call yielded wins over the older answer.
+	-- A purchase that finished while this call yielded wins over the older answer
+	-- (and over a failed check).
 	local now = gamePassCache[player]
 	if now and now[gamePassId] == true then
 		return true
 	end
+	if not ok then
+		return false -- Roblox check failed: do not cache, retry on the next call
+	end
+	local result = owns == true
 	setCachedOwnership(player, gamePassId, result)
 	return result
 end
