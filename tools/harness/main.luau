@@ -178,9 +178,11 @@ local function playerByName(p)
 end
 
 local harness = {}
-function harness.join(name)
+-- userId (optional): join with this UserId, e.g. the UserId of a player who left
+-- (a rejoin to the same server). Default: the next free UserId.
+function harness.join(name, userId)
 	name = name or ("Player" .. (#P.list + 1))
-	local plr = P.join(name)
+	local plr = P.join(name, userId)
 	S.flush()
 	return plr
 end

@@ -71,7 +71,7 @@ The server has already started when the file runs. Everything after it (leave, B
 ```lua
 -- steps.lua — the lines marked "your name" need a button / remote your game has
 harness.advance(2)                        -- let 2 simulated seconds pass
-local p = harness.join("Player1")         -- a player joins (returns a handle)
+local p = harness.join("Player1")         -- a player joins (returns a handle); harness.join("Player1", 1) = with UserId 1 (a rejoin)
 harness.advance(5)
 print(harness.buttons(p))                 -- paths of every PlayerGui button that has a click handler
 local clicked, skipped = harness.clickAll(p, 0.5) -- click each button a player can see, 0.5 s apart
