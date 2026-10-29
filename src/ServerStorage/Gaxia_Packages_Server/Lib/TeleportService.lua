@@ -9,54 +9,58 @@
 --           one-call teleport-data packing, ReserveServer + ToPrivate for
 --           co-op/lobby, and GetArrivingData on the receiving side. Everything is
 --           pcall-guarded so it degrades to (false, err) in Studio instead of
---           erroring. Dependency for PartyService (24.8).
+--           erroring. A teleport that starts but then fails (TeleportInitFailed:
+--           Flooded / Failure) is retried with the same backoff when it was for
+--           one player or a reserved server; any other failure, a failed group
+--           teleport to a public server, or the last retry, fires OnTeleportFailed.
+--           Dependency for PartyService (24.8).
 --
 -- Access  : Gaxia.Teleport  (server)
 --   Gaxia.Teleport.To(player, 123456, { Data = { fromLobby = true } })
 --   local code = Gaxia.Teleport.ReserveServer(123456)
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
+local Players = game:GetService("Players")
 local TeleportService = game:GetService("TeleportService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
-
--- ── Lazy server (Config + EConfig) — resolved at CALL-TIME, never module load ──
-local ServerStorage = game:GetService("ServerStorage")
-local _server: any = nil
-local function server(): any
-	if not _server then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		_server = require(serverInit :: any)
-	end
-	return _server
-end
+-- ── Dependencies ──
+local Signal    = require(ReplicatedStorage.Gaxia_Packages.Shared.Signal)
+local Lifecycle = require(script.Parent.ServiceLifecycle)
+local Config    = require(script.Parent.Parent.Config)
 
 export type TeleportOpts = { Data: any?, ReservedAccessCode: string? }
 
 local Teleport = {}
 
-Teleport.OnTeleportFailed = Signal.new() -- (players, placeId, err)
+-- (players, placeId, err) once To/ToPrivate has used up every retry without success,
+-- or when a started teleport fails later (TeleportInitFailed) and is not retried:
+-- then players is that one player and err is "<TeleportResult name>: <message>".
+Teleport.OnTeleportFailed = Signal.new() :: Signal.Signal<{ Player }, number, any>
 
--- Defaults sourced from Config.Teleport.Retry at CALL-TIME (server package require
--- yields under the loader metamethod, so it can't happen at module load). Built once
--- on first access; Configure() overrides apply on top of the Config-sourced defaults.
-local config: { [string]: any } = nil :: any
+-- Teleports that TeleportAsync accepted, per player, until the player leaves (it
+-- worked) or TeleportInitFailed gives up on it. canRetry: the teleport can be sent
+-- again for this player alone without splitting a group (one player, or a reserved
+-- server that the rest of the group also joins).
+type Pending = { placeId: number, options: TeleportOptions, attempt: number, canRetry: boolean }
+local pending: { [Player]: Pending } = {}
+
+-- Defaults sourced from Config.Teleport.Retry on first use (Configure/To/ToPrivate),
+-- built once; Configure() overrides apply on top of the Config-sourced defaults.
+local config: { [string]: any }? = nil
 
 local function ensureConfig(): { [string]: any }
-	if not config then
-		local r = (server().Config.Teleport or {}).Retry or {}
-		config = {
-			MaxAttempts = r.MaxAttempts or 4,
-			BaseDelay = r.BaseDelay or 1,   -- seconds
-			MaxDelay = r.MaxDelay or 15,
-		}
+	local existing = config
+	if existing then
+		return existing
 	end
-	return config
+	local r = Config.Teleport.Retry
+	local cfg: { [string]: any } = {
+		MaxAttempts = r.MaxAttempts or 4,
+		BaseDelay = r.BaseDelay or 1,   -- seconds
+		MaxDelay = r.MaxDelay or 15,
+	}
+	config = cfg
+	return cfg
 end
 
 function Teleport.Configure(partial: { [string]: any }): ()
@@ -71,11 +75,18 @@ function Teleport.ComputeBackoff(attempt: number, base: number, maxDelay: number
 	return math.min(base * 2 ^ (attempt - 1), maxDelay)
 end
 
-local function toList(players: any): { Player }
+-- ── PURE: whether a TeleportInitFailed result is worth retrying ──
+-- Flooded (too many teleport requests) and Failure (a transient error) are retried;
+-- the rest (GameFull, GameNotFound, Unauthorized, IsTeleporting, ...) are not.
+function Teleport.IsRetryable(result: Enum.TeleportResult): boolean
+	return result == Enum.TeleportResult.Flooded or result == Enum.TeleportResult.Failure
+end
+
+local function toList(players: Player | { Player }): { Player }
 	if typeof(players) == "Instance" then
-		return { players }
+		return { players :: Player }
 	end
-	return players
+	return players :: { Player }
 end
 
 local function buildOptions(opts: TeleportOpts?): TeleportOptions
@@ -93,7 +104,15 @@ end
 
 -- ── Teleport with retry ──
 
-function Teleport.To(players: any, placeId: number, opts: TeleportOpts?): (boolean, any)
+-- Teleports one player or a group to placeId, retrying a failed request with
+-- exponential backoff (Config.Teleport.Retry / Configure). Returns (true,
+-- TeleportAsyncResult) once Roblox accepted it, or (false, err) after the last try
+-- (OnTeleportFailed fires). A teleport that fails after it was accepted
+-- (TeleportInitFailed: Flooded / Failure) is sent again when it was for one player
+-- or had a ReservedAccessCode. A group teleport to a public server is not sent
+-- again for one player (they would land in a different server than the group):
+-- OnTeleportFailed fires for that player instead. Yields.
+function Teleport.To(players: Player | { Player }, placeId: number, opts: TeleportOpts?): (boolean, any)
 	local list = toList(players)
 	local options = buildOptions(opts)
 	local config = ensureConfig()
@@ -103,6 +122,10 @@ function Teleport.To(players: any, placeId: number, opts: TeleportOpts?): (boole
 			return TeleportService:TeleportAsync(placeId, list, options)
 		end)
 		if ok then
+			local canRetry = #list == 1 or (opts ~= nil and opts.ReservedAccessCode ~= nil and opts.ReservedAccessCode ~= "")
+			for _, player in list do
+				pending[player] = { placeId = placeId, options = options, attempt = attempt, canRetry = canRetry }
+			end
 			return true, result
 		end
 		lastErr = result
@@ -126,7 +149,7 @@ function Teleport.ReserveServer(placeId: number): (string?, string?, string?)
 	return code, privateId, nil
 end
 
-function Teleport.ToPrivate(players: any, placeId: number, accessCode: string, opts: TeleportOpts?): (boolean, any)
+function Teleport.ToPrivate(players: Player | { Player }, placeId: number, accessCode: string, opts: TeleportOpts?): (boolean, any)
 	local merged: TeleportOpts = {
 		Data = opts and opts.Data,
 		ReservedAccessCode = accessCode,
@@ -146,14 +169,68 @@ function Teleport.GetArrivingData(player: Player): any
 	return joinData.TeleportData
 end
 
-function Teleport.GetPlaceInstance(placeId: number, userId: number): (any?, any?, string?)
-	local ok, a, b = pcall(function()
+-- Where user `userId` is playing now: returns (placeId, jobId) of their server, for
+-- example to follow a friend with TeleportService:TeleportToPlaceInstance. Pass the
+-- place you expect, or 0 for any place: a user in another place returns
+-- (nil, nil, "in another place"). Not online, not found or an error: (nil, nil, reason).
+-- Yields; never errors.
+function Teleport.GetPlaceInstance(placeId: number, userId: number): (number?, string?, string?)
+	-- GetPlayerPlaceInstanceAsync returns (isThisServer, errorMessage, placeId, jobId).
+	local ok, first, errorMessage, foundPlaceId, jobId = pcall(function()
 		return TeleportService:GetPlayerPlaceInstanceAsync(userId)
 	end)
 	if not ok then
-		return nil, nil, tostring(a)
+		return nil, nil, tostring(first)
 	end
-	return a, b, nil
+	if typeof(foundPlaceId) ~= "number" or foundPlaceId == 0 or typeof(jobId) ~= "string" or jobId == "" then
+		local reason = if typeof(errorMessage) == "string" and errorMessage ~= "" then errorMessage else "not in a game"
+		return nil, nil, reason
+	end
+	if placeId ~= 0 and foundPlaceId ~= placeId then
+		return nil, nil, "in another place"
+	end
+	return foundPlaceId, jobId, nil
 end
+
+-- ── Started teleports that fail (TeleportInitFailed) ──
+
+local function onTeleportInitFailed(player: Player, result: Enum.TeleportResult, errorMessage: string, placeId: number): ()
+	local entry = pending[player]
+	if not entry then
+		return -- not a teleport this service started
+	end
+	local cfg = ensureConfig()
+	if entry.canRetry and Teleport.IsRetryable(result) and entry.attempt < cfg.MaxAttempts and player:IsDescendantOf(Players) then
+		entry.attempt += 1
+		task.delay(Teleport.ComputeBackoff(entry.attempt - 1, cfg.BaseDelay, cfg.MaxDelay), function()
+			if pending[player] ~= entry or not player:IsDescendantOf(Players) then
+				return
+			end
+			local ok, err = pcall(function()
+				return TeleportService:TeleportAsync(entry.placeId, { player }, entry.options)
+			end)
+			if not ok then
+				pending[player] = nil
+				Teleport.OnTeleportFailed:Fire({ player }, entry.placeId, err)
+			end
+		end)
+		return
+	end
+	pending[player] = nil
+	Teleport.OnTeleportFailed:Fire({ player }, entry.placeId, `{result.Name}: {errorMessage}`)
+end
+
+-- Init listens for teleports that fail after TeleportAsync accepted them, and
+-- forgets a player's pending teleport when they leave (the teleport worked).
+Lifecycle.Define(Teleport, {
+	Name = "Teleport",
+	Needs = {},
+	Init = function()
+		TeleportService.TeleportInitFailed:Connect(onTeleportInitFailed)
+		Players.PlayerRemoving:Connect(function(player: Player)
+			pending[player] = nil
+		end)
+	end,
+})
 
 return Teleport

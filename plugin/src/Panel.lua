@@ -8,7 +8,7 @@
 --           `create(parent, callbacks)` factory that returns a
 --           handle with `:setStatus(text, level)`.
 --
--- Layout   : a fixed tab bar (Convert / Build / Install) + a fixed
+-- Layout   : a fixed tab bar (Convert / Build / Install / Settings) + a fixed
 --            status line bracket a flexible content area. Only one
 --            page is visible at a time and its code box grows
 --            (UIFlexItem) to fill leftover space, so the widget is
@@ -129,6 +129,10 @@ local function newCodeBox(parent: Instance, order: number, placeholder: string):
 	return scroll, box
 end
 
+local function escapeRich(text: string): string
+	return (string.gsub(text, "[&<>]", { ["&"] = "&amp;", ["<"] = "&lt;", [">"] = "&gt;" }))
+end
+
 -- One tab button in the top tab bar. Equal width via UIFlexItem(Fill).
 local function newTab(text: string, parent: Instance): TextButton
 	local b = Instance.new("TextButton")
@@ -187,12 +191,30 @@ local function newToggle(parent: Instance, order: number, labelText: string): (T
 	return b, function(): boolean return state end, function(v: boolean) state = v; render() end
 end
 
+-- What the Install tab's package picker needs from the plugin entry.
+export type PackageInfo = {
+	Name: string,
+	Category: string,
+	Description: string,
+	Boot: boolean?,
+}
+export type PickerSource = {
+	packages: { PackageInfo },
+	presets: { [string]: { string } },
+	initial: { string },
+	-- Every package the pick installs (the pick + what it Requires).
+	resolve: (picked: { string }) -> { string },
+}
+
 export type Callbacks = {
 	onSelectionToScript: () -> (),
 	onInsertModule:      () -> (),
 	onScriptToInstance:  () -> (),
 	onUseSelectedModule: () -> (),
-	onInstall:           () -> (),
+	onInstall:           (picked: { string }?) -> (),
+	-- The package picker's data, or nil + why (no Payload / no catalogue).
+	getPickerSource:     () -> (PickerSource?, string?),
+	onPickChanged:       (picked: { string }) -> (),
 	onSkipToggle:        (class: string, skip: boolean) -> (),
 	getOutputText:   () -> string,
 	setOutputText:   (text: string) -> (),
@@ -255,10 +277,193 @@ function Panel.create(parent: Instance, cb: Callbacks): Handle
 	local btnRun = newButton("Script → Instance", buildPage, 3)
 	local _, inputBox = newCodeBox(buildPage, 4, "return function(parent) ... end")
 
-	-- ── Install page ──
+	-- ── Install page ── (presets on top; package list fills the middle; Install below)
 	local installPage = newPage(content)
-	newHint("Clone the Gaxia framework into this place's services:", installPage, 1)
-	local btnInstall = newButton("Install / Update Gaxia in this place", installPage, 2)
+	newHint("Pick the packages this game uses. What they need is added automatically; nothing else is installed.", installPage, 1)
+	local presetBar = Instance.new("Frame")
+	presetBar.Size = UDim2.new(1, 0, 0, 24)
+	presetBar.BackgroundTransparency = 1
+	presetBar.LayoutOrder = 2
+	presetBar.Parent = installPage
+	local presetLayout = Instance.new("UIListLayout")
+	presetLayout.FillDirection = Enum.FillDirection.Horizontal
+	presetLayout.Padding = UDim.new(0, 4)
+	presetLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	presetLayout.Parent = presetBar
+
+	local list = Instance.new("ScrollingFrame")
+	list.Size = UDim2.new(1, 0, 0, 60) -- base height; UIFlexItem grows it to fill
+	list.BackgroundColor3 = COLORS.editor
+	list.BorderSizePixel = 0
+	list.ScrollBarThickness = 6
+	list.ScrollBarImageColor3 = COLORS.muted
+	list.CanvasSize = UDim2.new(0, 0, 0, 0)
+	list.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	list.ScrollingDirection = Enum.ScrollingDirection.Y
+	list.LayoutOrder = 3
+	list.Parent = installPage
+	corner(list, 4)
+	local listFlex = Instance.new("UIFlexItem")
+	listFlex.FlexMode = Enum.UIFlexMode.Fill
+	listFlex.Parent = list
+	local listLayout = Instance.new("UIListLayout")
+	listLayout.Padding = UDim.new(0, 2)
+	listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	listLayout.Parent = list
+	local listPad = Instance.new("UIPadding")
+	listPad.PaddingTop = UDim.new(0, 4); listPad.PaddingBottom = UDim.new(0, 4)
+	listPad.PaddingLeft = UDim.new(0, 6); listPad.PaddingRight = UDim.new(0, 10)
+	listPad.Parent = list
+
+	local pickSummary = newHint("", installPage, 4)
+	local btnInstall = newButton("Install / Update Gaxia in this place", installPage, 5)
+
+	-- Picker state: built the first time the Install tab opens.
+	local picked: { [string]: boolean } = {}
+	local pickerSource: PickerSource? = nil
+	local rows: { [string]: { button: TextButton, info: PackageInfo } } = {}
+
+	local function pickedList(): { string }
+		local out: { string } = {}
+		if pickerSource then
+			for _, info in ipairs(pickerSource.packages) do
+				if picked[info.Name] then
+					table.insert(out, info.Name)
+				end
+			end
+		end
+		return out
+	end
+
+	local function renderPicker()
+		local source = pickerSource
+		if source == nil then return end
+		local current = pickedList()
+		local installedSet: { [string]: boolean } = {}
+		for _, name in ipairs(source.resolve(current)) do
+			installedSet[name] = true
+		end
+		local deps = 0
+		for name, row in pairs(rows) do
+			local mark
+			if picked[name] then
+				mark = "[x]"
+				row.button.TextColor3 = COLORS.text
+			elseif installedSet[name] then
+				mark = "[+]"
+				deps += 1
+				row.button.TextColor3 = COLORS.muted
+			else
+				mark = "[  ]"
+				row.button.TextColor3 = COLORS.muted
+			end
+			local boot = if row.info.Boot then "  · starts at boot" else ""
+			row.button.Text = `{mark}  <b>{name}</b>{boot}\n      {escapeRich(row.info.Description)}`
+		end
+		pickSummary.Text = `{#current} picked · {deps} added because a picked package needs them ([+]) · Core is always installed`
+	end
+
+	local function setPick(names: { string })
+		table.clear(picked)
+		for _, name in ipairs(names) do
+			if rows[name] then
+				picked[name] = true
+			end
+		end
+		renderPicker()
+		if cb.onPickChanged then cb.onPickChanged(pickedList()) end
+	end
+
+	local function addPresetButton(label: string, order: number, names: () -> { string })
+		local b = Instance.new("TextButton")
+		b.Size = UDim2.new(0, 0, 1, 0)
+		b.BackgroundColor3 = COLORS.panel
+		b.TextColor3 = COLORS.text
+		b.Text = label
+		b.Font = Enum.Font.GothamMedium
+		b.TextSize = 12
+		b.LayoutOrder = order
+		b.Parent = presetBar
+		corner(b, 4)
+		local flex = Instance.new("UIFlexItem")
+		flex.FlexMode = Enum.UIFlexMode.Fill
+		flex.Parent = b
+		b.Activated:Connect(function() setPick(names()) end)
+	end
+
+	local function buildPicker(): boolean
+		if pickerSource then return true end
+		if not cb.getPickerSource then return false end
+		local source, why = cb.getPickerSource()
+		if source == nil then
+			pickSummary.Text = "Package picker unavailable: " .. tostring(why)
+			return false
+		end
+		pickerSource = source
+		local order = 0
+		local category = ""
+		for _, info in ipairs(source.packages) do
+			if info.Category ~= category then
+				category = info.Category
+				order += 1
+				local header = Instance.new("TextLabel")
+				header.Size = UDim2.new(1, 0, 0, 20)
+				header.BackgroundTransparency = 1
+				header.TextColor3 = COLORS.accent
+				header.Font = Enum.Font.GothamMedium
+				header.TextSize = 13
+				header.TextXAlignment = Enum.TextXAlignment.Left
+				header.Text = category
+				header.LayoutOrder = order
+				header.Parent = list
+			end
+			order += 1
+			local b = Instance.new("TextButton")
+			b.Size = UDim2.new(1, 0, 0, 0)
+			b.AutomaticSize = Enum.AutomaticSize.Y
+			b.BackgroundColor3 = COLORS.panel
+			b.BackgroundTransparency = 0.4
+			b.Font = Enum.Font.Gotham
+			b.TextSize = 12
+			b.RichText = true
+			b.TextWrapped = true
+			b.TextXAlignment = Enum.TextXAlignment.Left
+			b.AutoButtonColor = true
+			b.LayoutOrder = order
+			b.Parent = list
+			corner(b, 3)
+			local pad = Instance.new("UIPadding")
+			pad.PaddingTop = UDim.new(0, 3); pad.PaddingBottom = UDim.new(0, 3)
+			pad.PaddingLeft = UDim.new(0, 6)
+			pad.Parent = b
+			rows[info.Name] = { button = b, info = info }
+			local name = info.Name
+			b.Activated:Connect(function()
+				if picked[name] then
+					picked[name] = nil
+				else
+					picked[name] = true
+				end
+				renderPicker()
+				if cb.onPickChanged then cb.onPickChanged(pickedList()) end
+			end)
+		end
+		local presetOrder = 0
+		for presetName, names in pairs(source.presets) do
+			presetOrder += 1
+			addPresetButton(presetName, presetOrder, function() return names end)
+		end
+		addPresetButton("All", 100, function()
+			local all: { string } = {}
+			for _, info in ipairs(source.packages) do
+				table.insert(all, info.Name)
+			end
+			return all
+		end)
+		addPresetButton("None", 101, function() return {} end)
+		setPick(source.initial)
+		return true
+	end
 
 	-- ── Settings page ── (skip toggles; UI classes are always kept)
 	local settingsPage = newPage(content)
@@ -300,7 +505,10 @@ function Panel.create(parent: Instance, cb: Callbacks): Handle
 	end
 	tabConvert.Activated:Connect(function() selectTab("Convert") end)
 	tabBuild.Activated:Connect(function() selectTab("Build") end)
-	tabInstall.Activated:Connect(function() selectTab("Install") end)
+	tabInstall.Activated:Connect(function()
+		selectTab("Install")
+		buildPicker()
+	end)
 	tabSettings.Activated:Connect(function() selectTab("Settings") end)
 	selectTab("Convert")
 
@@ -311,7 +519,12 @@ function Panel.create(parent: Instance, cb: Callbacks): Handle
 	btnInsertModule.Activated:Connect(function() if cb.onInsertModule then cb.onInsertModule() end end)
 	btnUseSelected.Activated:Connect(function() if cb.onUseSelectedModule then cb.onUseSelectedModule() end end)
 	btnRun.Activated:Connect(function() if cb.onScriptToInstance then cb.onScriptToInstance() end end)
-	btnInstall.Activated:Connect(function() if cb.onInstall then cb.onInstall() end end)
+	btnInstall.Activated:Connect(function()
+		if cb.onInstall then
+			-- No catalogue (older bundle): install everything, as before.
+			cb.onInstall(if buildPicker() then pickedList() else nil)
+		end
+	end)
 
 	-- ── Output/input getters/setters (back-channels) ──
 	function cb.getOutputText() return outputBox.Text end

@@ -22,27 +22,33 @@ local RunService = game:GetService("RunService")
 
 -- ── Handle types (controllers returned by stateful widgets) ──
 export type Toggle = { Instance: GuiObject, Get: () -> boolean, Set: (v: boolean) -> () }
-export type Slider = { Instance: GuiObject, Get: () -> number, Set: (v: number) -> () }
+-- Slider.Destroy removes the slider and disconnects its input listeners (destroying Instance does too).
+export type Slider = { Instance: GuiObject, Get: () -> number, Set: (v: number) -> (), Destroy: () -> () }
 export type Dropdown = { Instance: GuiObject, Get: () -> string, Set: (v: string) -> () }
 export type Tabs = { Instance: GuiObject, GetActive: () -> number, Select: (i: number) -> () }
 export type ScrollList = { Instance: ScrollingFrame, SetItems: (items: { any }) -> (), Refresh: () -> () }
 export type Modal = { Instance: GuiObject, Close: () -> () }
 
--- ── Server stub (UI is meaningless off the client) ──
+-- Button / modal-button colour variants.
+export type ButtonVariant = "primary" | "danger" | "surface"
+
+local Components = {}
+
+-- ── Server stub (UI is meaningless off the client; typed as the client module
+-- so Gaxia.UI.Components autocompletes) ──
 if not RunService:IsClient() then
 	local nilGui = function(): any return nil end
 	return ({
 		Button = nilGui, Toggle = nilGui, Slider = nilGui, TextInput = nilGui,
 		Dropdown = nilGui, Tabs = nilGui, ScrollList = nilGui, Modal = nilGui,
-	} :: any)
+	} :: any) :: typeof(Components)
 end
 
 -- ── Client implementation ──
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local Theme = require(script.Parent.Parent.Parent.Shared.Theme)
-
-local Components = {}
+local Trove = require(script.Parent.Parent.Parent.Shared.Trove)
 
 local QUICK = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
@@ -73,7 +79,7 @@ end
 -- ── Button ──
 export type ButtonProps = {
 	Text: string?, Size: UDim2?, Position: UDim2?, Parent: Instance?,
-	OnClick: (() -> ())?, Variant: string?,
+	OnClick: (() -> ())?, Variant: (ButtonVariant | string)?, -- default "primary"
 }
 function Components.Button(props: ButtonProps): TextButton
 	local variant = props.Variant or "primary"
@@ -221,27 +227,38 @@ function Components.Slider(props: SliderProps): Slider
 	redraw()
 
 	-- Drag: clicking/dragging anywhere on the track sets the value from mouse X.
+	-- WHY a Trove: the UserInputService connections are global; without it they
+	-- (and this whole widget) stay alive after the slider is destroyed.
+	local trove = Trove.new()
 	local dragging = false
 	local function setFromX(px: number): ()
 		local rel = (px - track.AbsolutePosition.X) / math.max(track.AbsoluteSize.X, 1)
 		handle.Set(min + math.clamp(rel, 0, 1) * (max - min))
 	end
-	track.InputBegan:Connect(function(input: InputObject)
+	trove:Connect(track.InputBegan, function(input: InputObject)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = true
 			setFromX(input.Position.X)
 		end
 	end)
-	UserInputService.InputChanged:Connect(function(input: InputObject)
+	trove:Connect(UserInputService.InputChanged, function(input: InputObject)
 		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
 			setFromX(input.Position.X)
 		end
 	end)
-	UserInputService.InputEnded:Connect(function(input: InputObject)
+	trove:Connect(UserInputService.InputEnded, function(input: InputObject)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = false
 		end
 	end)
+	-- Destroying the slider (or a parent of it) releases the connections.
+	trove:Connect(root.Destroying, function()
+		trove:Destroy()
+	end)
+	handle.Destroy = function(): ()
+		trove:Destroy()
+		root:Destroy()
+	end
 
 	root.Parent = props.Parent
 	return handle
@@ -509,7 +526,7 @@ function Components.ScrollList(props: ScrollListProps): ScrollList
 end
 
 -- ── Modal (scrim + centered card + button row) ──
-export type ModalButton = { Text: string, OnClick: (() -> ())?, Variant: string? }
+export type ModalButton = { Text: string, OnClick: (() -> ())?, Variant: (ButtonVariant | string)? }
 export type ModalProps = {
 	Title: string?, Body: string?, Buttons: { ModalButton }?, Parent: Instance?, OnClose: (() -> ())?,
 }

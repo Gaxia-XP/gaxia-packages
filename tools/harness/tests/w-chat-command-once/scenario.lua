@@ -1,0 +1,10 @@
+-- 3 players; Player1 types /ping twice. Expect 2 runs (one per message), not 6.
+harness.advance(2)
+local p1 = harness.join("Player1")
+harness.join("Player2")
+harness.join("Player3")
+harness.advance(4)
+harness.chat(p1, "/ping")
+harness.advance(1)
+harness.chat(p1, "/ping")
+harness.advance(4)

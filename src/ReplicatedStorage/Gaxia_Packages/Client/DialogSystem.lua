@@ -6,6 +6,21 @@
 --            Promise-based API — resolves to chosen index (1-based).
 -- ──────────────────────────────────────────────────────────────────
 
+-- ── Dependencies ──
+local Promise = require(script.Parent.Parent.Shared.Promise)
+local PromiseTypes = require(script.Parent.Parent.Shared.PromiseTypes)
+local Trove   = require(script.Parent.Parent.Shared.Trove)
+
+-- The value Trove.new() returns. (Annotating with the exported Trove.Trove is
+-- rejected by the type checker: its generic methods do not unify with the
+-- instantiated result of Trove.new().)
+type TroveObject = typeof(Trove.new())
+
+-- ── Promise types ──
+-- Shared/Promise (vendored evaera Promise) exports no types; Shared/PromiseTypes
+-- describes it, so callers get :andThen / :await / :expect completion.
+type Promise<T...> = PromiseTypes.Promise<T...>
+
 export type DialogLine = { speaker: string?, text: string, portrait: string? }
 export type DialogChoice = { text: string, value: any? }
 export type DialogConfig = {
@@ -15,7 +30,9 @@ export type DialogConfig = {
 }
 
 export type DialogSystem = {
-	Show: (config: DialogConfig) -> any,
+	-- Resolves with the chosen choice index (1-based; 1 when there are no
+	-- choices). Rejects with "superseded" when a newer Show() replaces it.
+	Show: (config: DialogConfig) -> Promise<number>,
 	Close: () -> (),
 	IsOpen: () -> boolean,
 }
@@ -26,15 +43,11 @@ if not RunService:IsClient() then return ({} :: any) :: DialogSystem end
 local CollectionService = game:GetService("CollectionService")
 
 -- ── Services ──
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players           = game:GetService("Players")
 local UserInputService  = game:GetService("UserInputService")
 local StarterGui        = game:GetService("StarterGui")
 
 local LocalPlayer : Player = Players.LocalPlayer
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Promise = SharedPkg.Promise
-local Maid    = SharedPkg.Maid
 
 -- ── Constants ──
 local DEFAULT_SPEED : number = 30
@@ -44,7 +57,7 @@ local UI_ROOT_NAME : string = "Gaxia_UI"
 -- ── State ──
 local Module = {}
 
-local _activeMaid : any = nil
+local _activeTrove : TroveObject? = nil
 local _activeReject : ((err: any) -> ())? = nil
 local _isOpen : boolean = false
 
@@ -184,40 +197,40 @@ function Module.IsOpen(): boolean
 end
 
 function Module.Close(): ()
-	if _activeMaid then
-		_activeMaid:Destroy()
-		_activeMaid = nil
+	if _activeTrove then
+		_activeTrove:Destroy()
+		_activeTrove = nil
 	end
 	_activeReject = nil
 	_isOpen = false
 end
 
-function Module.Show(config: DialogConfig): any
-	return Promise.new(function(resolve: (val: any) -> (), reject: (err: any) -> (), onCancel: (fn: () -> ()) -> ())
+function Module.Show(config: DialogConfig): Promise<number>
+	return (Promise.new(function(resolve: (val: any) -> (), reject: (err: any) -> (), onCancel: (fn: () -> ()) -> ())
 		-- WHY: only one dialog at a time; reject previous
 		if _isOpen and _activeReject then
 			local prev = _activeReject
 			_activeReject = nil
 			prev("superseded")
-			if _activeMaid then
-				_activeMaid:Destroy()
-				_activeMaid = nil
+			if _activeTrove then
+				_activeTrove:Destroy()
+				_activeTrove = nil
 			end
 		end
 
 		_isOpen = true
 		_activeReject = reject
 
-		local maid = Maid.new()
-		_activeMaid = maid
+		local trove = Trove.new()
+		_activeTrove = trove
 
 		onCancel(function()
-			if _activeMaid == maid then
-				_activeMaid = nil
+			if _activeTrove == trove then
+				_activeTrove = nil
 				_activeReject = nil
 				_isOpen = false
 			end
-			maid:Destroy()
+			trove:Destroy()
 		end)
 
 		-- Build UI
@@ -232,7 +245,7 @@ function Module.Show(config: DialogConfig): any
 
 		local overlays = getOverlays()
 		frame.Parent = overlays
-		maid:GiveTask(frame)
+		trove:Add(frame)
 
 		local msgLabel = frame:FindFirstChild("Message")
 		local nameLabel = frame:FindFirstChild("Name")
@@ -265,7 +278,7 @@ function Module.Show(config: DialogConfig): any
 		clickArea.ZIndex = 0
 		clickArea.AutoButtonColor = false
 		clickArea.Parent = frame
-		maid:GiveTask(clickArea)
+		trove:Add(clickArea)
 
 		local choiceContainer : Frame? = nil
 
@@ -317,19 +330,19 @@ function Module.Show(config: DialogConfig): any
 				bc.Parent = btn
 
 				local conn = btn.MouseButton1Click:Connect(function()
-					if _activeMaid == maid then
-						_activeMaid = nil
+					if _activeTrove == trove then
+						_activeTrove = nil
 						_activeReject = nil
 						_isOpen = false
 					end
-					maid:Destroy()
+					trove:Destroy()
 					resolve(i)
 				end)
-				maid:GiveTask(conn)
+				trove:Add(conn)
 			end
 
 			choiceContainer = cont
-			maid:GiveTask(cont)
+			trove:Add(cont)
 			continueBtn.Visible = false
 		end
 
@@ -351,12 +364,12 @@ function Module.Show(config: DialogConfig): any
 					showChoices()
 					advancing = false
 				else
-					if _activeMaid == maid then
-						_activeMaid = nil
+					if _activeTrove == trove then
+						_activeTrove = nil
 						_activeReject = nil
 						_isOpen = false
 					end
-					maid:Destroy()
+					trove:Destroy()
 					resolve(1)
 				end
 				return
@@ -381,7 +394,7 @@ function Module.Show(config: DialogConfig): any
 		end
 
 		local connContinue = continueBtn.MouseButton1Click:Connect(advanceLine)
-		maid:GiveTask(connContinue)
+		trove:Add(connContinue)
 
 		local connClick = clickArea.MouseButton1Click:Connect(function()
 			if typing then
@@ -390,11 +403,11 @@ function Module.Show(config: DialogConfig): any
 				advanceLine()
 			end
 		end)
-		maid:GiveTask(connClick)
+		trove:Add(connClick)
 
 		-- kick off first line
 		advanceLine()
-	end)
+	end) :: any) :: Promise<number>
 end
 
 return Module :: DialogSystem

@@ -9,27 +9,13 @@
 
 -- ── Services ──
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
 
--- ── Shared ──
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal    = SharedPkg.Signal
-
--- ── Lazy server packages (DataManager + Config + EConfig) ──
--- Defer require to first use so module-load order is not strict.
-local GaxiaServer: any = nil
-local function server(): any
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer
-end
-local function getDataManager(): any
-	return server().Data
-end
+-- ── Dependencies ──
+local Signal      = require(ReplicatedStorage.Gaxia_Packages.Shared.Signal)
+local Lifecycle   = require(script.Parent.ServiceLifecycle)
+local Config      = require(script.Parent.Parent.Config)
+local EConfig     = require(script.Parent.EffectiveConfig)
+local DataManager = require(script.Parent.DataManager)
 
 -- ── Constants ──
 local INVENTORY_KEY        : string = "Inventory"
@@ -38,22 +24,21 @@ local DEFAULT_COUNT        : number = 1
 
 -- Effective per-item clamp (Config default <- runtime override), read at call-time.
 local function maxItemCount(): number
-	local s = server()
-	return s.EConfig.Get("Inventory.MaxItemCount", (s.Config.Inventory or {}).MaxItemCount or DEFAULT_MAX_ITEM_COUNT)
+	return EConfig.Get("Inventory.MaxItemCount", Config.Inventory.MaxItemCount or DEFAULT_MAX_ITEM_COUNT)
 end
 
 -- ── Module ──
 local ItemService = {}
 
-ItemService.OnItemChanged = Signal.new()
+-- (player, itemId, newCount, delta) after every Give / Remove / Clear that changed a count
+ItemService.OnItemChanged = Signal.new() :: Signal.Signal<Player, string, number, number>
 
 -- ── Helpers ──
 
--- Reads the current Inventory dict from DataManager, creating it if missing.
+-- Reads the current Inventory dict from DataManager (nil until the profile is
+-- loaded and has an Inventory table).
 local function getInventory(player: Player): { [string]: number }?
-	local Data = getDataManager()
-	if not Data then return nil end
-	local inv = Data.Get(player, INVENTORY_KEY)
+	local inv = DataManager.Get(player, INVENTORY_KEY)
 	if typeof(inv) ~= "table" then
 		-- Profile not loaded yet — caller decides whether to retry.
 		return nil
@@ -62,8 +47,7 @@ local function getInventory(player: Player): { [string]: number }?
 end
 
 local function commit(player: Player, inventory: { [string]: number })
-	local Data = getDataManager()
-	if Data then Data.Set(player, INVENTORY_KEY, inventory) end
+	DataManager.Set(player, INVENTORY_KEY, inventory)
 end
 
 local function clampCount(count: number): number
@@ -154,5 +138,11 @@ function ItemService.Clear(player: Player, itemId: string): ()
 		ItemService.OnItemChanged:Fire(player, itemId, 0, -prev)
 	end
 end
+
+-- Pure API: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(ItemService, {
+	Name = "Item",
+	Needs = {},
+})
 
 return ItemService

@@ -19,6 +19,8 @@ local CollectionService = game:GetService("CollectionService")
 local RunService = game:GetService("RunService")
 
 export type RebindHandle = { Instance: GuiObject, Refresh: () -> () }
+-- A bindable input (same shape as InputManager.InputKey).
+export type RebindKey = Enum.KeyCode | Enum.UserInputType
 
 local RebindMenu = {}
 
@@ -29,26 +31,26 @@ local MOUSE_NAMES: { [string]: string } = {
 }
 
 -- PURE: friendly display name for a bound key (KeyCode or UserInputType).
-function RebindMenu.KeyName(key: any): string
+function RebindMenu.KeyName(key: (RebindKey | EnumItem)?): string
 	if typeof(key) == "EnumItem" then
 		return MOUSE_NAMES[key.Name] or key.Name
 	end
 	return "—"
 end
 
--- ── Server stub ──
+-- ── Server stub (typed as the client module so Gaxia.UI.RebindMenu autocompletes) ──
 if not RunService:IsClient() then
 	return ({
 		KeyName = RebindMenu.KeyName,
 		CaptureNext = function(): any return function() end end,
 		Build = function(): any return nil end,
-	} :: any)
+	} :: any) :: typeof(RebindMenu)
 end
 
 -- ── Client implementation ──
 local UserInputService = game:GetService("UserInputService")
 local Components = require(script.Parent.Components)
-local InputManager = require(script.Parent.Parent.InputManager) :: any
+local InputManager = require(script.Parent.Parent.InputManager)
 local Theme = require(script.Parent.Parent.Parent.Shared.Theme)
 
 local CAPTURE_MOUSE: { [Enum.UserInputType]: boolean } = {
@@ -58,8 +60,9 @@ local CAPTURE_MOUSE: { [Enum.UserInputType]: boolean } = {
 }
 
 -- Listen for the next key / mouse / gamepad-button press; Esc cancels.
--- Returns a cancel function. onCaptured(key, cancelled) fires exactly once.
-function RebindMenu.CaptureNext(onCaptured: (key: any, cancelled: boolean) -> ()): () -> ()
+-- Returns a cancel function. onCaptured(key, cancelled) fires exactly once;
+-- key is nil when cancelled.
+function RebindMenu.CaptureNext(onCaptured: (key: RebindKey?, cancelled: boolean) -> ()): () -> ()
 	local conn: RBXScriptConnection? = nil
 	local function stop(): ()
 		if conn then
@@ -81,7 +84,7 @@ function RebindMenu.CaptureNext(onCaptured: (key: any, cancelled: boolean) -> ()
 			stop()
 			onCaptured(t, false)
 		elseif string.find(t.Name, "Gamepad") ~= nil then
-			if input.KeyCode ~= Enum.KeyCode.Unknown then
+			if input.KeyCode.Name ~= "Unknown" then -- Enum.KeyCode.Unknown (absent from the type definitions)
 				stop()
 				onCaptured(input.KeyCode, false)
 			end
@@ -93,11 +96,11 @@ end
 export type BuildOpts = {
 	Actions: { string }?, -- restrict/order; default = all bound actions, sorted
 	Parent: Instance?, Size: UDim2?, Position: UDim2?,
-	OnRebind: ((action: string, key: any) -> ())?,
+	OnRebind: ((action: string, key: RebindKey) -> ())?,
 }
 
 function RebindMenu.Build(opts: BuildOpts?): RebindHandle
-	local o = opts or {}
+	local o: BuildOpts = opts or {}
 
 	local root = Instance.new("Frame")
 	root.Name = "GaxRebindMenu"
@@ -120,7 +123,7 @@ function RebindMenu.Build(opts: BuildOpts?): RebindHandle
 	local rowButtons: { [string]: TextButton } = {}
 	local cancelCapture: (() -> ())? = nil
 
-	local function currentKey(action: string): any
+	local function currentKey(action: string): RebindKey?
 		local keys = InputManager.GetBindings()[action]
 		return keys and keys[1]
 	end
@@ -139,14 +142,16 @@ function RebindMenu.Build(opts: BuildOpts?): RebindHandle
 		end
 	end
 
-	local actions = o.Actions
-	if not actions then
-		actions = {}
+	-- Default: every bound action, sorted.
+	local function allActions(): { string }
+		local all: { string } = {}
 		for a in pairs(InputManager.GetBindings()) do
-			table.insert(actions, a)
+			table.insert(all, a)
 		end
-		table.sort(actions)
+		table.sort(all)
+		return all
 	end
+	local actions: { string } = o.Actions or allActions()
 
 	for i, action in ipairs(actions) do
 		local row = Instance.new("Frame")
@@ -179,7 +184,7 @@ function RebindMenu.Build(opts: BuildOpts?): RebindHandle
 				cancelCapture()
 			end
 			btn.Text = "Press a key…"
-			cancelCapture = RebindMenu.CaptureNext(function(key: any, cancelled: boolean)
+			cancelCapture = RebindMenu.CaptureNext(function(key: RebindKey?, cancelled: boolean)
 				cancelCapture = nil
 				if not cancelled and key ~= nil then
 					InputManager.Rebind(action, { key })

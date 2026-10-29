@@ -8,31 +8,29 @@
 --           inspect and act in-game:
 --             /acflags <player>   — list a player's flags
 --             /acclear <player>   — clear a player's flags
---             /acban <player> <reason> [seconds]
+--             /acban <player> <reason...> [seconds|30m|1h|2d]
 --             /acunban <userId>
 --             /ac <on|off|status|reset> [Detector]  — live AntiCheat kill-switch
 --             /flag <set|get> <key> [value]         — generic runtime flag override
 --
--- Touch Gaxia.AntiCheatAdmin at boot to register the commands (auto-registers on
--- load too; explicit Register() is idempotent).
+-- List "AntiCheatAdmin" in Features (or touch Gaxia.AntiCheatAdmin) to register
+-- the commands: its Init registers them; explicit Register() is idempotent.
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
+local Players = game:GetService("Players")
 
-local Players       = game:GetService("Players")
-local ServerStorage = game:GetService("ServerStorage")
+-- ── Dependencies ──
+local Lifecycle        = require(script.Parent.ServiceLifecycle)
+local EConfig          = require(script.Parent.EffectiveConfig)
+local AdminCommands    = require(script.Parent.AdminCommands)
+local AntiCheatJournal = require(script.Parent.AntiCheatJournal)
+local BanService       = require(script.Parent.BanService)
+local AntiCheat        = require(script.Parent.Parent.AntiCheat)
+
+-- Analytics is a soft dependency (its package may not be installed): the audit
+-- event is sent only when it is.
+type AnalyticsApi = { Track: (...any) -> () }
 
 local AntiCheatAdmin = {}
-
-local GaxiaServer: any = nil
-local function server(): any
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer
-end
 
 -- Hardened resolver (mirrors AdminCommands.findPlayerByPartialName, which is
 -- module-local): blank and ambiguous queries resolve to nil — never "first
@@ -65,21 +63,21 @@ local function findPlayer(query: string?): (Player?, string?)
 end
 
 local registered = false
-function AntiCheatAdmin.Register(): ()
+local function register(): ()
 	if registered then
 		return
 	end
 	registered = true
-	local G = server()
-	local Admin = G.Admin
-	if not Admin or not Admin.Register then
+	-- AdminCommands is a Need, so its Init has run: it either started or failed.
+	if Lifecycle.GetState(AdminCommands) ~= "initialized" then
 		warn("[AntiCheatAdmin] AdminCommands unavailable — dashboard commands not registered")
 		return
 	end
+	local Admin = AdminCommands
 
-	Admin.Register("acflags", { role = "moderator", help = "List a player's AntiCheat flags" }, function(caller: Player, args: { string }): string?
+	Admin.Register("acflags", { role = "moderator", help = "List a player's AntiCheat flags" }, function(caller: Player, args: { string }): (string?, boolean?)
 		local target = findPlayer(args[1]) or caller
-		local entries = G.Journal.GetForPlayer(target)
+		local entries = AntiCheatJournal.GetForPlayer(target)
 		if #entries == 0 then
 			return `{target.Name}: no flags`
 		end
@@ -90,13 +88,18 @@ function AntiCheatAdmin.Register(): ()
 		return `{target.Name} [{#entries}]: {table.concat(parts, ", ")}`
 	end)
 
-	Admin.Register("acclear", { role = "admin", help = "Clear a player's AntiCheat flags" }, function(caller: Player, args: { string }): string?
+	Admin.Register("acclear", { role = "admin", help = "Clear a player's AntiCheat flags" }, function(caller: Player, args: { string }): (string?, boolean?)
 		local target = findPlayer(args[1]) or caller
-		G.AntiCheat.ClearFlags(target)
+		AntiCheat.ClearFlags(target)
+		-- A moderator clearing flags forgives the ban-escalation strikes too.
+		BanService.ResetStrikes(target.UserId)
 		return `cleared {target.Name}'s AntiCheat flags`
 	end)
 
-	Admin.Register("acban", { role = "admin", help = "Ban a player: /acban <player> <reason> [seconds]" }, function(caller: Player, args: { string }): (string?, boolean?)
+	-- /acban duration suffixes → seconds.
+	local DURATION_UNITS: { [string]: number } = { s = 1, m = 60, h = 3600, d = 86400, w = 604800 }
+
+	Admin.Register("acban", { role = "admin", help = "Ban a player: /acban <player> <reason...> [seconds|30m|1h|2d]" }, function(caller: Player, args: { string }): (string?, boolean?)
 		local target, why = findPlayer(args[1])
 		if not target then
 			return why or "player not found", true
@@ -113,19 +116,47 @@ function AntiCheatAdmin.Register(): ()
 		if blocked then
 			return blocked, true
 		end
-		local reason = args[2] or "AntiCheat"
+		-- Multi-word reason: chat splits unquoted words into separate args, so
+		-- "/acban Bob speed hacking 3600" is { Bob, speed, hacking, 3600 }. With 3+
+		-- args a numeric LAST arg is the duration; every word between the player
+		-- and it is the reason. ("/acban Bob 3600" keeps "3600" as the reason.)
+		-- A LAST arg shaped like a duration with a unit (1h, 30m, 2d, 90s, 1w) is
+		-- parsed with ANY argument count ("/acban Bob 1h" = 1 hour, reason
+		-- "AntiCheat"); an unknown unit (5x) is refused. It must never fall into
+		-- the reason: that would turn a short ban into a PERMANENT one.
+		local last = #args
+		local secondsArg: string? = nil
+		if last >= 2 then
+			local tail = args[last]
+			local amount, unit = string.match(tail, "^(%d+%.?%d*)(%a+)$")
+			if amount and unit then
+				local mult = DURATION_UNITS[string.lower(unit)]
+				if not mult then
+					return `unknown duration "{tail}": use seconds or s/m/h/d/w (e.g. 3600, 1h, 2d)`, true
+				end
+				secondsArg = tostring((tonumber(amount) :: number) * mult)
+				last -= 1
+			elseif last >= 3 and tonumber(tail) ~= nil then
+				secondsArg = tail
+				last -= 1
+			end
+		end
+		local reason = if last >= 2 then table.concat(args, " ", 2, last) else "AntiCheat"
+		if reason:match("^%s*$") then
+			reason = "AntiCheat"
+		end
 		-- NaN/inf/negative guard (audit convention): tonumber("nan") is NaN,
 		-- NaN expiresAt never compares expired → an accidental PERMANENT ban
 		-- reported as temp; negative seconds = instantly-expired record.
 		local seconds: number? = nil
-		if args[3] ~= nil and args[3] ~= "" then
-			local n = tonumber(args[3])
+		if secondsArg ~= nil then
+			local n = tonumber(secondsArg)
 			if not n or n ~= n or n == math.huge or n < 1 then
 				return "seconds must be a positive number (omit for permanent)", true
 			end
 			seconds = math.floor(n)
 		end
-		local persisted = G.Ban.Ban(target.UserId, reason, seconds)
+		local persisted = BanService.Ban(target.UserId, reason, seconds)
 		local line = `banned {target.Name}: {reason}{if seconds then ` ({seconds}s)` else " (permanent)"}`
 		if persisted == false then
 			-- Kick happened but the DataStore write failed (or no store): this
@@ -140,7 +171,7 @@ function AntiCheatAdmin.Register(): ()
 		if not uid then
 			return "usage: /acunban <userId>", true
 		end
-		local persisted = G.Ban.Unban(uid)
+		local persisted = BanService.Unban(uid)
 		if persisted == false then
 			return `unbanned {uid} — WARNING: persisted record removal failed; the ban may re-apply elsewhere`
 		end
@@ -154,7 +185,13 @@ function AntiCheatAdmin.Register(): ()
 	local function audit(caller: Player, action: string): ()
 		print(`[AntiCheatAdmin] AUDIT {caller.Name}({caller.UserId}): {action}`)
 		pcall(function()
-			G.Analytics.Track("admin_config", { by = caller.UserId, action = action })
+			-- KNOWN BUG, kept as-is by the lifecycle refactor (fixing it changes
+			-- behaviour): the event name sits in Track's player slot, so Track drops
+			-- the event. The call still starts Analytics, as touching it always did.
+			local AnalyticsService: AnalyticsApi? = Lifecycle.Find("Analytics")
+			if AnalyticsService then
+				AnalyticsService.Track("admin_config", { by = caller.UserId, action = action })
+			end
 		end)
 	end
 
@@ -168,7 +205,7 @@ function AntiCheatAdmin.Register(): ()
 	end
 
 	Admin.Register("ac", { role = "admin", help = "AntiCheat: /ac <on|off|status|reset> [Detector]" }, function(caller: Player, args: { string }): (string?, boolean?)
-		local AC = G.AntiCheat
+		local AC = AntiCheat
 		local sub = (args[1] or "status"):lower()
 		local det = args[2]
 		if sub == "status" then
@@ -203,14 +240,14 @@ function AntiCheatAdmin.Register(): ()
 		local sub = (args[1] or ""):lower()
 		local key = args[2]
 		if sub == "get" and key then
-			return `{key} = {tostring(G.EConfig.Get(key, nil))} (overridden: {tostring(G.EConfig.IsOverridden(key))})`
+			return `{key} = {tostring(EConfig.Get(key, nil))} (overridden: {tostring(EConfig.IsOverridden(key))})`
 		elseif sub == "set" and key then
 			local val = parseValue(args[3])
-			G.EConfig.Set(key, val)
+			EConfig.Set(key, val)
 			audit(caller, `flag {key} = {tostring(val)}`)
 			return `flag {key} = {tostring(val)}`
 		elseif sub == "clear" and key then
-			G.EConfig.Clear(key)
+			EConfig.Clear(key)
 			audit(caller, `flag {key} cleared`)
 			return `flag {key} cleared (reverted to default)`
 		end
@@ -218,6 +255,16 @@ function AntiCheatAdmin.Register(): ()
 	end)
 end
 
-task.spawn(AntiCheatAdmin.Register)
+-- Register the dashboard commands (idempotent; Init already does this).
+function AntiCheatAdmin.Register(): ()
+	register()
+end
+
+Lifecycle.Define(AntiCheatAdmin, {
+	Name = "AntiCheatAdmin",
+	-- AdminCommands: Init registers the commands into it (and, through it, chat).
+	Needs = { AdminCommands },
+	Init = register,
+})
 
 return AntiCheatAdmin

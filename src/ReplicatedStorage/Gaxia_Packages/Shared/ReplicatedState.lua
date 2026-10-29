@@ -29,9 +29,8 @@ local RunService        = game:GetService("RunService")
 
 local IS_SERVER : boolean = RunService:IsServer()
 
--- Serializer (sibling Shared module) for nested-table values (Phase 19.2).
--- FindFirstChild (no yield) — Serializer is a present sibling with a pure body.
-local Serializer = require(script.Parent:FindFirstChild("Serializer") :: ModuleScript) :: any
+-- Serializer (sibling Shared module, pure body) for nested-table values (Phase 19.2).
+local Serializer = require(script.Parent.Serializer)
 
 -- ── Types ──
 
@@ -50,26 +49,55 @@ export type StateObject = {
 
 -- ── Container bootstrap ──
 
-local container : Folder
+-- The server creates (or finds) GaxiaState at require time. The client only looks
+-- for it here and otherwise waits in State.Get: this module is reachable as
+-- Gaxia.State through the client loader's __index, where a yield is an error.
+local container : Folder? = nil
 do
 	local existing = ReplicatedStorage:FindFirstChild("GaxiaState")
 	if existing and existing:IsA("Folder") then
 		container = existing
 	elseif IS_SERVER then
-		container = Instance.new("Folder")
-		container.Name = "GaxiaState"
-		container.Parent = ReplicatedStorage
-	else
-		local waited = ReplicatedStorage:WaitForChild("GaxiaState", 10)
-		assert(waited and waited:IsA("Folder"), "[ReplicatedState] GaxiaState folder missing")
-		container = waited :: Folder
+		local created = Instance.new("Folder")
+		created.Name = "GaxiaState"
+		created.Parent = ReplicatedStorage
+		container = created
 	end
+end
+
+-- Client: yields up to 10 s for the server to create GaxiaState (nil if it never does).
+local function getContainer(): Folder?
+	local found = container
+	if found then
+		return found
+	end
+	local waited = ReplicatedStorage:WaitForChild("GaxiaState", 10)
+	if waited and waited:IsA("Folder") then
+		container = waited
+		return waited
+	end
+	warn("[ReplicatedState] GaxiaState folder missing")
+	return nil
 end
 
 -- ── Wrapper class ──
 
 local StateClass = {}
 StateClass.__index = StateClass
+
+-- Cache so repeated Create / Get for the same name return the same object.
+local cache : { [string]: StateObject } = {}
+
+-- The cached object for `name`, unless its folder is gone (destroyed by Destroy, or
+-- on the client by the server): then the entry is dropped.
+local function cached(name: string): StateObject?
+	local obj = cache[name]
+	if obj and obj._folder.Parent == nil then
+		cache[name] = nil
+		return nil
+	end
+	return obj
+end
 
 local function wrap(folder: Folder): StateObject
 	local self = setmetatable({ _folder = folder }, StateClass)
@@ -137,8 +165,14 @@ function StateClass:GetAll(): { [string]: any }
 	return self._folder:GetAttributes()
 end
 
+-- Server: deletes the state (its folder) for every client, and forgets it, so a
+-- later State.Get(name) returns nil and State.Create(name) makes a fresh one.
+-- Client: only forgets the local object (clients cannot delete replicated state).
 function StateClass:Destroy(): ()
-	-- Server only — clients can't destroy replicated state.
+	local name = self._folder.Name
+	if cache[name] == (self :: any) then
+		cache[name] = nil
+	end
 	if not IS_SERVER then return end
 	self._folder:Destroy()
 end
@@ -147,9 +181,6 @@ end
 
 local State = {}
 
--- Cache so repeated Create / Get for the same name return the same object.
-local cache : { [string]: StateObject } = {}
-
 -- Server: create a state container with `defaults`. Existing attributes are
 -- preserved (i.e. defaults only fill MISSING keys), so Create is idempotent
 -- and safe to call from multiple bootstrap scripts.
@@ -157,11 +188,17 @@ function State.Create(name: string, defaults: { [string]: any }?): StateObject
 	assert(IS_SERVER, "State.Create is server-only")
 	assert(typeof(name) == "string" and #name > 0, "State.Create requires a non-empty name")
 
-	local folder = container:FindFirstChild(name)
-	if not folder then
-		folder = Instance.new("Folder")
-		folder.Name = name
-		folder.Parent = container
+	local folder: Instance
+	-- Server: the container always exists (created at require time).
+	local root = container :: Folder
+	local existing = root:FindFirstChild(name)
+	if existing then
+		folder = existing
+	else
+		local created = Instance.new("Folder")
+		created.Name = name
+		created.Parent = root
+		folder = created
 	end
 	if defaults then
 		for k, v in pairs(defaults) do
@@ -171,23 +208,27 @@ function State.Create(name: string, defaults: { [string]: any }?): StateObject
 		end
 	end
 
-	local obj = cache[name]
-	if not obj then
-		obj = wrap(folder :: Folder)
-		cache[name] = obj
+	local hit = cached(name)
+	if hit and hit._folder == folder then
+		return hit
 	end
+	local obj = wrap(folder :: Folder)
+	cache[name] = obj
 	return obj
 end
 
 -- Server: returns the live state object, or nil if it doesn't exist yet.
 -- Client: yields up to 10s waiting for the server to create the container.
 function State.Get(name: string): StateObject?
-	if cache[name] then return cache[name] end
+	local hit = cached(name)
+	if hit then return hit end
 	local folder : Instance?
 	if IS_SERVER then
-		folder = container:FindFirstChild(name)
+		folder = (container :: Folder):FindFirstChild(name)
 	else
-		folder = container:WaitForChild(name, 10)
+		local root = getContainer()
+		if not root then return nil end
+		folder = root:WaitForChild(name, 10)
 	end
 	if not folder or not folder:IsA("Folder") then return nil end
 	local obj = wrap(folder :: Folder)

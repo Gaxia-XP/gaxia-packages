@@ -1,0 +1,54 @@
+# Runs the framework checks from playbooks/framework/change-the-framework.md.
+# Tools are pinned (versions + sha256) in tools/ci/install-tools.sh.
+name: checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Cache tool downloads
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/gaxia-tools/dl
+          key: gaxia-tools-${{ runner.os }}-${{ hashFiles('tools/ci/install-tools.sh') }}
+
+      - name: Install tools (rojo, lune, luau-lsp, luau-ast, Roblox defs)
+        id: install
+        run: bash tools/ci/install-tools.sh "$RUNNER_TEMP/gaxia-tools"
+
+      - name: Architecture (check-architecture)
+        run: node tools/check-architecture.mjs
+
+      - name: Package catalogue (packages check)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: node tools/packages.mjs check
+
+      - name: Generated API is up to date (gen-api --check)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: node tools/gen-api.mjs --check
+
+      - name: Playbooks type-check and run (check-playbooks --v2 --run)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: node tools/check-playbooks.mjs --v2 --run
+
+      - name: Harness self-test (run-game --self-test)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: node tools/run-game.mjs --self-test
+
+      - name: Boot the framework headless, 3 players (run-game --players 3)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: node tools/run-game.mjs --quiet --players 3

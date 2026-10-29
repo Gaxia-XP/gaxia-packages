@@ -1,0 +1,9 @@
+{
+  "description": "(h) a client LocalScript that waits forever is reported as a hang of that client",
+  "framework": false,
+  "exit": 1,
+  "errorCount": 0,
+  "hangCount": 1,
+  "hangs": [{ "contains": "ReplicatedStorage:WaitForChild(\"ShopRemote\")", "world": "client:Player1" }],
+  "warnings": [{ "contains": "Infinite yield possible on 'ReplicatedStorage:WaitForChild(\"ShopRemote\")'", "world": "client:Player1" }]
+}

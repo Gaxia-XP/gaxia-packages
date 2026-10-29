@@ -6,49 +6,32 @@
 --           stacks top-right, auto-dismisses, supports type-colors.
 -- ─────────────────────────────────────────────────────────────
 
-local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
--- WHY this explicit type:
--- The early-return guard below needs to match the module's real return shape
--- so Luau collapses the (server-return | client-return) union into a single
--- typed value. Without this, `Gaxia.UI.NotificationService.Notify` does not
--- autocomplete because the union resolves to `any`.
-export type NotificationService = {
-	Notify: (title: string, message: string, duration: number?, notifType: string?) -> (),
-}
+-- Stroke colour of a notification (any other string falls back to "info").
+export type NotificationType = "info" | "success" | "warn" | "error"
 
--- Client-only module; return early on server.
+local NotificationService = {}
+-- The module's own type (Notify below), so the server stub and the client module
+-- share one type and `Gaxia.UI.NotificationService.Notify` autocompletes.
+export type NotificationService = typeof(NotificationService)
+
+-- Client-only module. The server gets an EMPTY table (Notify errors there); only
+-- its type is the client module's.
 if not RunService:IsClient() then
-	return ({} :: any) :: NotificationService
+	return ({} :: any) :: typeof(NotificationService)
 end
 
-local UIController = require(script.Parent:WaitForChild("UIController"))
+local UIController = require(script.Parent.UIController)
+local Constants = require(script.Parent.Parent.Parent.Shared.Constants)
 
 -- ── Constants ──
--- Constants module is optional; fall back to literal defaults if missing.
-local function getConstants(): { [string]: any }
-	local pkg = ReplicatedStorage:FindFirstChild("Gaxia_Packages")
-	if not pkg then return {} end
-	local shared = pkg:FindFirstChild("Shared")
-	if not shared then return {} end
-	local constMod = shared:FindFirstChild("Constants")
-	if not constMod or not constMod:IsA("ModuleScript") then return {} end
-	local ok, data = pcall(require, constMod)
-	if ok and typeof(data) == "table" then
-		return data
-	end
-	return {}
-end
+local DEFAULT_DURATION: number = Constants.NOTIFICATION_DEFAULT_DURATION
+local MAX_STACK: number = Constants.NOTIFICATION_MAX_STACK
+local ANIM_TIME: number = Constants.UI_ANIMATION_TIME
 
-local CONST = getConstants()
-local DEFAULT_DURATION: number = (CONST.NOTIFICATION_DEFAULT_DURATION :: number?) or 3
-local MAX_STACK: number = (CONST.NOTIFICATION_MAX_STACK :: number?) or 5
-local ANIM_TIME: number = (CONST.UI_ANIMATION_TIME :: number?) or 0.25
-
-local TEMPLATE_NAME: string = "NotificationTemplate"
+local TEMPLATE_NAME: UIController.TemplateName = "NotificationTemplate"
 local OFFSCREEN_X: UDim = UDim.new(1.2, 0)         -- starts past the right edge
 local ONSCREEN_X: UDim = UDim.new(1, -16)           -- 16px inset from right
 local SLOT_HEIGHT_PADDING: number = 8                -- vertical gap between toasts
@@ -69,8 +52,6 @@ type Toast = {
 }
 
 local activeToasts: { Toast } = {}
-
-local NotificationService = {}
 
 -- ── Internal: layout ──
 -- WHY: anchor each toast to top-right then offset vertically by index.
@@ -129,7 +110,7 @@ function NotificationService.Notify(
 	title: string,
 	message: string,
 	duration: number?,
-	notifType: string?
+	notifType: (NotificationType | string)?
 ): ()
 	enforceMaxStack()
 
@@ -187,4 +168,4 @@ function NotificationService.Notify(
 	end)
 end
 
-return NotificationService :: NotificationService
+return NotificationService

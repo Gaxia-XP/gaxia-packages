@@ -1,0 +1,13 @@
+{
+  "description": "(q) remote arguments keep their positions when one is nil (or a client-only Instance), and tables follow Roblox's rules (mixed tables keep the array part, other keys become strings)",
+  "framework": false,
+  "exit": 0,
+  "errorCount": 0,
+  "prints": [
+    { "contains": "server got 2 nil x" },
+    { "contains": "server got 3 nil y 3" },
+    { "contains": "invoke got Instance nil z" },
+    { "contains": "mixed nil 2 3" },
+    { "contains": "keys string Workspace string" }
+  ]
+}

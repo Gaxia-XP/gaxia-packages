@@ -59,7 +59,8 @@ function GamepadNav.SolveLinks(centers: { Vector2 }): { Links }
 	return out
 end
 
--- ── Server stub (focus/input live only on the client) ──
+-- ── Server stub (focus/input live only on the client; typed as the client
+-- module so Gaxia.UI.GamepadNav autocompletes) ──
 if not RunService:IsClient() then
 	return ({
 		SolveLinks = GamepadNav.SolveLinks,
@@ -69,7 +70,7 @@ if not RunService:IsClient() then
 		Current = function(): any return nil end,
 		IsGamepadActive = function(): boolean return false end,
 		OnInputTypeChanged = function(): any return nil end,
-	} :: any)
+	} :: any) :: typeof(GamepadNav)
 end
 
 -- ── Client implementation ──

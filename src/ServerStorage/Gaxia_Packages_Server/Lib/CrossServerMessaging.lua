@@ -6,34 +6,25 @@
 --           a token-bucket rate limiter so we stay well under the
 --           ~150/min per-server cap and never throw on transient
 --           publish failures.
+--
+-- Lifecycle: pure API (nothing to set up).
 -- ─────────────────────────────────────────────────────────────
-
-local CollectionService = game:GetService("CollectionService")
 
 local MessagingService = game:GetService("MessagingService")
 local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
+-- ── Dependencies ──
+local Signal    = require(ReplicatedStorage.Gaxia_Packages.Shared.Signal)
+local Lifecycle = require(script.Parent.ServiceLifecycle)
+local Config    = require(script.Parent.Parent.Config)
+local EConfig   = require(script.Parent.EffectiveConfig)
 
--- ── Lazy server (Config + EConfig) — resolved at CALL-TIME, never module load ──
-local ServerStorage = game:GetService("ServerStorage")
-local _server: any = nil
-local function server(): any
-	if not _server then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		_server = require(serverInit :: any)
-	end
-	return _server
-end
 -- Config default <- runtime Flag override via Gaxia.EConfig. Read per-call so an
 -- admin can retune the rate limiter live without a redeploy.
-local function crossServerCfg(key: string, default: number): number
-	local s = server()
-	return s.EConfig.Get("CrossServer." .. key, (s.Config.CrossServer or {})[key] or default)
+-- `configured` is Config.CrossServer[key] (nil falls back to `default`).
+local function crossServerCfg(key: string, configured: number?, default: number): number
+	return EConfig.Get("CrossServer." .. key, configured or default)
 end
 
 -- ── Module ──
@@ -46,7 +37,8 @@ local TOKEN_BURST_MAX: number = 10
 local tokens: number = TOKEN_BURST_MAX
 local lastRefill: number = os.clock()
 
-CrossServerMessaging.OnError = Signal.new()
+-- (topic, reason) when a publish is dropped / fails or a received message cannot be handled
+CrossServerMessaging.OnError = Signal.new() :: Signal.Signal<string, string>
 
 -- ── Helpers ──
 
@@ -54,8 +46,8 @@ local function refillTokens(): ()
 	local now: number = os.clock()
 	local elapsed: number = now - lastRefill
 	if elapsed > 0 then
-		local burstMax: number = crossServerCfg("TokenBurstMax", TOKEN_BURST_MAX)
-		local refillPerSec: number = crossServerCfg("TokenRefillPerSec", TOKEN_REFILL_PER_SEC)
+		local burstMax: number = crossServerCfg("TokenBurstMax", Config.CrossServer.TokenBurstMax, TOKEN_BURST_MAX)
+		local refillPerSec: number = crossServerCfg("TokenRefillPerSec", Config.CrossServer.TokenRefillPerSec, TOKEN_REFILL_PER_SEC)
 		tokens = math.min(burstMax, tokens + elapsed * refillPerSec)
 		lastRefill = now
 	end
@@ -77,9 +69,12 @@ end
 
 -- ── Public API ──
 
-function CrossServerMessaging.Subscribe(topic: string, handler: (data: any, sentTimestamp: number) -> ()): RBXScriptConnection
+-- Calls handler(data, sentTimestamp) for every message published to `topic` (by any
+-- server, this one too). Returns the subscription (Disconnect() it to stop), or
+-- (nil, reason) when MessagingService is unavailable (Studio without API access,
+-- an outage): it never errors. OnError fires too.
+function CrossServerMessaging.Subscribe(topic: string, handler: (data: any, sentTimestamp: number) -> ()): (RBXScriptConnection?, string?)
 	-- WHY: MessagingService wraps payloads in {Data, Sent}; we further JSON-decode our envelope.
-	local connection: RBXScriptConnection
 	local ok, result = pcall(function()
 		return MessagingService:SubscribeAsync(topic, function(message: any)
 			local raw: any = message.Data
@@ -107,14 +102,17 @@ function CrossServerMessaging.Subscribe(topic: string, handler: (data: any, sent
 	end)
 
 	if not ok then
-		CrossServerMessaging.OnError:Fire(topic, `SubscribeAsync failed: {result}`)
-		error(`[CrossServerMessaging] SubscribeAsync failed for topic '{topic}': {result}`)
+		local reason = `SubscribeAsync failed: {result}`
+		CrossServerMessaging.OnError:Fire(topic, reason)
+		return nil, reason
 	end
 
-	connection = result :: RBXScriptConnection
-	return connection
+	return result :: RBXScriptConnection, nil
 end
 
+-- Sends `data` (a table, string, number or boolean that JSON can hold, under 1 kB
+-- encoded) to every server subscribed to `topic`. Returns false (and fires OnError)
+-- when the rate limit drops it or MessagingService fails; it never errors.
 function CrossServerMessaging.Publish(topic: string, data: any): boolean
 	if not tryConsumeToken() then
 		warn(`[CrossServerMessaging] Rate limit hit, dropping publish to '{topic}'`)
@@ -146,5 +144,11 @@ function CrossServerMessaging.Publish(topic: string, data: any): boolean
 
 	return true
 end
+
+-- Pure API: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(CrossServerMessaging, {
+	Name = "Messages",
+	Needs = {},
+})
 
 return CrossServerMessaging

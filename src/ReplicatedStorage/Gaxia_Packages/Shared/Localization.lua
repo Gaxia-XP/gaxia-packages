@@ -15,13 +15,13 @@
 --   Gaxia.Localization.T("greeting", { name = "Gax" })   --> "Hi Gax!"
 --   Gaxia.Localization.SetLocale("th")
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
 
 local DEFAULT_LOCALE : string = "en"
 
 local Localization = {}
 
-type Catalog = { [string]: string }
+-- key -> template string ("Hi {name}!"); what Load() takes for one locale.
+export type Catalog = { [string]: string }
 local catalogs: { [string]: Catalog } = {}
 local currentLocale : string = DEFAULT_LOCALE
 local listeners: { (locale: string) -> () } = {}
@@ -40,7 +40,7 @@ end
 -- ── Public API ──
 
 -- Merge entries into a locale's catalog (call repeatedly to extend).
-function Localization.Load(locale: string, entries: { [string]: string }): ()
+function Localization.Load(locale: string, entries: Catalog): ()
 	local cat = catalogs[locale]
 	if not cat then
 		cat = {}
@@ -57,7 +57,8 @@ function Localization.SetLocale(locale: string): ()
 	end
 	currentLocale = locale
 	for _, fn in ipairs(listeners) do
-		local ok, err = pcall(fn, locale)
+		-- (widened to ...any so pcall's (ok, err) typechecks for a `-> ()` listener)
+		local ok, err = pcall(fn :: (string) -> ...any, locale)
 		if not ok then
 			warn(`[Localization] OnLocaleChanged listener errored: {err}`)
 		end

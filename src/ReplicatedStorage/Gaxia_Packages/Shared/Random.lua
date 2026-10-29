@@ -12,16 +12,21 @@
 --   s.Weighted({ {item="A", weight=3}, {item="B", weight=1} })
 --   Gaxia.Random.Int(1, 6)   -- default (unseeded) stream
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
+
+-- One Weighted() entry; T = the item's type.
+export type WeightedEntry<T = any> = { item: T, weight: number }
 
 export type Stream = {
 	Int: (min: number, max: number) -> number,
 	Float: (min: number, max: number) -> number,
 	Number: () -> number,
 	Bool: (chance: number?) -> boolean,
-	Choice: (list: { any }) -> any,
-	Weighted: (entries: { { item: any, weight: number } }) -> any,
-	Shuffle: (list: { any }) -> { any },
+	-- A uniformly random element; nil for an empty list.
+	Choice: <T>(list: { T }) -> T?,
+	-- A weight-proportional item; nil when no entry has a positive weight.
+	Weighted: <T>(entries: { WeightedEntry<T> }) -> T?,
+	-- A shuffled COPY (the input is untouched).
+	Shuffle: <T>(list: { T }) -> { T },
 	Raw: () -> Random,
 }
 
@@ -43,14 +48,14 @@ local function makeStream(rng: Random): Stream
 	function s.Bool(chance: number?): boolean
 		return rng:NextNumber() < (chance or 0.5)
 	end
-	function s.Choice(list: { any }): any
+	function s.Choice<T>(list: { T }): T?
 		if #list == 0 then
 			return nil
 		end
 		return list[rng:NextInteger(1, #list)]
 	end
 	-- Weighted pick: entries = { { item = X, weight = w }, ... }. Negative weights clamp to 0.
-	function s.Weighted(entries: { { item: any, weight: number } }): any
+	function s.Weighted<T>(entries: { WeightedEntry<T> }): T?
 		local total = 0
 		for _, e in ipairs(entries) do
 			total += math.max(0, e.weight)
@@ -69,7 +74,7 @@ local function makeStream(rng: Random): Stream
 		return entries[#entries].item
 	end
 	-- Fisher–Yates shuffle on a copy (input untouched).
-	function s.Shuffle(list: { any }): { any }
+	function s.Shuffle<T>(list: { T }): { T }
 		local out = table.clone(list)
 		for i = #out, 2, -1 do
 			local j = rng:NextInteger(1, i)

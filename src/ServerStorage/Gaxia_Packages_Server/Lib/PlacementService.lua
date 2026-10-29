@@ -16,25 +16,14 @@
 --   Gaxia.Placement.DefineObject("House", { Footprint = Vector2.new(2,2) })
 --   local id, err = Gaxia.Placement.Place(player, "House", 0, 0)
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
-
-local GaxiaServer: any = nil
-local function server(): any
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer
-end
+-- ── Dependencies ──
+local Shared      = ReplicatedStorage.Gaxia_Packages.Shared
+local Signal      = require(Shared.Signal)
+local Lifecycle   = require(script.Parent.ServiceLifecycle)
+local DataManager = require(script.Parent.DataManager)
 
 local PLACEMENTS_KEY : string = "Placements"
 
@@ -44,8 +33,10 @@ export type Placement = { id: string, objectId: string, gx: number, gz: number, 
 
 local PlacementService = {}
 
-PlacementService.OnPlace = Signal.new()  -- (player, placement)
-PlacementService.OnRemove = Signal.new() -- (player, placement)
+-- (player, placement) after Place recorded it; Rebuild replays every saved placement through it
+PlacementService.OnPlace = Signal.new() :: Signal.Signal<Player, Placement>
+-- (player, placement) after Remove deleted it
+PlacementService.OnRemove = Signal.new() :: Signal.Signal<Player, Placement>
 
 local plots: { [Player]: Plot } = {}
 local objects: { [string]: ObjectDef } = {}
@@ -117,12 +108,12 @@ end
 -- ── Persistence ──
 
 local function loadPlacements(player: Player): { [string]: any }
-	local p = server().Data.Get(player, PLACEMENTS_KEY)
+	local p = DataManager.Get(player, PLACEMENTS_KEY)
 	return (typeof(p) == "table") and p or {}
 end
 
 local function savePlacements(player: Player, p: { [string]: any }): ()
-	server().Data.Set(player, PLACEMENTS_KEY, p)
+	DataManager.Set(player, PLACEMENTS_KEY, p)
 end
 
 local function occupancyOf(placements: { [string]: any }): { [string]: boolean }
@@ -209,8 +200,17 @@ function PlacementService.Rebuild(player: Player): number
 	return #list
 end
 
-Players.PlayerRemoving:Connect(function(player: Player)
+local function onPlayerRemoving(player: Player): ()
 	plots[player] = nil
-end)
+end
+
+Lifecycle.Define(PlacementService, {
+	Name = "Placement",
+	Needs = {},
+	Init = function()
+		-- Drop the departed player's plot (plots come only from AssignPlot).
+		Players.PlayerRemoving:Connect(onPlayerRemoving)
+	end,
+})
 
 return PlacementService

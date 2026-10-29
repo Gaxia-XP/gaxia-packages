@@ -1,0 +1,7 @@
+{
+  "description": "(e) remotes cross client <-> server: InvokeServer returns the server's value, events round-trip",
+  "framework": false,
+  "exit": 0,
+  "errorCount": 0,
+  "prints": [{ "contains": "got 42 from Player1" }, { "contains": "client heard pong:hi" }]
+}

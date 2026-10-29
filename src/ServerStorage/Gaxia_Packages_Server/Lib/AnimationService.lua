@@ -14,7 +14,7 @@
 --   local track = Gaxia.Anim.Play(npc, "Swing", { Priority = Enum.AnimationPriority.Action, Speed = 1.4 })
 --   Gaxia.Anim.OnMarker(track, "Hit", function() applyDamage() end)
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
+local Lifecycle = require(script.Parent.ServiceLifecycle)
 
 export type PlayOpts = {
 	Priority: Enum.AnimationPriority?,
@@ -84,7 +84,7 @@ function AnimationService.Play(model: Instance, name: string, opts: PlayOpts?): 
 		track = animator:LoadAnimation(anim)
 		cache[name] = track
 	end
-	local o = opts or {}
+	local o: PlayOpts = opts or {}
 	if o.Priority then
 		track.Priority = o.Priority
 	end
@@ -126,5 +126,11 @@ end
 function AnimationService.OnMarker(track: AnimationTrack, markerName: string, fn: (value: string?) -> ()): RBXScriptConnection
 	return track:GetMarkerReachedSignal(markerName):Connect(fn)
 end
+
+-- Pure API: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(AnimationService, {
+	Name = "Anim",
+	Needs = {},
+})
 
 return AnimationService

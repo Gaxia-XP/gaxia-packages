@@ -6,16 +6,36 @@
 --            subtitles, custom actions, waits. Promise-based.
 -- ──────────────────────────────────────────────────────────────────
 
-export type CutsceneStep =
-	  { type: "camera", cframe: CFrame, duration: number, easing: Enum.EasingStyle? }
-	| { type: "dialog", dialog: any }
-	| { type: "wait", duration: number }
-	| { type: "fade", to: number, duration: number }
-	| { type: "action", fn: () -> () }
-	| { type: "subtitle", text: string, duration: number }
+-- ── Dependencies ──
+local Promise      = require(script.Parent.Parent.Shared.Promise)
+local PromiseTypes = require(script.Parent.Parent.Shared.PromiseTypes)
+local Trove        = require(script.Parent.Parent.Shared.Trove)
+local DialogSystem = require(script.Parent.DialogSystem)
+
+-- The value Trove.new() returns. (Annotating with the exported Trove.Trove is
+-- rejected by the type checker: its generic methods do not unify with the
+-- instantiated result of Trove.new().)
+type TroveObject = typeof(Trove.new())
+
+-- ── Promise types ──
+-- Shared/Promise (vendored evaera Promise) exports no types; Shared/PromiseTypes
+-- describes it, so callers get :andThen / :await / :expect completion.
+type Promise<T...> = PromiseTypes.Promise<T...>
+
+export type CameraStep = { type: "camera", cframe: CFrame, duration: number, easing: Enum.EasingStyle? }
+export type DialogStep = { type: "dialog", dialog: DialogSystem.DialogConfig }
+export type WaitStep = { type: "wait", duration: number }
+-- `to` is the black overlay's opacity (0 = clear, 1 = black).
+export type FadeStep = { type: "fade", to: number, duration: number }
+export type ActionStep = { type: "action", fn: () -> ...any }
+export type SubtitleStep = { type: "subtitle", text: string, duration: number }
+
+export type CutsceneStep = CameraStep | DialogStep | WaitStep | FadeStep | ActionStep | SubtitleStep
 
 export type CutsceneSystem = {
-	Play: (steps: { CutsceneStep }) -> any,
+	-- Resolves with true when every step ran; rejects with "cancelled" (Stop /
+	-- promise:cancel()) or "cutscene already playing".
+	Play: (steps: { CutsceneStep }) -> Promise<boolean>,
 	Stop: () -> (),
 	IsPlaying: () -> boolean,
 }
@@ -26,14 +46,10 @@ if not RunService:IsClient() then return ({} :: any) :: CutsceneSystem end
 local CollectionService = game:GetService("CollectionService")
 
 -- ── Services ──
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players           = game:GetService("Players")
 local TweenService      = game:GetService("TweenService")
 
 local LocalPlayer : Player = Players.LocalPlayer
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Promise = SharedPkg.Promise
-local Maid    = SharedPkg.Maid
 
 -- ── Constants ──
 local UI_ROOT_NAME : string = "Gaxia_UI"
@@ -45,22 +61,8 @@ local Module = {}
 
 local _isPlaying : boolean = false
 local _cancelFlag : { cancelled: boolean } = { cancelled = false }
-local _activeMaid : any = nil
+local _activeTrove : TroveObject? = nil
 local _fadeFrame : Frame? = nil
-
--- ── Lazy DialogSystem reference ──
-local _dialog : any = nil
-local function getDialog(): any
-	if _dialog then return _dialog end
-	local mod = script.Parent and script.Parent:FindFirstChild("DialogSystem")
-	if mod and mod:IsA("ModuleScript") then
-		local ok, m = pcall(require, mod)
-		if ok then
-			_dialog = m
-		end
-	end
-	return _dialog
-end
 
 -- ── Helpers ──
 
@@ -87,7 +89,7 @@ local function getOverlays(): Instance
 end
 
 -- WHY: build/return the persistent fade overlay
-local function ensureFade(maid: any): Frame
+local function ensureFade(trove: TroveObject): Frame
 	if _fadeFrame and _fadeFrame.Parent then return _fadeFrame end
 	local frame = Instance.new("Frame")
 	frame.Name = "CutsceneFade"
@@ -98,13 +100,13 @@ local function ensureFade(maid: any): Frame
 	frame.ZIndex = 200
 	frame.Parent = getOverlays()
 	_fadeFrame = frame
-	maid:GiveTask(frame)
+	trove:Add(frame)
 	return frame
 end
 
 -- ── Step runners ──
 
-local function runCamera(step: any, cancelFlag: { cancelled: boolean }): ()
+local function runCamera(step: CameraStep, cancelFlag: { cancelled: boolean }): ()
 	local cam = workspace.CurrentCamera
 	if not cam then return end
 	cam.CameraType = Enum.CameraType.Scriptable
@@ -123,7 +125,7 @@ local function runCamera(step: any, cancelFlag: { cancelled: boolean }): ()
 	end
 end
 
-local function runWait(step: any, cancelFlag: { cancelled: boolean }): ()
+local function runWait(step: WaitStep, cancelFlag: { cancelled: boolean }): ()
 	local elapsed = 0
 	while elapsed < step.duration do
 		if cancelFlag.cancelled then return end
@@ -132,8 +134,8 @@ local function runWait(step: any, cancelFlag: { cancelled: boolean }): ()
 	end
 end
 
-local function runFade(step: any, cancelFlag: { cancelled: boolean }, maid: any): ()
-	local frame = ensureFade(maid)
+local function runFade(step: FadeStep, cancelFlag: { cancelled: boolean }, trove: TroveObject): ()
+	local frame = ensureFade(trove)
 	local target = math.clamp(step.to, 0, 1)
 	-- BackgroundTransparency: 0 = fully visible (black), 1 = invisible
 	-- step.to is opacity (0..1), so transparency = 1 - to
@@ -151,7 +153,7 @@ local function runFade(step: any, cancelFlag: { cancelled: boolean }, maid: any)
 	end
 end
 
-local function runSubtitle(step: any, cancelFlag: { cancelled: boolean }, maid: any): ()
+local function runSubtitle(step: SubtitleStep, cancelFlag: { cancelled: boolean }, trove: TroveObject): ()
 	local label = Instance.new("TextLabel")
 	label.Name = "Subtitle"
 	label.Size = UDim2.new(0.8, 0, 0, 60)
@@ -171,7 +173,7 @@ local function runSubtitle(step: any, cancelFlag: { cancelled: boolean }, maid: 
 	corner.CornerRadius = UDim.new(0, 6)
 	corner.Parent = label
 
-	maid:GiveTask(label)
+	trove:Add(label)
 
 	local elapsed = 0
 	while elapsed < step.duration do
@@ -182,27 +184,22 @@ local function runSubtitle(step: any, cancelFlag: { cancelled: boolean }, maid: 
 	label:Destroy()
 end
 
-local function runDialog(step: any, cancelFlag: { cancelled: boolean }): ()
-	local ds = getDialog()
-	if not ds then
-		warn("[CutsceneSystem] DialogSystem not found — skipping dialog step")
-		return
-	end
-	local p = ds.Show(step.dialog)
+local function runDialog(step: DialogStep, cancelFlag: { cancelled: boolean }): ()
+	local p = DialogSystem.Show(step.dialog)
 	-- WHY: poll for completion while respecting cancel
 	local done = false
 	p:andThen(function() done = true end, function() done = true end)
 	while not done do
 		if cancelFlag.cancelled then
-			if p.cancel then p:cancel() end
-			if ds.Close then ds.Close() end
+			p:cancel()
+			DialogSystem.Close()
 			return
 		end
 		task.wait()
 	end
 end
 
-local function runAction(step: any, cancelFlag: { cancelled: boolean }): ()
+local function runAction(step: ActionStep, cancelFlag: { cancelled: boolean }): ()
 	if cancelFlag.cancelled then return end
 	local ok, err = pcall(step.fn)
 	if not ok then
@@ -218,15 +215,15 @@ end
 
 function Module.Stop(): ()
 	_cancelFlag.cancelled = true
-	if _activeMaid then
-		_activeMaid:Destroy()
-		_activeMaid = nil
+	if _activeTrove then
+		_activeTrove:Destroy()
+		_activeTrove = nil
 	end
 	_isPlaying = false
 end
 
-function Module.Play(steps: { CutsceneStep }): any
-	return Promise.new(function(resolve: (val: any) -> (), reject: (err: any) -> (), onCancel: (fn: () -> ()) -> ())
+function Module.Play(steps: { CutsceneStep }): Promise<boolean>
+	return (Promise.new(function(resolve: (val: any) -> (), reject: (err: any) -> (), onCancel: (fn: () -> ()) -> ())
 		if _isPlaying then
 			reject("cutscene already playing")
 			return
@@ -236,8 +233,8 @@ function Module.Play(steps: { CutsceneStep }): any
 		local cancelFlag = { cancelled = false }
 		_cancelFlag = cancelFlag
 
-		local maid = Maid.new()
-		_activeMaid = maid
+		local trove = Trove.new()
+		_activeTrove = trove
 
 		-- Snapshot camera
 		local cam = workspace.CurrentCamera
@@ -255,44 +252,44 @@ function Module.Play(steps: { CutsceneStep }): any
 			end
 		end
 
-		maid:GiveTask(restore)
+		trove:Add(restore)
 
 		onCancel(function()
 			cancelFlag.cancelled = true
-			if _activeMaid == maid then
-				_activeMaid = nil
+			if _activeTrove == trove then
+				_activeTrove = nil
 				_isPlaying = false
 			end
-			maid:Destroy()
+			trove:Destroy()
 		end)
 
 		task.spawn(function()
 			for _, step in ipairs(steps) do
 				if cancelFlag.cancelled then break end
-				local t = (step :: any).type
+				local t = step.type
 				if t == "camera" then
-					runCamera(step, cancelFlag)
+					runCamera(step :: CameraStep, cancelFlag)
 				elseif t == "wait" then
-					runWait(step, cancelFlag)
+					runWait(step :: WaitStep, cancelFlag)
 				elseif t == "fade" then
-					runFade(step, cancelFlag, maid)
+					runFade(step :: FadeStep, cancelFlag, trove)
 				elseif t == "subtitle" then
-					runSubtitle(step, cancelFlag, maid)
+					runSubtitle(step :: SubtitleStep, cancelFlag, trove)
 				elseif t == "dialog" then
-					runDialog(step, cancelFlag)
+					runDialog(step :: DialogStep, cancelFlag)
 				elseif t == "action" then
-					runAction(step, cancelFlag)
+					runAction(step :: ActionStep, cancelFlag)
 				else
 					warn(`[CutsceneSystem] unknown step type: {tostring(t)}`)
 				end
 			end
 
 			local wasCancelled = cancelFlag.cancelled
-			if _activeMaid == maid then
-				_activeMaid = nil
+			if _activeTrove == trove then
+				_activeTrove = nil
 				_isPlaying = false
 			end
-			maid:Destroy()
+			trove:Destroy()
 
 			if wasCancelled then
 				reject("cancelled")
@@ -300,7 +297,7 @@ function Module.Play(steps: { CutsceneStep }): any
 				resolve(true)
 			end
 		end)
-	end)
+	end) :: any) :: Promise<boolean>
 end
 
 return Module :: CutsceneSystem

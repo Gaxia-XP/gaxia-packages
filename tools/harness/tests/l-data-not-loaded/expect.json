@@ -1,0 +1,7 @@
+{
+  "description": "(l) reading player data before it loaded (no Data.WaitFor) is a nil arithmetic error at the game line",
+  "framework": true,
+  "exit": 1,
+  "errorCount": 1,
+  "errors": [{ "contains": "ServerScriptService.Visits:6: attempt to perform arithmetic (add) on nil and number", "world": "server" }]
+}

@@ -13,43 +13,36 @@
 --
 -- Access  : Gaxia.DailyReward  (server)
 --   Gaxia.DailyReward.DefineLadder({ {Coins=100}, {Coins=250}, {Gems=5} })
---   local res = Gaxia.DailyReward.Claim(player)   -- {day, streak, reward} or nil
+--   local res = Gaxia.DailyReward.Claim(player)   -- {day, streak, reward} or nil, reason
+--   Claim refuses ("data not loaded") until the player's data has loaded.
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
-
-local GaxiaServer: any = nil
-local function server(): any
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer
-end
-local function getData(): any
-	return server().Data
-end
+-- ── Dependencies ──
+local Shared      = ReplicatedStorage.Gaxia_Packages.Shared
+local Signal      = require(Shared.Signal)
+local Lifecycle   = require(script.Parent.ServiceLifecycle)
+local Config      = require(script.Parent.Parent.Config)
+local EConfig     = require(script.Parent.EffectiveConfig)
+local DataManager = require(script.Parent.DataManager)
 
 local DAILY_KEY : string = "Daily"
 local DAY : number = 86400  -- ultimate fallback if Config absent
 
-local function dailyGet(key: string, fallback: any): any
-	local s = server()
-	return s.EConfig.Get(`Daily.{key}`, (s.Config.Daily or {})[key] or fallback)
+-- Effective tunables: runtime Flag override <- Config.Daily default <- fallback.
+local function daySeconds(): number
+	return EConfig.Get("Daily.DaySeconds", Config.Daily.DaySeconds or DAY)
+end
+local function resetWindow(): number
+	return EConfig.Get("Daily.ResetWindow", Config.Daily.ResetWindow or DAY * 2)
 end
 
 export type ClaimResult = { day: number, streak: number, reward: any }
 
 local DailyRewardService = {}
 
-DailyRewardService.OnClaim = Signal.new() -- (player, ClaimResult)
+-- (player, result) after a successful Claim; the game grants result.reward
+DailyRewardService.OnClaim = Signal.new() :: Signal.Signal<Player, ClaimResult>
 
 local ladder: { any } = {}
 local cycle : boolean = true
@@ -95,24 +88,28 @@ end
 -- ── State ──
 
 local function loadState(player: Player): { lastClaim: number, streak: number }
-	local s = getData().Get(player, DAILY_KEY)
+	local s = DataManager.Get(player, DAILY_KEY)
 	if typeof(s) == "table" then
 		return { lastClaim = tonumber(s.lastClaim) or 0, streak = tonumber(s.streak) or 0 }
 	end
 	return { lastClaim = 0, streak = 0 }
 end
 
-local function saveState(player: Player, lastClaim: number, streak: number): ()
-	getData().Set(player, DAILY_KEY, { lastClaim = lastClaim, streak = streak })
+local function saveState(player: Player, lastClaim: number, streak: number): boolean
+	return DataManager.Set(player, DAILY_KEY, { lastClaim = lastClaim, streak = streak })
 end
 
 function DailyRewardService.GetStreak(player: Player): number
 	return loadState(player).streak
 end
 
+-- False while the player's data is not loaded (a claim would not be saved).
 function DailyRewardService.CanClaim(player: Player): boolean
+	if not DataManager.IsLoaded(player) then
+		return false
+	end
 	local s = loadState(player)
-	local can = select(1, DailyRewardService.ComputeClaim(s.lastClaim, os.time(), s.streak, dailyGet("DaySeconds", DAY), dailyGet("ResetWindow", DAY * 2)))
+	local can = select(1, DailyRewardService.ComputeClaim(s.lastClaim, os.time(), s.streak, daySeconds(), resetWindow()))
 	return can
 end
 
@@ -122,24 +119,38 @@ function DailyRewardService.GetTimeUntilNext(player: Player): number
 	if s.lastClaim <= 0 then
 		return 0
 	end
-	return math.max(0, (s.lastClaim + dailyGet("DaySeconds", DAY)) - os.time())
+	return math.max(0, (s.lastClaim + daySeconds()) - os.time())
 end
 
 -- ── Claim ──
 
+-- Claim today's reward: returns the result, or nil and a reason ("data not loaded",
+-- "already claimed today"). Refuses while the player's data is not loaded, so a claim
+-- is never handed out without being saved (it could otherwise be claimed again).
 function DailyRewardService.Claim(player: Player): (ClaimResult?, string?)
+	if not DataManager.IsLoaded(player) then
+		return nil, "data not loaded"
+	end
 	local s = loadState(player)
 	local now = os.time()
-	local can, newStreak = DailyRewardService.ComputeClaim(s.lastClaim, now, s.streak, dailyGet("DaySeconds", DAY), dailyGet("ResetWindow", DAY * 2))
+	local can, newStreak = DailyRewardService.ComputeClaim(s.lastClaim, now, s.streak, daySeconds(), resetWindow())
 	if not can then
 		return nil, "already claimed today"
 	end
 	local day = DailyRewardService.LadderDay(newStreak)
 	local reward = ladder[day]
-	saveState(player, now, newStreak)
+	if not saveState(player, now, newStreak) then
+		return nil, "data not loaded"
+	end
 	local result: ClaimResult = { day = day, streak = newStreak, reward = reward }
 	DailyRewardService.OnClaim:Fire(player, result)
 	return result, nil
 end
+
+-- Pure API: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(DailyRewardService, {
+	Name = "DailyReward",
+	Needs = {},
+})
 
 return DailyRewardService

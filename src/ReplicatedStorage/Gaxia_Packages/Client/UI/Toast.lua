@@ -13,24 +13,42 @@
 -- Access  : Gaxia.UI.Toast  (client)
 --   Gaxia.UI.Toast.Show({ Title = "Saved", Text = "Progress saved", Variant = "success" })
 --   Gaxia.UI.Toast.SetMaxVisible(3)
+--   Gaxia.UI.Toast.ShowAction({ Text = "Bob invited you", OnAccept = join, OnDecline = skip })
 -- ─────────────────────────────────────────────────────────────
 local CollectionService = game:GetService("CollectionService")
 
 local RunService = game:GetService("RunService")
 
-export type ToastOpts = { Text: string, Title: string?, Duration: number?, Variant: string? }
+-- Accent colour of a toast (Theme Primary / Success / Warning / Danger).
+export type ToastVariant = "info" | "success" | "warn" | "error"
+export type ToastOpts = { Text: string, Title: string?, Duration: number?, Variant: (ToastVariant | string)? }
 export type ToastStats = { visible: number, queued: number }
+-- A toast with Accept / Decline buttons. At most one of OnAccept / OnDecline runs (on its own thread,
+-- so it may yield). OnDecline also runs when the toast times out (Duration, default 15 s) or is cleared,
+-- unless DeclineOnTimeout is false: then a timeout or Toast.Clear only removes the toast and runs neither.
+export type ToastActionOpts = {
+	Text: string,
+	Title: string?,
+	Variant: (ToastVariant | string)?,
+	Duration: number?,
+	AcceptText: string?,
+	DeclineText: string?,
+	OnAccept: (() -> ())?,
+	OnDecline: (() -> ())?,
+	DeclineOnTimeout: boolean?,
+}
 
 local Toast = {}
 
--- ── Server stub ──
+-- ── Server stub (typed as the client module so Gaxia.UI.Toast autocompletes) ──
 if not RunService:IsClient() then
 	return ({
 		Show = function() end,
+		ShowAction = function() end,
 		SetMaxVisible = function() end,
 		Clear = function() end,
 		Stats = function(): any return { visible = 0, queued = 0 } end,
-	} :: any)
+	} :: any) :: typeof(Toast)
 end
 
 -- ── Client implementation ──
@@ -40,19 +58,26 @@ local Theme = require(script.Parent.Parent.Parent.Shared.Theme)
 
 local TOAST_W : number = 290
 local TOAST_H : number = 64
+local ACTION_TOAST_H : number = 104
+local BUTTON_W : number = 100
+local BUTTON_H : number = 30
 local GAP : number = 8
 local TOP : number = 16
 local RIGHT_INSET : number = 16
 local SLIDE : TweenInfo = TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local DEFAULT_DURATION : number = 3
+local DEFAULT_ACTION_DURATION : number = 15
 
 local ACCENT: { [string]: string } = {
 	info = "Primary", success = "Success", warn = "Warning", error = "Danger",
 }
 
 local maxVisible : number = 3
-local queue: { ToastOpts } = {}
-type Live = { frame: Frame }
+-- A waiting toast; `action` is set for ShowAction toasts.
+type Pending = { opt: ToastOpts, action: ToastActionOpts? }
+local queue: { Pending } = {}
+-- A toast on screen. `cancel` (action toasts) answers "decline" when it is cleared.
+type Live = { frame: Frame, height: number, cancel: (() -> ())? }
 local visible: { Live } = {}
 
 local function gui(): Instance
@@ -70,15 +95,22 @@ local function gui(): Instance
 	return sg
 end
 
-local function onscreenY(index: number): number
-	return TOP + (index - 1) * (TOAST_H + GAP)
+-- Y of the next toast slot (action toasts are taller, so heights add up).
+local function nextY(): number
+	local y = TOP
+	for _, l in ipairs(visible) do
+		y += l.height + GAP
+	end
+	return y
 end
 
 local function reflow(): ()
-	for i, l in ipairs(visible) do
+	local y = TOP
+	for _, l in ipairs(visible) do
 		TweenService:Create(l.frame, SLIDE, {
-			Position = UDim2.new(1, -(TOAST_W + RIGHT_INSET), 0, onscreenY(i)),
+			Position = UDim2.new(1, -(TOAST_W + RIGHT_INSET), 0, y),
 		}):Play()
+		y += l.height + GAP
 	end
 end
 
@@ -100,11 +132,36 @@ local function dismiss(live: Live): ()
 	pump()
 end
 
-local function render(opt: ToastOpts): ()
+-- One Accept / Decline button of an action toast.
+local function actionButton(parent: Frame, name: string, text: string, color: string, x: number, onClick: () -> ()): TextButton
+	local b = Instance.new("TextButton")
+	b.Name = name
+	b.AutoButtonColor = true
+	b.Size = UDim2.fromOffset(BUTTON_W, BUTTON_H)
+	b.Position = UDim2.new(0, x, 1, -(BUTTON_H + 8))
+	b.BackgroundColor3 = Theme.Color(color)
+	b.Font = Theme.Get().Font.Bold
+	b.TextSize = 14
+	b.TextColor3 = Theme.Color("BackgroundDeep")
+	b.Text = text
+	local cr = Instance.new("UICorner")
+	cr.CornerRadius = UDim.new(0, Theme.Radius("S"))
+	cr.Parent = b
+	b.Activated:Connect(function()
+		onClick()
+	end)
+	b.Parent = parent
+	return b
+end
+
+local function render(pending: Pending): ()
+	local opt = pending.opt
+	local action = pending.action
+	local height = if action then ACTION_TOAST_H else TOAST_H
 	local f = Instance.new("Frame")
 	f.Name = "Toast"
-	f.Size = UDim2.fromOffset(TOAST_W, TOAST_H)
-	f.Position = UDim2.new(1, 20, 0, onscreenY(#visible + 1)) -- start offscreen-right
+	f.Size = UDim2.fromOffset(TOAST_W, height)
+	f.Position = UDim2.new(1, 20, 0, nextY()) -- start offscreen-right
 	f.BackgroundColor3 = Theme.Color("Surface")
 	local cr = Instance.new("UICorner")
 	cr.CornerRadius = UDim.new(0, Theme.Radius("M"))
@@ -148,27 +205,65 @@ local function render(opt: ToastOpts): ()
 	body.Text = opt.Text
 	body.Parent = f
 
-	f.Parent = gui()
+	local live: Live = { frame = f, height = height }
+	if action then
+		-- At most one answer per toast: a click, or the timeout / Clear ("decline",
+		-- or no answer at all when DeclineOnTimeout is false).
+		local answered = false
+		local function answer(accepted: boolean?): ()
+			if answered then
+				return
+			end
+			answered = true
+			dismiss(live)
+			local callback = if accepted == true then action.OnAccept
+				elseif accepted == false then action.OnDecline
+				else nil
+			if callback then
+				task.spawn(callback) -- its own thread: callbacks may yield (InvokeServer)
+			end
+		end
+		local function expire(): ()
+			answer(if action.DeclineOnTimeout == false then nil else false)
+		end
+		live.cancel = expire
+		actionButton(f, "Accept", action.AcceptText or "Accept", "Success", 16, function()
+			answer(true)
+		end)
+		actionButton(f, "Decline", action.DeclineText or "Decline", "Danger", 16 + BUTTON_W + 8, function()
+			answer(false)
+		end)
+		task.delay(opt.Duration or DEFAULT_ACTION_DURATION, expire)
+	else
+		task.delay(opt.Duration or DEFAULT_DURATION, function()
+			dismiss(live)
+		end)
+	end
 
-	local live: Live = { frame = f }
+	f.Parent = gui()
 	table.insert(visible, live)
 	reflow()
-	task.delay(opt.Duration or DEFAULT_DURATION, function()
-		dismiss(live)
-	end)
 end
 
 pump = function(): ()
 	while #visible < maxVisible and #queue > 0 do
-		local opt = table.remove(queue, 1) :: ToastOpts
-		render(opt)
+		local pending = table.remove(queue, 1) :: Pending
+		render(pending)
 	end
 end
 
 -- ── Public API ──
 
+-- Queues a toast: at most MaxVisible (default 3) show at once, the rest wait their turn.
 function Toast.Show(opt: ToastOpts): ()
-	table.insert(queue, opt)
+	table.insert(queue, { opt = opt })
+	pump()
+end
+
+-- Queues a toast with Accept / Decline buttons (labels: AcceptText / DeclineText). Clicking one runs OnAccept or OnDecline; when the toast times out (Duration, default 15 s) or Toast.Clear removes it, OnDecline runs, unless DeclineOnTimeout = false (then the toast just goes away and neither runs). At most one callback runs, on its own thread (it may yield).
+function Toast.ShowAction(opt: ToastActionOpts): ()
+	local shown: ToastOpts = { Text = opt.Text, Title = opt.Title, Variant = opt.Variant, Duration = opt.Duration }
+	table.insert(queue, { opt = shown, action = opt })
 	pump()
 end
 
@@ -177,10 +272,22 @@ function Toast.SetMaxVisible(n: number): ()
 	pump()
 end
 
+-- Removes every toast, shown and waiting. Action toasts answer "decline" (OnDecline runs) unless they set DeclineOnTimeout = false.
 function Toast.Clear(): ()
+	local waiting = table.clone(queue)
 	table.clear(queue)
 	for _, l in ipairs(table.clone(visible)) do
-		dismiss(l)
+		if l.cancel then
+			l.cancel()
+		else
+			dismiss(l)
+		end
+	end
+	for _, pending in ipairs(waiting) do
+		local action = pending.action
+		if action and action.OnDecline and action.DeclineOnTimeout ~= false then
+			task.spawn(action.OnDecline)
+		end
 	end
 end
 

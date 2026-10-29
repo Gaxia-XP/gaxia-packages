@@ -5,38 +5,38 @@
 -- Purpose : Thin OrderedDataStore wrapper for global top-N
 --           leaderboards with name resolution and 60s caching
 --           so we don't burn the per-server DataStore budget.
+--
+-- Lifecycle: pure API (nothing to set up).
 -- ─────────────────────────────────────────────────────────────
-
-local CollectionService = game:GetService("CollectionService")
 
 local DataStoreService = game:GetService("DataStoreService")
 local UserService = game:GetService("UserService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage = game:GetService("ServerStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
+-- ── Dependencies ──
+local Signal    = require(ReplicatedStorage.Gaxia_Packages.Shared.Signal)
+local Lifecycle = require(script.Parent.ServiceLifecycle)
+local Config    = require(script.Parent.Parent.Config)
+local EConfig   = require(script.Parent.EffectiveConfig)
 
--- Lazy server access for Config (call-time; never at module load).
-local GaxiaServer: any = nil
+-- Config default <- runtime Flag override, read per call.
 local function cacheTTL(): number
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
+	return EConfig.Get("Leaderboard.CacheTTL", Config.Leaderboard.CacheTTL or 60)
+end
+
+-- OrderedDataStore pages hold 1..100 entries (GetSortedAsync errors outside that).
+local MAX_TOP_N: number = 100
+
+-- Clamp a requested entry count to a whole number in 1..MAX_TOP_N.
+local function clampCount(n: number): number
+	if n ~= n then
+		return MAX_TOP_N -- NaN
 	end
-	return GaxiaServer.EConfig.Get("Leaderboard.CacheTTL", (GaxiaServer.Config.Leaderboard or {}).CacheTTL or 60)
+	return math.clamp(math.floor(n), 1, MAX_TOP_N)
 end
 
 local function defaultTopN(): number
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer.EConfig.Get("Leaderboard.DefaultTopN", (GaxiaServer.Config.Leaderboard or {}).DefaultTopN or 100)
+	return clampCount(EConfig.Get("Leaderboard.DefaultTopN", Config.Leaderboard.DefaultTopN or MAX_TOP_N))
 end
 
 -- ── Types ──
@@ -59,7 +59,8 @@ local LeaderboardService = {}
 local stores: { [string]: OrderedDataStore } = {}
 local topCache: { [string]: CachedTop } = {}
 
-LeaderboardService.OnUpdate = Signal.new()
+-- (name, userId, value) after a successful Update write (value is the stored whole number)
+LeaderboardService.OnUpdate = Signal.new() :: Signal.Signal<string, number, number>
 
 -- ── Helpers ──
 
@@ -88,22 +89,32 @@ function LeaderboardService.GetStore(name: string): OrderedDataStore
 	return store
 end
 
+-- Write a player's score. OrderedDataStore keeps whole numbers only, so `value` is
+-- rounded down (12.7 -> 12). Returns false (with a warning) for a value that is not a
+-- finite number, or when the write fails.
 function LeaderboardService.Update(name: string, userId: number, value: number): boolean
+	if typeof(value) ~= "number" or value ~= value or value == math.huge or value == -math.huge then
+		warn(`[LeaderboardService] Update ignored for {name}/{userId}: value must be a finite number, got {value}`)
+		return false
+	end
+	local intValue: number = math.floor(value)
 	local store: OrderedDataStore = LeaderboardService.GetStore(name)
 	local ok, err = pcall(function()
-		store:SetAsync(tostring(userId), value)
+		store:SetAsync(tostring(userId), intValue)
 	end)
 	if not ok then
 		warn(`[LeaderboardService] Update failed for {name}/{userId}: {err}`)
 		return false
 	end
 	invalidateCacheForName(name)
-	LeaderboardService.OnUpdate:Fire(name, userId, value)
+	LeaderboardService.OnUpdate:Fire(name, userId, intValue)
 	return true
 end
 
+-- The top `count` entries (default Leaderboard.DefaultTopN), best first. `count` is
+-- clamped to 1..100 (an OrderedDataStore page holds at most 100). Cached CacheTTL seconds.
 function LeaderboardService.GetTop(name: string, count: number?): { LeaderboardEntry }
-	local n: number = count or defaultTopN()
+	local n: number = if typeof(count) == "number" then clampCount(count) else defaultTopN()
 	local cacheKey: string = getCacheKey(name, n)
 	local cached: CachedTop? = topCache[cacheKey]
 	if cached and cached.expiresAt > os.clock() then
@@ -178,5 +189,11 @@ function LeaderboardService.GetRank(name: string, userId: number): number?
 	end
 	return nil
 end
+
+-- Pure API: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(LeaderboardService, {
+	Name = "Leaderboard",
+	Needs = {},
+})
 
 return LeaderboardService

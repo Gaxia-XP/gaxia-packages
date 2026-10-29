@@ -1,0 +1,15 @@
+{
+  "description": "(y) harness.activateTool equips a Backpack tool and clicks it (Activated on client + server); Tool:Activate() fires in the calling world, only while equipped",
+  "framework": false,
+  "exit": 0,
+  "errorCount": 0,
+  "prints": [
+    { "contains": "[Swords] server equipped by Player1", "world": "server" },
+    { "contains": "[Swords] server swing #1 by Player1", "world": "server" },
+    { "contains": "[SwordFx] client swing", "world": "client:Player1" },
+    { "contains": "[SwordFx] client release", "world": "client:Player1" },
+    { "contains": "[Swords] server wand activated", "world": "server" }
+  ],
+  "notPrints": ["server swing #2", "[SwordFx] client wand activated"],
+  "summary": ["sword: true", "equipped: true", "wand click: false", "ManualActivationOnly = true"]
+}

@@ -9,23 +9,44 @@
 --           it with one clean API AND a transparent in-memory FALLBACK: when the
 --           real service is unreachable (Studio, no API access) every op routes
 --           to a local table so code still runs and is testable — single-server,
---           but correct. Backs global CooldownService (18.4) + PartyService (24.8).
+--           but correct. The real store is tried again 60 s after a failure.
+--           Backs global CooldownService (18.4) + PartyService (24.8).
 --
 -- Access  : Gaxia.Memory  (server)
 --   Gaxia.Memory.MapSet("ranks", tostring(uid), {name=n}, 3600, score)
 --   local top = Gaxia.Memory.MapRange("ranks", 10, false)  -- highest first
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local MemoryStoreService = game:GetService("MemoryStoreService")
+
+local Lifecycle = require(script.Parent.ServiceLifecycle)
+
+-- One MapRange result row.
+export type MapRangeEntry = { key: string, value: any, sortKey: number }
 
 local Memory = {}
 
--- ── Availability probe (once) ──
+-- ── Availability probe ──
+-- The first call probes the real store. When the probe or a live call fails,
+-- every op routes to the local fallback for RETRY_AFTER seconds, then the next
+-- call probes the real store again (Studio without API access, a MemoryStore
+-- outage, a throttled request). Entries written to the fallback stay local: they
+-- are not copied to the real store when it comes back, but this server keeps
+-- seeing them until their TTL ends (MapGet / MapRange merge them with the real
+-- store, QueueRead returns them before reading the real queue), and MapSet /
+-- MapRemove on the same key replace or delete the local copy.
+local RETRY_AFTER : number = 60
+
 local probed = false
 local fallback = false
+local fallbackSince = 0
+
+local function useFallback(): ()
+	fallback = true
+	fallbackSince = os.clock()
+end
+
 local function ensureProbe(): ()
-	if probed then
+	if probed and not (fallback and os.clock() - fallbackSince >= RETRY_AFTER) then
 		return
 	end
 	probed = true
@@ -33,9 +54,15 @@ local function ensureProbe(): ()
 		local m = MemoryStoreService:GetSortedMap("__gaxia_probe")
 		m:SetAsync("__probe", 1, 1)
 	end)
-	fallback = not ok
+	if ok then
+		fallback = false
+	else
+		useFallback()
+	end
 end
 
+-- True while calls use the local single-server fallback. After a failure the real
+-- store is tried again 60 seconds later (on the next call), so this can turn false again.
 function Memory.IsUsingFallback(): boolean
 	ensureProbe()
 	return fallback
@@ -64,6 +91,49 @@ local function fbMap(name: string): { [string]: MapEntry }
 	return m
 end
 
+-- Live (not expired) local entry for key, or nil. Drops an expired one.
+local function liveLocal(mapName: string, key: string): MapEntry?
+	local m = localMaps[mapName]
+	local e = m and m[key]
+	if not e then
+		return nil
+	end
+	if e.expireAt < now() then
+		(m :: { [string]: MapEntry })[key] = nil
+		return nil
+	end
+	return e
+end
+
+-- Forget the local copy of key (the real store now holds the current value).
+local function dropLocal(mapName: string, key: string): ()
+	local m = localMaps[mapName]
+	if m then
+		m[key] = nil
+		if next(m) == nil then
+			localMaps[mapName] = nil
+		end
+	end
+end
+
+-- Live entries of the local queue (expired ones are dropped from it).
+local function liveQueue(queueName: string): { QueueEntry }
+	local q = localQueues[queueName]
+	if not q then
+		return {}
+	end
+	local t = now()
+	for i = #q, 1, -1 do
+		if q[i].expireAt < t then
+			table.remove(q, i)
+		end
+	end
+	if #q == 0 then
+		localQueues[queueName] = nil
+	end
+	return table.clone(q)
+end
+
 -- ── Sorted map ──
 
 function Memory.MapSet(mapName: string, key: string, value: any, ttl: number, sortKey: number?): boolean
@@ -74,9 +144,10 @@ function Memory.MapSet(mapName: string, key: string, value: any, ttl: number, so
 			m:SetAsync(key, value, ttl, sortKey)
 		end)
 		if ok then
+			dropLocal(mapName, key)
 			return true
 		end
-		fallback = true -- fall through to local on a live failure
+		useFallback() -- fall through to local on a live failure
 	end
 	fbMap(mapName)[key] = { value = value, sortKey = sortKey or 0, expireAt = now() + ttl }
 	return true
@@ -89,15 +160,17 @@ function Memory.MapGet(mapName: string, key: string): any
 			return MemoryStoreService:GetSortedMap(mapName):GetAsync(key)
 		end)
 		if ok then
-			return v
+			if v ~= nil then
+				return v
+			end
+			-- Not in the real store: a value this server wrote during a fallback.
+			local e = liveLocal(mapName, key)
+			return if e then e.value else nil
 		end
-		fallback = true
+		useFallback()
 	end
-	local e = fbMap(mapName)[key]
-	if not e or e.expireAt < now() then
-		return nil
-	end
-	return e.value
+	local e = liveLocal(mapName, key)
+	return if e then e.value else nil
 end
 
 function Memory.MapRemove(mapName: string, key: string): boolean
@@ -107,39 +180,59 @@ function Memory.MapRemove(mapName: string, key: string): boolean
 			MemoryStoreService:GetSortedMap(mapName):RemoveAsync(key)
 		end)
 		if ok then
+			dropLocal(mapName, key)
 			return true
 		end
-		fallback = true
+		useFallback()
 	end
-	fbMap(mapName)[key] = nil
+	dropLocal(mapName, key)
 	return true
 end
 
 -- Return up to `count` entries sorted by sortKey. ascending=false → highest first.
-function Memory.MapRange(mapName: string, count: number, ascending: boolean?): { { key: string, value: any, sortKey: number } }
+-- Entries this server wrote during a fallback (still within their TTL) are included.
+function Memory.MapRange(mapName: string, count: number, ascending: boolean?): { MapRangeEntry }
 	ensureProbe()
 	local asc = ascending ~= false
+	local entries: { MapRangeEntry } = {}
+	local seen: { [string]: boolean } = {}
 	if not fallback then
 		local ok, result = pcall(function()
 			local dir = if asc then Enum.SortDirection.Ascending else Enum.SortDirection.Descending
 			return MemoryStoreService:GetSortedMap(mapName):GetRangeAsync(dir, count)
 		end)
 		if ok then
-			return result
+			if localMaps[mapName] == nil then
+				return result
+			end
+			for _, row in result do
+				table.insert(entries, row)
+				seen[row.key] = true
+			end
+		else
+			useFallback()
 		end
-		fallback = true
 	end
-	local entries: { { key: string, value: any, sortKey: number } } = {}
-	for key, e in pairs(fbMap(mapName)) do
-		if e.expireAt >= now() then
-			table.insert(entries, { key = key, value = e.value, sortKey = e.sortKey })
+	local t = now()
+	local m = localMaps[mapName]
+	if m then
+		for key, e in pairs(m) do
+			if e.expireAt < t then
+				m[key] = nil
+			elseif not seen[key] then
+				table.insert(entries, { key = key, value = e.value, sortKey = e.sortKey })
+			end
+		end
+		if next(m) == nil then
+			localMaps[mapName] = nil
 		end
 	end
 	table.sort(entries, function(a, b)
+		local ka, kb = a.sortKey or 0, b.sortKey or 0
 		if asc then
-			return a.sortKey < b.sortKey
+			return ka < kb
 		end
-		return a.sortKey > b.sortKey
+		return ka > kb
 	end)
 	local out = {}
 	for i = 1, math.min(count, #entries) do
@@ -159,7 +252,7 @@ function Memory.QueueAdd(queueName: string, value: any, ttl: number, priority: n
 		if ok then
 			return true
 		end
-		fallback = true
+		useFallback()
 	end
 	local q = localQueues[queueName]
 	if not q then
@@ -172,24 +265,20 @@ function Memory.QueueAdd(queueName: string, value: any, ttl: number, priority: n
 end
 
 -- Read up to `count` items (highest priority first). Returns (values, readId);
--- pass readId to QueueRemove to delete the read items.
+-- pass readId to QueueRemove to delete the read items. Items this server added
+-- during a fallback (still within their TTL) are returned first, before the real
+-- queue is read.
 function Memory.QueueRead(queueName: string, count: number): ({ any }, string?)
 	ensureProbe()
-	if not fallback then
+	local live = liveQueue(queueName)
+	if not fallback and #live == 0 then
 		local ok, items, id = pcall(function()
 			return MemoryStoreService:GetQueue(queueName):ReadAsync(count, false, 0)
 		end)
 		if ok then
 			return items or {}, id
 		end
-		fallback = true
-	end
-	local q = localQueues[queueName] or {}
-	local live: { QueueEntry } = {}
-	for _, e in ipairs(q) do
-		if e.expireAt >= now() then
-			table.insert(live, e)
-		end
+		useFallback()
 	end
 	table.sort(live, function(a, b)
 		if a.priority ~= b.priority then
@@ -211,14 +300,15 @@ end
 
 function Memory.QueueRemove(queueName: string, readId: string): boolean
 	ensureProbe()
-	if not fallback then
+	-- A readId from a fallback read is removed locally, even after the real store is back.
+	if not fallback and readBatches[readId] == nil then
 		local ok = pcall(function()
 			MemoryStoreService:GetQueue(queueName):RemoveAsync(readId)
 		end)
 		if ok then
 			return true
 		end
-		fallback = true
+		useFallback()
 	end
 	local ids = readBatches[readId]
 	if not ids then
@@ -239,5 +329,13 @@ function Memory.QueueRemove(queueName: string, readId: string): boolean
 	readBatches[readId] = nil
 	return true
 end
+
+-- Pure API: nothing to set up (the availability probe runs on the first call,
+-- and again on the first call 60 s after a failure; it may yield). Registered so
+-- Features / IsEnabled know it.
+Lifecycle.Define(Memory, {
+	Name = "Memory",
+	Needs = {},
+})
 
 return Memory

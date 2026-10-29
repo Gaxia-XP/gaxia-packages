@@ -19,6 +19,8 @@ local CollectionService = game:GetService("CollectionService")
 local RunService = game:GetService("RunService")
 
 export type Step = { Large: number, Small: number, Duration: number }
+-- The built-in pattern names (RegisterPattern can add more).
+export type PatternName = "Pickup" | "Hit" | "Success" | "Error"
 
 local Haptics = {}
 
@@ -34,7 +36,7 @@ local PATTERNS: { [string]: { Step } } = {
 	},
 }
 
--- ── Server stub ──
+-- ── Server stub (typed as the client module so Gaxia.UI.Haptics autocompletes) ──
 if not RunService:IsClient() then
 	return ({
 		Pulse = function() end,
@@ -45,7 +47,7 @@ if not RunService:IsClient() then
 		IsSupported = function(): boolean return false end,
 		RegisterPattern = function() end,
 		GetPatterns = function(): any return {} end,
-	} :: any)
+	} :: any) :: typeof(Haptics)
 end
 
 -- ── Client implementation ──
@@ -114,7 +116,7 @@ function Haptics.Pulse(intensity: number, duration: number?): ()
 end
 
 -- Play a named multi-step pattern.
-function Haptics.Play(name: string): ()
+function Haptics.Play(name: PatternName | string): ()
 	local steps = PATTERNS[name]
 	if not steps then
 		warn(`[Haptics] no pattern '{name}'`)

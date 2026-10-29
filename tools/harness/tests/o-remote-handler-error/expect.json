@@ -1,0 +1,12 @@
+{
+  "description": "(o) an error in a server remote handler (Net.OnInvoke) is red on the server, names the remote and the handler's line; the client's InvokeServer gets nil",
+  "framework": true,
+  "exit": 1,
+  "errorCount": 1,
+  "errors": [
+    { "contains": "ServerScriptService.CoinRemote:7: attempt to index nil with 'Coins'", "world": "server" },
+    { "contains": "Net.OnInvoke('GetCoins') handler; the client got nil", "world": "server" }
+  ],
+  "prints": [{ "contains": "[AskCoins] coins: nil" }],
+  "summary": ["CoinRemote.server.lua"]
+}

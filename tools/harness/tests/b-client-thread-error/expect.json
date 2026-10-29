@@ -1,0 +1,9 @@
+{
+  "description": "(b) an error in a task.spawn thread of a client LocalScript is reported with its traceback",
+  "framework": false,
+  "exit": 1,
+  "errorCount": 1,
+  "errors": [{ "contains": "PlayerScripts.Spawner:4: client boom 7", "world": "client:Player1" }],
+  "errorTrace": ["Spawner:4 function explode", "Spawner:8"],
+  "prints": [{ "contains": "the LocalScript keeps running" }]
+}

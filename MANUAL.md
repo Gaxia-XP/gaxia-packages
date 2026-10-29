@@ -27,6 +27,10 @@
 12. [Troubleshooting](#12-troubleshooting)
 13. [FAQ](#13-faq)
 
+> 🤖 **ใช้ AI agent เขียนเกม?** ให้ agent อ่าน [AGENTS.md](AGENTS.md) ก่อน — มีกฎหลัก + ตาราง "งาน → playbook"
+> และ [playbooks/](playbooks/README.md) มีสูตรทีละขั้นพร้อมโค้ดที่ผ่านการตรวจ type และทดลองรันแล้ว
+> ส่วน [playbooks/api/](playbooks/api/README.md) สร้างจาก source อัตโนมัติ (ชื่อ function ถูกต้องเสมอ)
+
 ---
 
 ## 1. ภาพรวม
@@ -35,17 +39,18 @@
 
 | หมวด | จำนวน | ใช้ทำอะไร |
 |---|---|---|
-| **Shared modules** | 11 | Signal, Maid, Promise, Tween ฯลฯ — ใช้ได้ทุก context |
+| **Shared modules** | 11 | Signal, Trove, Promise, Tween ฯลฯ — ใช้ได้ทุก context |
 | **Util** | 6 | Table, String, Math helpers |
 | **Client UI** | 6 controllers + 10 templates | Notification, HealthBar, Menu, Inventory ฯลฯ |
-| **Server services** | 14 | DataManager, Player, Item, Economy, Tool, Zone, Chat, Admin, Quest, Achievement, Level, Migration, Leaderboard, Messages |
-| **AntiCheat** | 9 detectors + 1 client | Speed, Fly, NoClip, Teleport, Remote rate limit ฯลฯ |
+| **Server services** | 50+ | Data, Player, Item, Economy, Chat, Admin, Quest, Pet, Guild ฯลฯ — เริ่มเฉพาะที่เกมใช้ (§4.1) |
+| **AntiCheat** | 15 detectors + 1 client | Speed, Fly, NoClip, Teleport, Remote rate limit ฯลฯ — observe mode เป็นค่าเริ่มต้น (§9.0) |
 | **Bootstrap** | 2 | ServerBootstrap + ClientBootstrap |
 
 ### หลักการใช้งานสำคัญ
 - ทุก asset ถูก **tag ด้วย "Gaxia_Packages"** อัตโนมัติ (CollectionService) — query ได้ทั้งระบบ
-- **Lazy loading** — module โหลดเมื่อเรียกใช้ครั้งแรก, ไม่กิน startup time
-- **Type-annotated** — มี IntelliSense / autocomplete ใน Studio Script Editor
+- **ติดตั้งเฉพาะที่ใช้** — เลือก package ที่เกมใช้ตอนติดตั้ง (Companion หรือ `tools/packages.mjs`) ได้เฉพาะตัวนั้น + ที่มันต้องพึ่ง (§4.3)
+- **โหลดเฉพาะที่ใช้** — service เริ่มเมื่อถูกเลือกให้บูต หรือถูกใช้ครั้งแรก; ที่ไม่ได้ใช้ไม่ถูกโหลดเลย (§4.1)
+- **Type-annotated** — มี IntelliSense / autocomplete ใน Studio Script Editor รวมถึง payload ของ Signal (§4.2)
 - **Anti-Cheat แยก server/client** — server เป็น authority, client เป็น "tripwire"
 
 ---
@@ -58,7 +63,7 @@
 
 ```lua
 local ServerStorage = game:GetService("ServerStorage")
-local GaxiaServer = require(ServerStorage.Gaxia_Packages_Server.init)
+local GaxiaServer = require(ServerStorage.Gaxia_Packages_Server)
 
 -- ฟัง player join
 GaxiaServer.Player.OnPlayerJoined:Connect(function(player)
@@ -91,7 +96,7 @@ end
 
 ```lua
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Gaxia = require(ReplicatedStorage.Gaxia_Packages.init)
+local Gaxia = require(ReplicatedStorage.Gaxia_Packages)
 
 -- แสดง notification
 Gaxia.UI.NotificationService.Notify("Welcome", "ยินดีต้อนรับสู่เกม!", 5, "success")
@@ -119,8 +124,9 @@ end)
 ```
 ReplicatedStorage/
 ├── Gaxia_Packages/              ← ใช้ได้ทั้ง server + client
-│   ├── init                     ← Master Loader
-│   ├── Shared/                  ← 11 modules
+│   ├── (init.lua = ตัว ModuleScript นี้) ← Master Loader
+│   ├── Features                 ← client modules ที่โหลดตอน spawn
+│   ├── Shared/                  ← shared modules
 │   │   ├── Signal, Maid, Janitor, Trove, Promise
 │   │   ├── TweenUtil, Raycaster, Spring
 │   │   ├── Logger, Symbol, Constants
@@ -140,8 +146,10 @@ ReplicatedStorage/
 
 ServerStorage/
 └── Gaxia_Packages_Server/       ← server-only
-    ├── init                     ← Server Master Loader
-    ├── Lib/                     ← 14 services
+    ├── (init.lua = ตัว ModuleScript นี้) ← Server Master Loader (Boot / lazy keys)
+    ├── Types                    ← ServiceName, Features, hook types
+    ├── Config/                  ← tunables + Features (services ที่เริ่มตอน boot)
+    ├── Lib/                     ← services (ตัวอย่างบางส่วน) + ServiceLifecycle
     │   ├── DataManager, PlayerService
     │   ├── ItemService, EconomyService
     │   ├── ToolService, ZoneService
@@ -149,8 +157,8 @@ ServerStorage/
     │   ├── QuestSystem, AchievementSystem
     │   ├── LevelSystem, DataMigration
     │   ├── LeaderboardService, CrossServerMessaging
-    └── AntiCheat/               ← orchestrator + 9 detectors
-        ├── init                 ← orchestrator
+    └── AntiCheat/               ← orchestrator + 15 detectors
+        ├── (init.lua = orchestrator)
         ├── SpeedDetector, FlyDetector
         ├── NoClipDetector, TeleportDetector
         ├── RemoteRateLimiter, StatGuard
@@ -158,7 +166,7 @@ ServerStorage/
         └── ExploitSignatureScanner
 
 StarterGui/
-└── Gaxia_UI/                    ← ScreenGui (auto-cloned to PlayerGui)
+└── Gaxia_UI/                    ← ScreenGui (ไม่ต้องสร้างเอง: UIController สร้าง PlayerGui.Gaxia_UI + HUD + Overlays ให้อัตโนมัติ; ถ้าสร้างไว้ใน StarterGui จะใช้อันนั้น)
     ├── HUD/                     ← persistent HUD elements
     └── Overlays/                ← modal popups
     -- (Templates ย้ายมาเป็น code-first Luau module ที่
@@ -179,12 +187,12 @@ StarterPlayer/StarterPlayerScripts/
 
 ### Client side / Shared (ใช้ในทุก context)
 ```lua
-local Gaxia = require(game.ReplicatedStorage.Gaxia_Packages.init)
+local Gaxia = require(game.ReplicatedStorage.Gaxia_Packages)
 ```
 
 ### Server side
 ```lua
-local GaxiaServer = require(game.ServerStorage.Gaxia_Packages_Server.init)
+local GaxiaServer = require(game.ServerStorage.Gaxia_Packages_Server)
 ```
 
 ### โครงสร้าง
@@ -215,11 +223,148 @@ local GaxiaServer = require(game.ServerStorage.Gaxia_Packages_Server.init)
 | `GaxiaServer.Messages` | CrossServerMessaging |
 | `GaxiaServer.AntiCheat` | AntiCheat orchestrator |
 
-> ⚠️ **อย่า require folder ตรงๆ** — ต้องเข้าผ่าน `.init`:
+> ⚠️ **require ตัว package ตรงๆ** — ใต้ Rojo `Gaxia_Packages` และ `Gaxia_Packages_Server` *เป็น* ModuleScript เอง
+> (มาจาก `init.lua`) จึง **ไม่มี** child ชื่อ `init`:
 > ```lua
-> require(game.ReplicatedStorage.Gaxia_Packages)        -- ❌ ผิด
-> require(game.ReplicatedStorage.Gaxia_Packages.init)   -- ✅ ถูก
+> require(game.ReplicatedStorage.Gaxia_Packages)        -- ✅ ถูก
+> require(game.ReplicatedStorage.Gaxia_Packages.init)   -- ❌ ผิด ("init is not a valid member")
 > ```
+> อย่าใส่ `:: any` ต่อท้าย require — จะทำให้ autocomplete หายทั้งหมด (ดู §4.2)
+
+### 4.1 Boot & Features — โหลดเฉพาะที่เกมใช้
+
+Service ฝั่ง server **ไม่เริ่มทำงานเพียงเพราะถูก require** อีกต่อไป — แต่ละตัวเริ่ม (สร้าง remote, ต่อ PlayerAdded,
+เริ่ม loop) เมื่อเกิดอย่างใดอย่างหนึ่งก่อน:
+
+1. **อยู่ในรายการ boot** → เริ่มตอน server boot (เรียงตาม dependency อัตโนมัติ)
+2. **เกมแตะ `GaxiaServer.<Name>` ครั้งแรก** → เริ่มตอนนั้น
+3. **มีการเรียก function ของ service นั้นครั้งแรก** (ทางไหนก็ได้ รวมถึง `require` ตรง)
+
+service ที่เกมไม่ได้ใช้เลย **ไม่ถูกโหลดเลย**
+
+**รายการที่เริ่มตอน boot** (ตัวแรกที่มีชนะ):
+1. `ServerStorage.GaxiaFeatures` ของเกม (ด้านล่าง)
+2. ถ้าติดตั้งแบบ**เลือก package** (§4.3): service ที่เลือก + package ที่ติดตั้งซึ่งมี `Boot = true` ใน `Packages.lua`
+   (เช่น Data, AntiCheat, Monetization, Admin, Chat) — **ไม่ต้องแก้ Features เอง**
+3. ติดตั้งครบทุกตัว (Rojo `default.project.json` หรือติดตั้งก่อนมีตัวเลือก): `Config.Features`
+```lua
+Services = { "AntiCheat", "Data", "Player", "Item", "Economy", "Pet", ... }
+```
+ชื่อเป็น type `Types.ServiceName` → Studio / luau-lsp **autocomplete ชื่อ และขีดเส้นแดงถ้าพิมพ์ผิด**
+
+> 📌 **อย่าแก้ Config/Features ใน place โดยตรง** — ปุ่ม Install/Update ของ Companion plugin แทนที่ทั้ง package
+> (รวม Config) ทุกครั้ง ให้สร้าง **ModuleScript `ServerStorage.GaxiaFeatures`** แทน:
+> ```lua
+> -- ServerStorage.GaxiaFeatures (ของเกม — plugin ไม่แตะ)
+> return {
+>     Services = { "AntiCheat", "Data", "Player", "Economy", "Monetization", "Quest" },
+> }
+> ```
+> ฝั่ง client ทำแบบเดียวกันด้วย `ReplicatedStorage.GaxiaClientFeatures` (`{ Client = { ... } }`)
+
+**ควรใส่ใน Features เมื่อเกมใช้** (มีงานต้องทำก่อนถูกเรียกครั้งแรก — ถ้าติดตั้งแบบเลือก package ตัวเหล่านี้มี
+`Boot = true` จึงบูตให้เองเมื่อติดตั้ง):
+
+| Service | ถ้าไม่ใส่ |
+|---|---|
+| `Monetization` | **ProcessReceipt ไม่ถูกผูก → ซื้อ developer product แล้วไม่ได้ของ** |
+| `Settings` | ไม่มี remote `Events/Gaxia_Settings` จนกว่าจะมีคนแตะ |
+| `Party` | ไม่มี remote เชิญปาร์ตี้ |
+| `Analytics`, `Journal`, `AntiCheatAdmin` | ไม่ทำงาน (ไม่มี funnel / audit log / คำสั่ง `/ac*`) |
+| `Event`, `Cooldown` | loop ไม่เริ่มจนกว่าจะถูกใช้ |
+
+**Boot ทำงานเมื่อไหร่:** `Gaxia_ServerBootstrap` เรียก `GaxiaServer.Boot()` — และถ้า game Script ตัวอื่น
+แตะ service ก่อน bootstrap จะ boot ให้เองทันที จึง **ไม่ขึ้นกับลำดับที่ Roblox รัน Script**
+`ReplicatedStorage.Events` / `Events.Net` มีอยู่ทันทีที่ require loader
+
+```lua
+GaxiaServer.IsEnabled("Monetization")   -- true ถ้า service เริ่มทำงานแล้ว (ไม่โหลดอะไรเพิ่ม)
+GaxiaServer.IsInstalled("Pet")          -- true ถ้า package Pet ติดตั้งอยู่ใน place นี้ (ไม่โหลดอะไรเพิ่ม)
+Gaxia.IsInstalled("UI.Toast")           -- เหมือนกันสำหรับ key ฝั่ง shared / client
+GaxiaServer.Lifecycle.GetStarted()      -- { "AntiCheat", "Data", ... } ตามลำดับที่เริ่ม
+```
+
+Server ประกาศรายชื่อ service ที่ทำงานอยู่ไว้ที่ attribute `GaxiaServerFeatures` ของ
+`ReplicatedStorage.Gaxia_Packages` — Client bootstrap โหลด module ฝั่ง client เฉพาะตัวที่ฝั่ง server ทำงาน
+(เช่นไม่โหลด PetController ถ้า server ไม่ได้เปิด `Pet`)
+
+### 4.2 Types & autocomplete
+
+- require loader แบบ **ไม่มี `:: any`** แล้วทุกอย่างมี type:
+  ```lua
+  local GaxiaServer = require(ServerStorage.Gaxia_Packages_Server)
+  GaxiaServer.Economy.OnTransaction:Connect(function(player, currency, delta, newBalance, kind)
+      -- player: Player · newBalance: number · kind: "add" | "spend" | "set" | "transfer"
+  end)
+  ```
+- Signal ของทุก service ประกาศ payload type ไว้ → callback ใน `:Connect` ได้ type + autocomplete
+- ใน module ของเกมเอง require module ที่ต้องใช้ **ตรงๆ** ได้เลย (typed):
+  ```lua
+  local Shared = game:GetService("ReplicatedStorage").Gaxia_Packages.Shared
+  local Signal = require(Shared.Signal)
+  local Trove  = require(Shared.Trove)
+  ```
+- Type ที่ใช้ร่วมกัน (ชื่อ service, AntiCheat severity, สัญญาของ detector `AntiCheatSnapshot`/`AntiCheatFlag`/`DetectorHost` ฯลฯ): `require(ServerStorage.Gaxia_Packages_Server.Types)`
+- Config มี type ทุก section ที่ทำไว้แล้ว (`Config.Admin`, `Config.AntiCheat`, `Config.Webhook`, `Config.Player`) → `GaxiaServer.Config.AntiCheat.BanPolicy.` autocomplete ได้ และ `Severity = "hrad"` จะขึ้น error; type export อยู่ใน module เช่น `AntiCheatConfig`, `AdminConfig`
+- Promise: `Gaxia.Promise` ไม่มี type (vendored) → API ที่คืน promise ประกาศด้วย `PromiseTypes`:
+  ```lua
+  local PromiseTypes = require(ReplicatedStorage.Gaxia_Packages.Shared.PromiseTypes)
+  local function loadMap(): PromiseTypes.Promise<Model> ... end
+  local ok, map = loadMap():await()   -- ok: boolean · map: Model
+  ```
+  (method ที่เปลี่ยนค่า เช่น `:andThen` คืน `PromiseTypes.AnyPromise`)
+- เครื่องมือตรวจ: `node tools/check-architecture.mjs` (กติกาของ module ใน framework — ต้องมี `luau-ast`)
+- ถ้าติดตั้งแบบเลือก package type ของ `GaxiaServer` / `Gaxia` มีเฉพาะ package ที่ติดตั้ง → autocomplete แสดงเฉพาะของที่ใช้ได้จริง
+
+### 4.3 Packages — เลือกติดตั้งเฉพาะที่ใช้
+
+Framework แบ่งเป็น **~100 package** (รายการเต็ม: `ServerStorage.Gaxia_Packages_Server.Packages` หรือ
+`node tools/packages.mjs list`) เลือกเฉพาะที่เกมใช้ แล้วจะติดตั้ง **package ที่เลือก + package ที่มันต้องพึ่ง + Core**
+เท่านั้น — ตัวอื่นไม่อยู่ใน place เลย (ไม่ replicate ไป client ด้วย)
+
+| | ตัวอย่าง |
+|---|---|
+| **Core** (ติดตั้งเสมอ) | loader ทั้งสอง · Types · Config · ServiceLifecycle · EffectiveConfig · Signal · Trove · NetService · ReplicatedState · Flags · Logger · Constants · Serializer |
+| เลือก `Data` | + DataMigration + Util → server require ตอนบูต ~37 module (ติดตั้งครบ ~80) |
+| เลือก `Quest` | + Data, Migration, Economy, Item, Util |
+| เลือก `Pet` | + Data, Migration, Economy, ItemDef, Loot, Codex, Guard, Util + UI ของ pet (UI.UIController, UI.Toast, UI.Templates, Theme) |
+
+**ใน Studio (Gaxia Companion):** แท็บ **Install** → ติ๊ก package (มีปุ่ม preset `Default` = ชุดที่บูตก่อนหน้านี้,
+`All`, `None`) → **Install / Update** — แถว `[+]` คือที่ถูกเพิ่มให้เพราะ package ที่เลือกต้องใช้ · เปิดครั้งต่อไป
+จะติ๊กตามที่ติดตั้งไว้ใน place นั้น (place ที่ติดตั้งครบมาก่อน = ติ๊กทุกตัว) · ถ้าการติดตั้งจะ**ลบ** package ที่ place มีอยู่
+ต้องกด Install ซ้ำเพื่อยืนยัน (status แสดงรายชื่อ) · ติ๊กทุกตัว = ติดตั้งครบแบบเดิม (ไม่บันทึกการเลือก, `Config.Features` ตัดสิน)
+> plugin ต้องได้สิทธิ์ **แก้ script** (Script Injection) เพื่อตัด type ของ package ที่ไม่ได้ติดตั้งออกจาก loader —
+> ถ้าไม่ได้รับสิทธิ์ ติดตั้งได้ แต่ Script Analysis จะเตือน type ใน loader
+
+**ใน Rojo:**
+```sh
+node tools/packages.mjs list                                    # ดูทุก package ตามหมวด
+node tools/packages.mjs resolve Data,Pet                        # ดูว่าจะติดตั้งอะไรบ้าง + อะไรบูต
+node tools/packages.mjs build --select Data,Pet --out ../MyGame/gaxia
+node tools/packages.mjs build --preset Default --out ../MyGame/gaxia
+rojo serve ../MyGame/gaxia/default.project.json
+```
+`--out` ต้องอยู่นอก repo Gaxia และว่างหรือเป็นผล build ครั้งก่อน (ไม่งั้นต้อง `--force`) ·
+`build` เขียน `src/` (เฉพาะไฟล์ที่ติดตั้ง, loader ตัด type ให้แล้ว) + `default.project.json` + `gaxia-packages.json`
+(ใช้ `--from <ไฟล์นี้>` build ซ้ำด้วยชุดเดิมหลังอัปเดต Gaxia)
+
+**ติดตั้งแล้ว = เปิดใช้:** ตอนบูตเริ่ม **service ทุกตัวที่เลือก** + **ทุก package ที่ติดตั้งและมี `Boot = true`**
+(มีงานต้องทำก่อนถูกเรียก: player hook, remote, loop, ProcessReceipt — รวมตัวที่ติดมาเป็น dependency เช่นเลือก Idle
+แล้ว Data บูตด้วย) · service อื่นที่ติดมาเป็น dependency เริ่มเมื่อถูกใช้ครั้งแรก · preset `Default` บูตชุดเดียวกับเดิม (+ Cooldown ที่ Friend/Guild ต้องใช้) ·
+ค่าที่เลือกบันทึกไว้ที่ attribute `GaxiaPackages` ของทั้งสอง package root · `ServerStorage.GaxiaFeatures` ยัง override ได้
+
+**Soft dependency — ใช้ถ้ามี:** บางการเชื่อมต่อเป็น optional จึงไม่บังคับให้ติดตั้งอีก package
+(เช่น Quest/Idle ใช้ตัวคูณ coin ของ Pet ถ้าติดตั้ง · Player/Admin whitelist AntiCheat ถ้าติดตั้ง ·
+Webhook/Analytics/Ban ฟัง signal ของ package ที่ติดตั้งอยู่ · `/give` ของ Admin ต้องมี Item) ใน service ของเกมเองใช้แบบเดียวกันได้:
+```lua
+type PetApi = { GetCoinMultiplier: (player: Player) -> number }
+local Pet: PetApi? = GaxiaServer.Lifecycle.Find("Pet")   -- nil ถ้าไม่ได้ติดตั้ง · โหลดแต่ไม่ start (เรียก function แล้วจึง start)
+if Pet then amount *= Pet.GetCoinMultiplier(player) end
+```
+
+**แก้ framework (ผู้ดูแล):** หลังเพิ่ม/ลบ `require` ให้รัน `node tools/packages.mjs fix` (สร้าง `Requires` ใหม่) —
+`node tools/packages.mjs check` และ `tools/check-architecture.mjs` (R12) fail ถ้า catalogue ไม่ตรงกับ source
+· module ใหม่ต้องอยู่ใน Core หรือ package ใด package หนึ่งเสมอ
 
 ---
 
@@ -256,7 +401,19 @@ mySignal:Destroy()
 
 **ใช้ตอนไหน:** สร้าง event ของตัวเอง — เช่น `OnEnemyKilled`, `OnQuestComplete`
 
-### 5.2 Maid — Cleanup tracker (LIFO)
+### 5.2 Maid — Cleanup tracker (LIFO) · ⚠️ DEPRECATED
+
+> **เลิกใช้แล้ว** — framework ใช้ **Trove** (§5.4) แทนทั้งหมด Maid ยังอยู่เพื่อให้โค้ดเกมเดิมไม่พัง
+> (require แล้วจะขึ้น warn) และจะถูกลบในเวอร์ชันถัดไป
+>
+> | Maid | Trove |
+> |---|---|
+> | `Maid.new()` | `Trove.new()` |
+> | `maid:GiveTask(x)` | `trove:Add(x)` |
+> | `maid:GiveTask(sig:Connect(fn))` | `trove:Connect(sig, fn)` |
+> | `maid:GiveBindToRenderStep(name, prio, fn)` | `trove:BindToRenderStep(name, prio, fn)` |
+> | `maid:DoCleaning()` | `trove:Clean()` |
+> | `maid:Destroy()` | `trove:Destroy()` (เรียกซ้ำได้ ไม่ error) |
 
 ```lua
 local Maid = Gaxia.Maid
@@ -282,7 +439,10 @@ maid:Destroy()
 
 **ใช้ตอนไหน:** ป้องกัน memory leak — ผูก task ทั้งหมดที่ต้อง cleanup ของ object เดียวกัน
 
-### 5.3 Janitor — เหมือน Maid แต่มี named index
+### 5.3 Janitor — เหมือน Maid แต่มี named index · ⚠️ DEPRECATED
+
+> **เลิกใช้แล้ว** — ใช้ **Trove** (§5.4) แทน Janitor ยังอยู่เพื่อให้โค้ดเกมเดิมไม่พัง (เรียก `Gaxia.Janitor` ครั้งแรกจะขึ้น warn)
+> และจะถูกลบในเวอร์ชันถัดไป · ต้องการ named index ใช้ `trove:Remove(obj)` / เก็บ reference เองแทน
 
 ```lua
 local Janitor = Gaxia.Janitor
@@ -319,7 +479,7 @@ local part = trove:Add(Instance.new("Part"))
 part.Parent = workspace
 
 -- Construct สำเร็จรูป
-local maid = trove:Construct(Gaxia.Maid)  -- เทียบเท่า trove:Add(Maid.new())
+local sig = trove:Construct(Gaxia.Signal)  -- เทียบเท่า trove:Add(Signal.new())
 
 -- Connect signal helper
 trove:Connect(workspace.ChildAdded, function(child)
@@ -339,7 +499,13 @@ trove:Clean()
 trove:Destroy()
 ```
 
-**ใช้ตอนไหน:** เขียน class ใหม่ — ใช้ Trove เพราะ API สวยกว่า Maid
+**ใช้ตอนไหน:** ตัวมาตรฐานของ framework สำหรับ cleanup ทุกที่ (แทน Maid)
+
+**ต่างจาก Maid ตรงไหน:**
+- ลำดับตอน `:Clean()` **ไม่รับประกัน** (Maid เคลียร์ย้อนหลัง LIFO) — อย่าเขียนโค้ดที่พึ่งลำดับ
+- เรียก `:Add()` ระหว่างที่ trove กำลัง `:Clean()` อยู่จะ **error** — ถ้า cleanup callback อาจสร้างของใหม่ ให้สลับไปใช้ trove ใหม่ก่อน clean (ดู `EffectsController.ClearAll`)
+- function ที่ `:Add()` ไว้จะถูกเรียกผ่าน `task.spawn`
+- `:Destroy()` = `:Clean()` เรียกซ้ำได้ และใช้ trove ต่อได้หลัง clean
 
 ### 5.5 Promise — Async pattern
 
@@ -848,10 +1014,10 @@ local overridden = GaxiaServer.EConfig.IsOverridden("Raid.LootFraction")
 ```lua
 local Gaxia = require(ReplicatedStorage.Gaxia_Packages)   -- shared
 local mult = Gaxia.Flags.Get("Economy.GlobalMultiplier", 1)
-Gaxia.Flags.OnChanged:Connect(function(key, value) end)
+local conn = Gaxia.Flags.OnChanged("Economy.GlobalMultiplier", function(new, old) end)   -- RBXScriptConnection?
 ```
 
-**Naming:** flag key = dot-path เทียบ Config section — `Economy.MaxTransaction`, `AntiCheat.Speed.ToleranceMultiplier`, `Webhook.Enabled`, ฯลฯ. ทุก service section ด้านล่างที่มี **Config** block แสดง key ที่อ่าน — wrap ด้วย `EConfig.Get("Section.Key", default)` ที่ call-time ก็ได้ live override.
+**Naming:** ใช้ชื่อแบบมีจุดได้เลย — Flags แปลงเป็นชื่อ attribute ที่ Roblox ยอมรับให้เอง (`AntiCheat.Enforce` → attribute `AntiCheat_2EEnforce` ใน `ReplicatedStorage.GaxiaState.GaxiaFlags`) ทั้งตอน Set/Get/OnChanged; ห้ามอ่าน attribute ตรงๆ ให้ใช้ Flags API เสมอ. flag key = dot-path เทียบ Config section — `Economy.MaxTransaction`, `AntiCheat.Speed.ToleranceMultiplier`, `Webhook.Enabled`, ฯลฯ. ทุก service section ด้านล่างที่มี **Config** block แสดง key ที่อ่าน — wrap ด้วย `EConfig.Get("Section.Key", default)` ที่ call-time ก็ได้ live override.
 
 **Session-scoped:** Flag เก็บเป็น `ReplicatedState` attributes — restart server = reset. ตั้งใจ (ไม่ persist override กัน typo รอดข้ามรอบ); ถ้าต้องการถาวร — แก้ที่ Config.
 
@@ -919,7 +1085,7 @@ PS.SetLeaderstat(player, "Coins", 100)
 local coins = PS.GetLeaderstat(player, "Coins")
 
 -- Character helpers
-PS.SetWalkSpeed(player, 16)
+PS.SetWalkSpeed(player, 16)       -- clamp ที่ [0, Config.Player.MaxWalkSpeed] (default 500; flag "Player.MaxWalkSpeed")
 PS.SetJumpPower(player, 50)
 PS.Teleport(player, CFrame.new(0, 50, 0))
 
@@ -964,7 +1130,7 @@ end)
 ```lua
 local Eco = GaxiaServer.Economy
 
--- Add (clamp ที่ MAX_TRANSACTION = 1M ต่อครั้ง)
+-- Add (จำนวนเต็ม 1..MaxTransaction = 1M ต่อครั้ง; เกิน/เศษ/NaN/ติดลบ → ปฏิเสธ return false + warn ไม่ clamp)
 Eco.Add(player, "Coins", 500)
 
 -- Spend (atomic — fail ถ้าเงินไม่พอ)
@@ -973,7 +1139,7 @@ local ok = Eco.Spend(player, "Coins", 100)
 -- Get
 local coins = Eco.Get(player, "Coins")
 
--- Set (admin override — ไม่เช็ค min/max)
+-- Set (admin override — ไม่เช็ค MaxTransaction; ต้องเป็นจำนวนเต็ม 0..MaxBalance ไม่งั้นปฏิเสธ + warn)
 Eco.Set(player, "Coins", 0)
 
 -- Transfer (atomic ระหว่าง 2 player)
@@ -1384,10 +1550,11 @@ LB.OnUpdate:Connect(function(name, userId, value) end)
 ```lua
 local Msg = GaxiaServer.Messages
 
--- Subscribe ทำตอน server start
-local conn = Msg.Subscribe("GlobalChat", function(data, sentTimestamp)
+-- Subscribe ทำตอน server start — คืน nil + เหตุผล (ไม่ error) เมื่อ MessagingService ใช้ไม่ได้
+local conn, err = Msg.Subscribe("GlobalChat", function(data, sentTimestamp)
     print(`[Global] {data.player}: {data.text}  (sent {sentTimestamp})`)
 end)
+if not conn then warn("subscribe failed:", err) end
 
 -- Publish — token-bucket rate limited (2/sec sustained, burst 10)
 Msg.Publish("GlobalChat", {
@@ -1419,7 +1586,7 @@ conn:Disconnect()
 
 ส่ง webhook ออกนอก (Discord เป็นหลัก แต่ส่ง JSON ไป URL ไหนก็ได้). มี queue ต่อ channel + retry เมื่อโดน rate-limit (HTTP 429) — report ไม่หาย ไม่บล็อกเกม. **Server-only**: URL เป็น secret อยู่ใน `Config.Webhook.Channels` (ไม่ replicate) — **ห้ามเรียกผ่าน RemoteEvent จาก client** (client ยิง webhook มั่ว = abuse).
 
-> ต้องเปิด **Game Settings → Security → Allow HTTP Requests** ก่อน ไม่งั้น webhook ปิดเงียบ (warn ครั้งเดียว).
+> ต้องเปิด **Game Settings → Security → Allow HTTP Requests** ก่อน ถ้าปิดอยู่ ข้อความจะรอใน queue (≤ `MaxQueue`) แล้ว retry ทุก `RateLimit.HttpOffRetry` วินาที (warn ครั้งเดียว) ไม่ drop ทิ้ง.
 
 **Config** (`Config.Webhook` — server-private):
 ```lua
@@ -1430,13 +1597,16 @@ Webhook = {
         ShopStock  = "https://discord.com/api/webhooks/...",
     },
     AutoReport = { Bans = "BanReports", AntiCheat = "BanReports" }, -- channel name หรือ nil
-    RateLimit  = { MinInterval = 2, MaxQueue = 100, MaxRetries = 3 },
+    RateLimit  = { MinInterval = 2, MaxQueue = 100, MaxRetries = 3, HttpOffRetry = 30 },
     Username   = "Gaxia",
 }
 ```
 
 ```lua
 local WH = GaxiaServer.Webhook
+
+-- ตั้ง channel จาก server Script (ชนะค่าใน Config, ไม่ replicate; nil/"" = ลบ)
+WH.SetChannel("BanReports", "https://discord.com/api/webhooks/...")
 
 -- Discord embed (สร้าง JSON ให้อัตโนมัติ)
 WH.Discord("BanReports", {
@@ -1458,7 +1628,7 @@ WH.OnSend:Connect(function(channel, ok) end)                  -- observability
 WH.OnError:Connect(function(channel, reason) warn(reason) end)
 ```
 
-**Auto-report (zero-wiring):** ตั้ง `AutoReport.Bans` / `AutoReport.AntiCheat` ให้ชี้ channel ที่มี URL → ส่ง report อัตโนมัติเมื่อ `Ban.OnBan`/`Ban.OnUnban` ยิง และเมื่อ AntiCheat ทำ **hard action**. ถ้า channel ที่ชี้ไม่มี URL → เงียบ (ไม่ subscribe). WebhookService ถูก eager-load ตอน boot เพื่อให้ auto-report ทำงานทันที.
+**Auto-report (zero-wiring):** ตั้ง `AutoReport.Bans` / `AutoReport.AntiCheat` ให้ชี้ channel ที่มี URL → ส่ง report อัตโนมัติเมื่อ `Ban.OnBan`/`Ban.OnUnban` ยิง และเมื่อ AntiCheat ทำ **hard action**. channel + URL ถูกอ่านตอน event ยิง (ไม่ cache ตอน boot) → ตั้ง URL ทีหลังด้วย `SetChannel` ก็ได้ report; ถ้าตอนนั้นไม่มี URL → เงียบ. WebhookService ถูก eager-load ตอน boot เพื่อให้ auto-report ทำงานทันที.
 
 **Use case — shop stock (manual):**
 ```lua
@@ -1475,7 +1645,8 @@ GaxiaServer.Webhook.Discord("ShopStock", {
 **กลไก:**
 - Queue ต่อ channel (FIFO) + drain coroutine เดียว, เว้น `MinInterval` วินาทีระหว่างส่ง
 - 429 → รอ `Retry-After` แล้ว retry (≤ `MaxRetries`); transient → backoff; เกิน → drop + OnError + warn
-- Queue เต็ม (`MaxQueue`) → drop เก่าสุด · async ทั้งหมด (task.spawn) ไม่บล็อกเกม
+- Queue เต็ม (`MaxQueue`) → drop เก่าสุด (OnError `"queue_full"`) · async ทั้งหมด (task.spawn) ไม่บล็อกเกม
+- Server ปิด → `game:BindToClose` ส่งที่ค้างใน queue ให้หมด (เร็วกว่า `MinInterval`, ไม่เกิน 25 วินาที)
 - ค่าใน `RateLimit`/`Enabled`/`Username` override runtime ได้ผ่าน `/flag set Webhook.<Key>` (EConfig)
 - เทส: `WH.SetTransport(fn)` แทนตัวส่ง HTTP จริง (จับ payload โดยไม่ยิงเน็ต)
 
@@ -1496,7 +1667,7 @@ Ban.OnUnban:Connect(function(userId) end)
 **กลไก:**
 - บันทึกลง DataStore (`Config.Admin.Stores.Bans`, fallback `"GaxiaBans"`) + session cache — Studio ไม่มี real DataStore ก็ทำงานได้ (in-memory)
 - `PlayerAdded` gate — kick อัตโนมัติทันทีที่ player เข้า ถ้ายังแบนอยู่
-- Auto-escalation: subscribe `AntiCheat.OnAction` (hard) → นับ strikes → kick → temp-ban → perm-ban ตาม `Config.AntiCheat.BanPolicy`
+- Auto-escalation: subscribe `AntiCheat.OnAction` (hard) → นับ strikes → kick → temp-ban → perm-ban ตาม `Config.AntiCheat.BanPolicy` — strikes นับตลอดอายุ server (ไม่ reset ตอน rejoin server เดิม; `Ban.Unban` / `/acunban` / `/acclear` / `Ban.ResetStrikes(userId)` reset ให้)
 
 **Role ระดับสูงโดน auto-ban / auto-kick ไม่ได้:**
 - Escalation **ข้าม** place creator (เช็ค `game.CreatorId` แบบ sync — ไม่รอ role โหลด) และทุกคนที่ role ≥ `Config.AntiCheat.BanPolicy.ExemptRole` (default `"admin"`) — ได้แค่ warn ลง console ว่า "would have acted on: …" ตั้ง `ExemptRole = false` ถ้าจะเหลือแค่ creator; ตั้ง `"moderator"` ได้แต่จะเสีย auto-ban deterrent กับ staff tier ล่างสุด
@@ -1544,8 +1715,9 @@ Journal.Clear()                        -- reset buffer (สำหรับ test)
 
 **กลไก:**
 - Subscribe `AntiCheat.OnFlag` + `AntiCheat.OnAction` อัตโนมัติ (deferred)
-- Ring buffer 250 entries ใน memory + per-player history table
-- Default sink = `warn` — entry ไม่หายแม้ sink error
+- Ring buffer 250 entries ใน memory + per-player history (เก็บ 100 entry ล่าสุดต่อคน, ลบทิ้ง 30 วินาทีหลังออกจากเกม)
+- Default sink = ไม่มี (ไม่ spam Output) — อยากเห็นทุก entry ใน Output: `Journal.SetSink(Journal.WarnSink)`; entry ไม่หายแม้ sink error
+- อยู่ใน `Config/Features` (default) — บันทึกตั้งแต่ boot
 
 ---
 
@@ -1562,7 +1734,7 @@ GaxiaServer.AntiCheatAdmin.Register()   -- หรือ explicit (idempotent)
 |---|---|---|
 | `/acflags <player>` | moderator | ดู flags ของ player |
 | `/acclear <player>` | admin | ล้าง flags |
-| `/acban <player> <reason> [secs]` | admin | แบน (temp หรือ perm) |
+| `/acban <player> <reason...> [secs\|30m\|1h\|2d]` | admin | แบน (temp หรือ perm) — reason หลายคำได้, ตัวเลขท้ายสุด = วินาที หรือมีหน่วย s/m/h/d/w (หน่วยที่ไม่รู้จักถูกปฏิเสธ) |
 | `/acunban <userId>` | admin | ยกแบน |
 | `/ac <on\|off\|status\|reset> [Detector]` | admin | toggle AntiCheat / detector |
 | `/flag <set\|get\|clear> <key> [value]` | admin | runtime flag override (EConfig) |
@@ -1595,22 +1767,42 @@ Prot.Clear(player)                          -- ยกเลิก shield ก่�
 
 ---
 
-### 8.21 Lifecycle — Two-phase boot (Init → Start) สำหรับ services ที่ต้องการ ordering
+### 8.21 Lifecycle — ลำดับการเริ่ม service (Init → Start)
+
+**Service ของ framework** ลงทะเบียน lifecycle ด้วย `Lifecycle.Define` เป็นบรรทัดสุดท้ายก่อน `return`
+(body ของ module ไม่ทำอะไรตอนถูก require — ดู §4.1):
 
 ```lua
-local LC = GaxiaServer.Lifecycle
+local Lifecycle   = require(script.Parent.ServiceLifecycle)
+local DataManager = require(script.Parent.DataManager)
 
-LC.RegisterMany({ require(DataSvc), require(EconomySvc), require(ShopSvc) })  -- dep order
-LC.Start()    -- Phase 1: Init() ทุก service → Phase 2: Start() ทุก service
-LC.OnStarted(function() print("all services up") end)
-local ready = LC.IsStarted()
+Lifecycle.Define(MyService, {
+    Name  = "Economy",          -- key ของ GaxiaServer (Types.ServiceName)
+    Needs = { DataManager },    -- module ที่ Init ต้องรันก่อนของเรา ({} ถ้าไม่มี)
+    Init  = function() ... end, -- sync ห้าม yield: สร้าง remote, ต่อ PlayerAdded, ผูก callback
+    Start = function() ... end, -- thread ของตัวเอง หลัง Init ทั้งชุด: loop, MessagingService, subscribe signal ของ service อื่น
+})
+return MyService
 ```
 
 **กลไก:**
-- `Start()` เรียก `Init()` ทุก service ก่อน แล้วค่อยเรียก `Start()` — รับประกันว่า service B ใช้ service A ใน `Start()` ได้อย่างปลอดภัย
-- pcall-isolated — service เดียวพัง ไม่ abort ที่เหลือ; warn ระบุชื่อ
-- Idempotent — `Start()` call ซ้ำ = no-op; `Register()` หลัง `Start()` = warn + ignored
-- Services ที่ self-initialise อยู่แล้วไม่ต้อง migrate — additive only
+- Boot / การเริ่มครั้งแรก: รัน `Init` ของทุก module ในชุด (เรียงตาม `Needs`) แล้วค่อย spawn `Start` ตามลำดับเดียวกัน
+- `Init` ที่ yield จะถูกนับว่า fail ("Init yielded") — เหมือนกันทั้งตอน boot และตอนเริ่มแบบ lazy
+- แต่ละ Init/Start ถูก pcall แยกกัน — service เดียวพัง warn ครั้งเดียวแล้ว `GaxiaServer.<Name>` คืน `nil`
+  (ไม่ retry) service ที่ต้องพึ่งมันยังเริ่มต่อได้
+- `Needs` = เฉพาะ module ที่ Init/Start ต้องเรียก/ลงทะเบียนเข้าไป — module ที่แค่เรียกใช้ทีหลังไม่ต้องใส่ (มันเริ่มเองตอนถูกเรียกครั้งแรก)
+- API: `Define`, `Ensure(module)`, `Boot(modules)`, `GetState(module)`, `GetStarted()`, `IsBooted()`,
+  `OnBooted(fn)`, `OnInitialized(module, fn)`
+
+**Service ของเกมเอง** ยังใช้ API เดิมได้ (semantics เดิมทุกอย่าง แยก state จาก Boot ของ framework):
+
+```lua
+local LC = GaxiaServer.Lifecycle
+LC.RegisterMany({ require(DataSvc), require(EconomySvc), require(ShopSvc) })  -- dep order
+LC.Start()    -- Init() ทุก service → Start() ทุก service (sync ใน thread ที่เรียก)
+LC.OnStarted(function() print("all services up") end)
+local ready = LC.IsStarted()
+```
 
 ---
 
@@ -1653,8 +1845,9 @@ Shop.RegisterItem("SpeedBoost", {
     grant = function(p) applyBoost(p) end,
 })
 local ok, reason = Shop.Purchase(player, "SpeedBoost")
--- reason ∈ unknown_item / requires_gamepass / level_too_low /
+-- reason ∈ unknown_item / not_loaded / requires_gamepass / level_too_low /
 --           prompted_robux / insufficient_funds / grant_failed
+Shop.RegisterItem("GemPack", { devProductId = 123456 }) -- Robux item: ไม่ต้องมี grant
 local catalog = Shop.GetCatalog()
 ```
 
@@ -1681,8 +1874,11 @@ Mon.OnPurchase:Connect(function(player, productId, receipt) end)
 **กลไก:**
 - `HandleReceipt` ตรวจ `ProcessedReceipts` ใน profile ก่อน — ถ้าเคย grant แล้วคืน `PurchaseGranted` ทันที (ไม่ double-grant)
 - PurchaseId persist + `Data.Save` nudge ก่อน return — crash ก็ไม่หาย
-- `OwnsGamePass` cache per-player (weak table) — ไม่ yield ซ้ำบน server loop
-- `MarketplaceService.ProcessReceipt` ผูกตอน module load → ต้อง touch `Gaxia.Monetization` ตอน boot
+- `OwnsGamePass` cache per-player (weak table) — ไม่ yield ซ้ำบน server loop; ถ้า Roblox check error จะคืน `false` แต่ไม่ cache (ถามใหม่ครั้งหน้า); ซื้อ pass ใน server นี้ (`PromptGamePassPurchaseFinished`) → cache เป็น `true` ทันที + ยิง `Mon.OnGamePassPurchased(player, passId)`
+- `ProcessedReceipts` เก็บแค่ 100 PurchaseId ล่าสุดต่อผู้เล่น (ตัดอันเก่าสุดทิ้ง) — data ไม่โตไม่จำกัด
+- `MarketplaceService.ProcessReceipt` ผูกตอน service **Init** → ต้องใส่ `"Monetization"` ใน Features (§4.1) หรือ touch `GaxiaServer.Monetization` ตอน boot — ไม่งั้น receipt แรกมาถึงก่อนผูก = ผู้เล่นไม่ได้ของ
+- เกมที่มี ProcessReceipt router ของตัวเอง (ส่งต่อให้ `Mon.HandleReceipt`): ต้องให้ Monetization เริ่มก่อน (Features / touch `GaxiaServer.Monetization`) **แล้วค่อย** assign router — ถ้า assign ก่อน Init ของ Monetization จะเขียนทับ router
+- Types: `Monetization.ReceiptInfo`, `Monetization.GrantFn` (callback ของ `RegisterProduct`)
 
 ---
 
@@ -2512,10 +2708,18 @@ local mult = Pet.GetCoinMultiplier(player)     -- 1 + Σ coinBonus ของ pet
 -- queries / snapshot
 local owned    = Pet.GetOwned(player)          -- { {petId, uid}, … }
 local equipped = Pet.GetEquipped(player)       -- { uid, … }
-local snap     = Pet.Snapshot(player)          -- {owned, equipped, multiplier, slots, eggCost, defs, order}
+local snap     = Pet.Snapshot(player)          -- {owned, equipped, multiplier, slots, eggCost, defs, order, eggs}
+
+-- เพิ่ม pet / ไข่ของเกมเอง (ใน server Script — ห้ามแก้ PetService)
+Pet.RegisterPet({ id = "pet_Unicorn", displayName = "Unicorn", rarity = "legendary", coinBonus = 0.5 })
+Pet.RegisterEgg({ id = "GoldenEgg", cost = 250, currency = "Coins", panel = false,
+    pets = { { petId = "pet_Fox", weight = 60 }, { petId = "pet_Unicorn", weight = 10, pity = 20 } } })
+Pet.BuyEgg(player, "GoldenEgg")                -- ส่ง PetHatch + PetSync ให้ client เอง
+Pet.RemovePet(player, uidOrPetId)              -- (true, uid) | (false, "not owned")
 
 Pet.OnPetGranted:Connect(function(p, petId, uid) end)
 Pet.OnEquipChanged:Connect(function(p, equipped) end)
+Pet.OnPetRemoved:Connect(function(p, petId, uid) end)
 ```
 
 **Roster** (8 ตัว, `coinBonus` บวกกัน):
@@ -2528,7 +2732,8 @@ Pet.OnEquipChanged:Connect(function(p, equipped) end)
 | Dragon | legendary | +1.00 | 0.5 | **50** |
 
 **กลไก:**
-- **Server-authoritative ทั้งหมด** — client ไม่เคยส่ง bonus/cost; `PET_DEFS` คือ source of truth ฝั่ง server. ทุก remote ผ่าน `Net` rate-limit + `Guard.strictInterface`
+- **Server-authoritative ทั้งหมด** — client ไม่เคยส่ง bonus/cost; `PET_DEFS` (+ `RegisterPet`/`RegisterEgg`) คือ source of truth ฝั่ง server. ทุก remote ผ่าน `Net` rate-limit + `Guard.strictInterface`
+- ทุกฟังก์ชันฝั่ง server (`GrantPet`, `BuyEgg`, `Equip`, `Unequip`, `RemovePet`, `Register*`) push `PetSync` ให้ client เอง (รวมเป็นครั้งเดียวต่อ frame); `BuyEgg` ส่ง `PetHatch` (มี `snapshot`) ด้วย — ไม่ต้อง `Net.FireClient` เอง
 - ฟักผ่าน `Loot.Roll` (pity ของ Dragon = 50) → auto-log เข้า `Codex` (set `"Pets"`) ฟรี
 - owned (map `uid → {petId}`) + equipped (list uid) + `__seq` เซฟเป็น blob เดียวใต้ profile key `"Pets"` (นอก `DEFAULT_PROFILE` แบบเดียวกับ Inventory)
 - `GetCoinMultiplier` คืน `1.0` ถ้า profile ยังไม่โหลด (กัน error ช่วง join); uid ที่ equip ไว้แต่ไม่ owned แล้วถูกข้าม — equipped list ที่ corrupt เพิ่ม multiplier ไม่ได้
@@ -2545,6 +2750,26 @@ Pet.OnEquipChanged:Connect(function(p, equipped) end)
 ---
 
 ## 9. AntiCheat System
+
+### 9.0 โหมดสังเกตการณ์ (Enforce) — อ่านก่อนเปิดใช้จริง
+
+ตั้งแต่ 2026-07-17 ถึงรุ่นนี้ detector **ไม่ได้โหลดเลย** (บั๊กตอนเปลี่ยนโครงสร้างไฟล์) — รุ่นนี้แก้แล้ว detector
+ทั้ง 15 ตัวทำงาน แต่เริ่มใน **observe mode**: `Config.AntiCheat.Enforce = false`
+
+- flag ยังถูกนับ / `OnFlag` ยิง / Journal บันทึก / warn ใน output
+- action ที่ "จะ kick" ถูกส่งเป็น `OnAction(player, reason, "observe")` แทน `"hard"` → **ไม่มีใครโดน kick หรือแบน**
+  (BanService กับ bootstrap ทำงานเฉพาะ `"hard"`), Webhook รายงานว่า "observe mode — not enforced"
+- BackpackGuard ไม่ลบ tool ใน observe mode
+
+**ก่อนเปิด `Enforce = true`:** ลองเล่นด้วยบัญชีที่ **ไม่ใช่ผู้สร้างเกม** (ผู้สร้างได้รับยกเว้นเสมอ เทสด้วยบัญชีตัวเองจะไม่เห็นอะไร)
+แล้วดูว่ามี warn `[AntiCheat] observe mode — would take HARD action ...` จากการเล่นปกติไหม — ถ้ามี แก้ต้นเหตุก่อน
+(เปิดแบบ runtime ได้ด้วย `/flag set AntiCheat.Enforce true` ถ้าเปิด `AntiCheatAdmin`)
+
+**สิ่งที่ต้องทำให้ถูกกับ AntiCheat:**
+- เขียน leaderstats ผ่าน `GaxiaServer.Player.SetLeaderstat` / `SetupLeaderstats` หรือเรียก `AC.Stat.Expect` ก่อนเขียนเอง (§9.4)
+- ให้ tool ผ่าน `ToolService` — tool จาก `StarterPack` / `StarterGear` ได้รับยกเว้นอัตโนมัติ
+- ย้ายตำแหน่งผู้เล่นผ่าน `GaxiaServer.Player.Teleport` หรือ `AC.Whitelist(player, "Teleport", seconds)` ก่อน
+- damage ที่ถูกต้อง: `AC.Combat.RegisterDamage(victim, amount)`
 
 ### 9.1 Orchestrator API
 
@@ -2574,7 +2799,8 @@ end)
 -- ฟัง action triggers (threshold ถึง)
 AC.OnAction:Connect(function(player, reason, kind)
     -- kind = "soft" (count = SOFT_THRESHOLD = 3) | "hard" (count = HARD_THRESHOLD = 5)
-    -- ServerBootstrap จะ kick ตรงนี้ — นาย override ได้
+    --      | "observe" (จะเป็น "hard" แต่ Config.AntiCheat.Enforce = false — ดู §9.0)
+    -- ServerBootstrap จะ kick ตรงนี้เฉพาะ "hard" — นาย override ได้
 end)
 
 -- ── เข้าถึง detector-specific APIs ผ่าน orchestrator ──
@@ -2585,7 +2811,7 @@ AC.Stat.Expect(player, "Coins", newValue)    -- บอก StatGuard ก่อน
 AC.GetDetector("Combat")                     -- defensive lookup (returns module or nil)
 ```
 
-### 9.2 Detectors 9 ตัว
+### 9.2 Detectors (15 ตัว — ตารางด้านล่างคือตัวหลัก)
 
 | Detector | ทำอะไร | Severity | ปรับ threshold ได้ |
 |---|---|---|---|
@@ -2661,15 +2887,12 @@ end
 ```
 
 ทำอะไร:
-1. Require GaxiaServer
-2. Force-load ทุก Lib service ตามลำดับ: Data → Player → Item → Economy → Tool → Zone → **Chat** → **Admin**
-   - **Chat ต้องโหลดก่อน Admin** — AdminCommands.Register() ลงทะเบียน chat bridge ทันทีที่ load, ถ้า Chat ยังไม่ถูก require ตอนนั้น bridge จะหายไป
-   - Admin load แล้ว auto-grant owner role ให้ game creator
-3. Require AntiCheat orchestrator → detectors load อัตโนมัติ
-4. ผูก `AC.OnAction` กับ default action:
-   - `soft` → warn player ใน output
-   - `hard` → kick player (with reason)
-5. Dedupe kick — ไม่ kick ซ้ำ reason เดียวกัน
+1. `require` GaxiaServer แล้วเรียก `GaxiaServer.Boot()` → เริ่ม services ในรายการ boot (§4.1) ตาม dependency —
+   ไม่มีรายชื่อหรือลำดับที่ต้องดูแลเองใน bootstrap อีกต่อไป
+2. ถ้า `AntiCheat` ทำงาน → ผูก `AC.OnAction` กับ default action:
+   - `soft` → warn ใน output
+   - `hard` → kick (ยกเว้นผู้สร้างเกม / role ที่ได้รับยกเว้น) · dedupe ไม่ kick ซ้ำ reason เดียวกัน
+   - `observe` → ไม่ทำอะไร (orchestrator warn แล้ว — §9.0)
 
 ### 10.2 Gaxia_ClientBootstrap
 
@@ -2680,8 +2903,9 @@ end
 
 ทำอะไร:
 1. Require Gaxia
-2. Force-load ClientAntiCheat → sampler เริ่มทำงาน
-3. Pre-warm namespaces: `Gaxia.UI`, `Gaxia.Input`, `Gaxia.Camera`, `Gaxia.Sound`
+2. อ่านรายการจาก `ReplicatedStorage.Gaxia_Packages.Features` (หรือ `ReplicatedStorage.GaxiaClientFeatures` ของเกม)
+3. โหลด module เหล่านั้นตอน spawn — ข้ามตัวที่ไม่ได้ติดตั้ง (§4.3) และตัวที่ต้องพึ่ง service ฝั่ง server ที่ไม่ได้ทำงาน
+   (ค่าเริ่มต้น: ClientAntiCheat, Input, Camera, Sound, AdminPanel, ChatFeedback, PetController)
 
 ### 10.3 Custom Bootstrap
 
@@ -2689,7 +2913,7 @@ end
 
 ```lua
 local ServerStorage = game:GetService("ServerStorage")
-local GaxiaServer = require(ServerStorage.Gaxia_Packages_Server.init)
+local GaxiaServer = require(ServerStorage.Gaxia_Packages_Server)
 
 -- Custom kick logic (e.g. log to Discord, then kick)
 GaxiaServer.AntiCheat.OnAction:Connect(function(player, reason, kind)
@@ -2715,7 +2939,7 @@ end)
 -- ServerScriptService/ClickerLogic (Script)
 local ServerStorage = game:GetService("ServerStorage")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local GaxiaServer = require(ServerStorage.Gaxia_Packages_Server.init)
+local GaxiaServer = require(ServerStorage.Gaxia_Packages_Server)
 
 -- สร้าง RemoteEvent
 local clickRE = Instance.new("RemoteEvent")
@@ -2743,7 +2967,7 @@ end)
 ```lua
 -- StarterPlayer/StarterPlayerScripts/ClickerUI (LocalScript)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Gaxia = require(ReplicatedStorage.Gaxia_Packages.init)
+local Gaxia = require(ReplicatedStorage.Gaxia_Packages)
 local clickRE = ReplicatedStorage.Events.Click
 
 -- ทำปุ่ม Click
@@ -2763,7 +2987,7 @@ end)
 -- Server: ShopService.lua
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
-local GaxiaServer = require(ServerStorage.Gaxia_Packages_Server.init)
+local GaxiaServer = require(ServerStorage.Gaxia_Packages_Server)
 
 local SHOP_ITEMS = {
     Sword     = {price = 100, currency = "Coins"},
@@ -2887,18 +3111,17 @@ local Gaxia = require(...)
 local Players = game:GetService("Players")
 
 Players.PlayerAdded:Connect(function(player)
-    local maid
+    local trove = Gaxia.Trove.new()
 
     player.CharacterAdded:Connect(function(character)
-        -- เคลียร์ของรอบที่แล้ว
-        if maid then maid:Destroy() end
-        maid = Gaxia.Maid.new()
+        -- เคลียร์ของรอบที่แล้ว (trove ใช้ต่อได้หลัง Clean)
+        trove:Clean()
 
         -- ผูก task กับ character ใหม่
-        maid:GiveTask(character.Humanoid.Died:Connect(function()
+        trove:Connect(character.Humanoid.Died, function()
             print(`{player.Name} died`)
-        end))
-        maid:GiveTask(character)  -- character ถูก Destroy ตอนตาย
+        end)
+        trove:Add(character)  -- character ถูก Destroy ตอนตาย
     end)
 end)
 ```
@@ -2907,11 +3130,11 @@ end)
 
 ## 12. Troubleshooting
 
-### "Attempted to call require with invalid argument(s)"
-**ผิด:** `require(game.ReplicatedStorage.Gaxia_Packages)`
-**ถูก:** `require(game.ReplicatedStorage.Gaxia_Packages.init)`
+### "init is not a valid member of ModuleScript" / "Attempted to call require with invalid argument(s)"
+**ถูก:** `require(game.ReplicatedStorage.Gaxia_Packages)` · `require(game.ServerStorage.Gaxia_Packages_Server)`
+**ผิด:** `require(game.ReplicatedStorage.Gaxia_Packages.init)`
 
-Roblox runtime ไม่ auto-resolve `Folder/init` (Rojo convention only)
+ใต้ Rojo `init.lua` กลายเป็นตัว ModuleScript ของ package เอง — ไม่มี child ชื่อ `init` (คู่มือเวอร์ชันเก่าเขียนกลับด้าน)
 
 ### "Infinite yield possible on ..."
 ที่ใช้ `WaitForChild` ในที่ที่ instance ยังไม่ replicate
@@ -2934,25 +3157,18 @@ if not part then warn("timeout") end
 ### Admin โดน kick หลังสั่ง /speed หรือ /teleport
 Anti-cheat ตรวจจับว่าค่า stat เปลี่ยนผิดปกติ
 - Framework ทำ whitelist อัตโนมัติ 30s ทุกครั้งที่ admin run command — ถ้ายัง kick อยู่:
-  1. ตรวจว่า `Chat` โหลดก่อน `Admin` ใน `LIB_SERVICES` ของ Bootstrap
+  1. ตรวจว่า `Admin` และ `Chat` อยู่ใน Features (§4.1) — ลำดับจัดการให้อัตโนมัติแล้ว (Admin ต้องการ Chat)
   2. ตรวจว่า `GaxiaServer.Chat` ไม่ nil (console: `print(GaxiaServer.Chat)`)
   3. ถ้า whitelist แค่ 30s ไม่พอสำหรับ test: ตั้ง `Config.Admin.ActionWhitelistSeconds` หรือ runtime `/flag set Admin.ActionWhitelistSeconds 120` (ค่าต้องเป็นตัวเลข — ค่าที่ไม่ใช่ตัวเลขจะถูก fallback เป็น default อัตโนมัติ)
 
 ### /speed ใน chat ไม่ทำงาน (คำสั่งไม่ถูกรับ)
-ตรวจสอบ load order ของ Bootstrap — `"Chat"` ต้องอยู่ก่อน `"Admin"` ใน LIB_SERVICES
-```lua
-local LIB_SERVICES = {
-    "Data", "Player", "Item", "Economy", "Tool", "Zone",
-    "Chat",   -- ← ก่อน Admin เสมอ
-    "Admin",
-    ...
-}
-```
-ถ้า order สลับกัน — AdminCommands load ก่อน ChatCommandSystem → chat bridge ไม่ register
+ตรวจว่า `"Admin"` อยู่ใน Features (§4.1) — AdminCommands ลงทะเบียนคำสั่งเข้า ChatCommandSystem ตอนเริ่มทำงาน
+และติดตั้งตัวเช็ค role ให้ Chat / Ban ถ้า Admin ไม่ได้ทำงาน server จะ warn ตอน boot ว่า role checks ใช้ค่าเริ่มต้น
 
 ### Autocomplete ไม่ขึ้น
-- ลึก 2 ระดับขึ้นไป (`Gaxia.Util.Table.DeepCopy`) — ดู Section 12.1 แก้ guard
-- ลึก 1 ระดับ (`Gaxia.Signal.new`) ขึ้นปกติ — Studio Script Editor รองรับ
+- ตรวจว่า require **ไม่มี `:: any`** ต่อท้าย และ require ตัว package ตรงๆ (ไม่ใช่ `.init`) — §4
+- `require(x:WaitForChild("Name"))` ใช้ได้ใน Studio / luau-lsp แต่ path ตรง (`x.Name`) ชัวร์กว่า
+- Signal ของ service มี payload type แล้ว — ถ้า callback ยังเป็น `any` ให้ดูว่า require ผ่าน `:: any` อยู่ไหม
 
 ### ProfileService error: "Missing or invalid Name parameter"
 DataManager ของ Gaxia แก้ตอน v1 แล้ว — ใช้ `.GetProfileStore` (period) ไม่ใช่ `:GetProfileStore` (colon) เพราะ user's ProfileService implementation
@@ -2969,7 +3185,8 @@ DataManager ของ Gaxia แก้ตอน v1 แล้ว — ใช้ `.G
 A: ได้ ต้องสร้าง `default.project.json` map paths ให้ตรง. Source code อยู่ใน `G:\My Drive\roblox-multi-ai\src\`
 
 **Q: Anti-Cheat กิน performance ไหม?**
-A: ใช้ shared sampler 0.5s loop ตัวเดียว iterate players → snapshot → dispatch. Event-driven detectors zero idle cost. ตามที่ทดสอบ — < 1% CPU
+A: ใช้ sampler ตัวเดียว: ผู้เล่นแต่ละคนถูกตรวจทุก `Config.AntiCheat.SamplerInterval` (0.5s) → snapshot → ส่งให้ detector ที่มี `Sample`. แต่ละรอบ **กระจายผู้เล่นไปหลายเฟรม** (ภายใน 80% ของ interval) ไม่ได้ตรวจทุกคนในเฟรมเดียว จึงไม่เกิด spike ตอนคนเยอะ; detector แบบ event ไม่กินอะไรตอนว่าง.
+วัดเองในเซิร์ฟเวอร์จริง: เปิด MicroProfiler (Studio: Ctrl+F6 · เกมจริง: F9 Developer Console → MicroProfiler) แล้วดู label `AntiCheat.Sampler` (งานของแต่ละเฟรม) และ `AntiCheat.<ชื่อ detector>` เช่น `AntiCheat.NoClip` (เวลาของ `Sample` แต่ละตัว)
 
 **Q: ใช้กับ DataStore ตัวอื่น (ไม่ใช่ ProfileService) ได้ไหม?**
 A: ได้ — เขียน wrapper module ของ Data ใหม่. Lib/DataManager.lua ใช้ ProfileService ของ existing user — แก้เป็น MockDataManager หรือ Suphi's DataStoreModule ได้
@@ -2988,13 +3205,10 @@ Orchestrator จะ auto-discover เมื่อโหลด
 **Q: ต้องใช้ทุก service / detector ไหม?**
 A: ไม่ — ลบโมดูลที่ไม่ใช้ออกจาก Studio ได้ Master Loader ใช้ FindFirstChild → ไม่ error ถ้าหาย
 
-**Q: ทำไมต้องมี Maid + Janitor + Trove (3 ตัว)?**
-A: รสนิยม:
-- **Maid** — ง่ายสุด, LIFO order
-- **Janitor** — มี named index
-- **Trove** — modern, สวยสุด, `:Construct()` + `:Extend()` ทำ child cleanup
-
-ใช้ตัวที่ชอบ — ทั้ง 3 มี `:Destroy()` เหมือนกัน
+**Q: ทำไมมี Maid + Janitor + Trove (3 ตัว)? ควรใช้ตัวไหน?**
+A: ใช้ **Trove** — เป็นตัวมาตรฐานที่ framework ใช้เอง (และ `Component` ก็ใช้ Trove ข้างใน)
+- **Maid** — deprecated แล้ว เหลือไว้ให้โค้ดเก่าไม่พัง ดูตารางเทียบ API ใน §5.2
+- **Janitor** — deprecated แล้วเช่นกัน (ขึ้น warn เมื่อเรียกใช้) — ย้ายไป Trove
 
 **Q: ทำไม Gaxia.UI ใช้ใน server ไม่ได้?**
 A: UI controllers access `Players.LocalPlayer` ที่ server เป็น nil → crash UI proxies จึงสร้างเฉพาะ client side. Server ใช้ `GaxiaServer.Shared.Util` ก็พอสำหรับ utility

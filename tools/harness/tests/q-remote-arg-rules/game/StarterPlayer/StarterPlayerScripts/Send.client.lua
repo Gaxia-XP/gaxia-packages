@@ -1,0 +1,8 @@
+local RS = game:GetService("ReplicatedStorage")
+RS:WaitForChild("Args"):FireServer(nil, "x")
+RS.Args:FireServer(Instance.new("Folder"), "y", 3)
+print("invoke ->", RS:WaitForChild("Fn"):InvokeServer(Instance.new("Folder"), "z"))
+RS:WaitForChild("Tbl").OnClientEvent:Connect(function(mixed, ik, bk)
+	print("mixed", mixed.a, mixed[1], mixed[2])
+	print("keys", typeof(next(ik)), next(ik), typeof(next(bk)))
+end)

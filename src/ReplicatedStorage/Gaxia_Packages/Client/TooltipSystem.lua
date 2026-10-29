@@ -13,19 +13,25 @@ export type TooltipSystem = {
 }
 
 local RunService = game:GetService("RunService")
+
+-- ── Dependencies ──
+local Trove = require(script.Parent.Parent.Shared.Trove)
+
+-- The value Trove.new() returns. (Annotating with the exported Trove.Trove is
+-- rejected by the type checker: its generic methods do not unify with the
+-- instantiated result of Trove.new().)
+type TroveObject = typeof(Trove.new())
+
 if not RunService:IsClient() then return ({} :: any) :: TooltipSystem end
 
 local CollectionService = game:GetService("CollectionService")
 
 -- ── Services ──
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players           = game:GetService("Players")
 local UserInputService  = game:GetService("UserInputService")
 local StarterGui        = game:GetService("StarterGui")
 
 local LocalPlayer : Player = Players.LocalPlayer
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Maid = SharedPkg.Maid
 
 -- ── Constants ──
 local DEFAULT_DELAY : number = 0.5
@@ -39,7 +45,7 @@ local Module = {}
 type Entry = {
 	target : GuiObject,
 	getText : () -> string,
-	maid : any,
+	trove : TroveObject,
 }
 
 local _entries : { [GuiObject]: Entry } = {}
@@ -249,11 +255,11 @@ function Module.Attach(target: GuiObject, text: string | () -> string): ()
 		getText = function(): string return s end
 	end
 
-	local maid = Maid.new()
+	local trove = Trove.new()
 	local entry : Entry = {
 		target = target,
 		getText = getText,
-		maid = maid,
+		trove = trove,
 	}
 	_entries[target] = entry
 
@@ -268,7 +274,7 @@ function Module.Attach(target: GuiObject, text: string | () -> string): ()
 			end
 		end)
 	end)
-	maid:GiveTask(enterConn)
+	trove:Add(enterConn)
 
 	local leaveConn = target.MouseLeave:Connect(function()
 		if _activeTarget == target then
@@ -277,14 +283,14 @@ function Module.Attach(target: GuiObject, text: string | () -> string): ()
 			_hoverToken += 1
 		end
 	end)
-	maid:GiveTask(leaveConn)
+	trove:Add(leaveConn)
 
 	local destroyConn = target.AncestryChanged:Connect(function(_, parent)
 		if parent == nil then
 			Module.Detach(target)
 		end
 	end)
-	maid:GiveTask(destroyConn)
+	trove:Add(destroyConn)
 end
 
 function Module.Detach(target: GuiObject): ()
@@ -293,7 +299,7 @@ function Module.Detach(target: GuiObject): ()
 	if _activeTarget == target then
 		hideTooltip()
 	end
-	entry.maid:Destroy()
+	entry.trove:Destroy()
 	_entries[target] = nil
 end
 

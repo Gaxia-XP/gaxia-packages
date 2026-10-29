@@ -13,21 +13,12 @@
 --     OnTrigger = function(player) refine(player) end,
 --   })
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
+local Players = game:GetService("Players")
 
-local ServerStorage = game:GetService("ServerStorage")
-
--- ── Lazy server (Config + EConfig) ──
-local _server: any = nil
-local function server(): any
-	if not _server then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		_server = require(serverInit :: any)
-	end
-	return _server
-end
+-- ── Dependencies ──
+local Lifecycle = require(script.Parent.ServiceLifecycle)
+local Config    = require(script.Parent.Parent.Config)
+local EConfig   = require(script.Parent.EffectiveConfig)
 
 export type InteractionConfig = {
 	ActionText: string?,
@@ -58,6 +49,10 @@ local function resolveMount(target: Instance): Instance?
 	return nil
 end
 
+-- Mounts a ProximityPrompt on target (a BasePart, an Attachment, or a Model's
+-- PrimaryPart / first part) and calls config.OnTrigger(player) when a player uses it,
+-- at most once per config.Cooldown seconds per player. Returns a handle (Destroy()
+-- removes the prompt), or nil with a warning when target has nothing to mount on.
 function InteractionService.Register(target: Instance, config: InteractionConfig): Handle?
 	local mount = resolveMount(target)
 	if not mount then
@@ -69,9 +64,8 @@ function InteractionService.Register(target: Instance, config: InteractionConfig
 	prompt.ActionText = config.ActionText or "Interact"
 	prompt.ObjectText = config.ObjectText or ""
 	prompt.HoldDuration = config.HoldDuration or 0
-	local s = server()
 	prompt.MaxActivationDistance = config.MaxDistance
-		or s.EConfig.Get("Interaction.DefaultMaxDistance", (s.Config.Interaction or {}).DefaultMaxDistance or 10)
+		or EConfig.Get("Interaction.DefaultMaxDistance", Config.Interaction.DefaultMaxDistance or 10)
 	prompt.RequiresLineOfSight = if config.RequiresLineOfSight == nil then false else config.RequiresLineOfSight
 	if config.KeyboardKeyCode then
 		prompt.KeyboardKeyCode = config.KeyboardKeyCode
@@ -90,19 +84,44 @@ function InteractionService.Register(target: Instance, config: InteractionConfig
 			end
 			lastUse[player] = now
 		end
-		local ok, err = pcall(config.OnTrigger, player)
+		-- Cast: OnTrigger returns nothing, so pcall's type would have no error value.
+		local ok, err = pcall(config.OnTrigger :: (Player) -> ...any, player)
 		if not ok then
 			warn(`[InteractionService] OnTrigger errored: {err}`)
 		end
 	end)
 
+	-- Forget a leaving player's last use, so the cooldown table does not keep every
+	-- player who ever used this prompt.
+	local leaveConn = if cooldown
+		then Players.PlayerRemoving:Connect(function(player: Player)
+			lastUse[player] = nil
+		end)
+		else nil
+	if leaveConn then
+		-- The prompt can also go away with its part (no Destroy call).
+		prompt.Destroying:Once(function()
+			leaveConn:Disconnect()
+		end)
+	end
+
 	local handle = {}
 	handle.Prompt = prompt
 	function handle.Destroy(): ()
 		conn:Disconnect()
+		if leaveConn then
+			leaveConn:Disconnect()
+		end
+		table.clear(lastUse)
 		prompt:Destroy()
 	end
 	return handle :: Handle
 end
+
+-- Pure API: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(InteractionService, {
+	Name = "Interaction",
+	Needs = {},
+})
 
 return InteractionService

@@ -13,7 +13,7 @@
 --   local def = Gaxia.ItemDef.Get("Sprout")
 --   local price = Gaxia.ItemDef.GetField("Sprout", "sellPrice", 0)
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
+local Lifecycle = require(script.Parent.ServiceLifecycle)
 
 export type ItemDef = {
 	id: string,
@@ -115,5 +115,11 @@ function ItemDefinitionService.Count(): number
 	end
 	return n
 end
+
+-- Pure registry: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(ItemDefinitionService, {
+	Name = "ItemDef",
+	Needs = {},
+})
 
 return ItemDefinitionService

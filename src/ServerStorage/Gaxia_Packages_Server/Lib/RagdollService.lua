@@ -14,20 +14,20 @@
 --   Gaxia.Ragdoll.Enable(character) ; task.wait(2) ; Gaxia.Ragdoll.Disable(character)
 --   Gaxia.Ragdoll.AutoRagdollOnDeath(character)
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
+local Signal    = require(ReplicatedStorage.Gaxia_Packages.Shared.Signal)
+local Lifecycle = require(script.Parent.ServiceLifecycle)
 
 local RAGDOLL_FLAG : string = "__GaxiaRagdolled"
 local PART_FLAG : string = "__GaxiaRagdollPart"
 
 local RagdollService = {}
 
-RagdollService.OnRagdoll = Signal.new() -- (character)
-RagdollService.OnRecover = Signal.new() -- (character)
+-- (character) after Enable went limp
+RagdollService.OnRagdoll = Signal.new() :: Signal.Signal<Instance>
+-- (character) after Disable rebuilt the rig
+RagdollService.OnRecover = Signal.new() :: Signal.Signal<Instance>
 
 local function getHumanoid(character: Instance): Humanoid?
 	return character:FindFirstChildOfClass("Humanoid")
@@ -134,5 +134,11 @@ function RagdollService.AutoRagdollOnDeath(character: Instance): RBXScriptConnec
 		RagdollService.Enable(character)
 	end)
 end
+
+-- Pure API: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(RagdollService, {
+	Name = "Ragdoll",
+	Needs = {},
+})
 
 return RagdollService

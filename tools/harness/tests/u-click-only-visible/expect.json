@@ -1,0 +1,8 @@
+{
+  "description": "(u) clickAll clicks only buttons a player can see, opens a confirm dialog before clicking into it, and passes Activated an InputObject",
+  "framework": false,
+  "exit": 0,
+  "errorCount": 0,
+  "prints": [{ "contains": "open by MouseButton1 1" }, { "contains": "buy 10" }],
+  "summary": ["clicked {Shop.Open, Shop.Confirm.Yes}", "skipped {Shop.Never (Visible = false)}"]
+}

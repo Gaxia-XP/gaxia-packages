@@ -6,19 +6,19 @@ the file-push vs Studio-edit conflict).
 
 ## What the project maps (and what it leaves alone)
 `default.project.json` maps **only the Gaxia framework** instances:
-- `ReplicatedStorage.Gaxia_Packages` (Folder + `init` + `Shared` + `Client`)
-- `ServerStorage.Gaxia_Packages_Server` (Folder + `init` + `Config` + `Lib` + `AntiCheat`)
+- `ReplicatedStorage.Gaxia_Packages` (ModuleScript from `init.lua`; children `Shared`, `Client`, `Features`)
+- `ServerStorage.Gaxia_Packages_Server` (ModuleScript from `init.lua`; children `Types`, `Config`, `Lib`, `AntiCheat`)
 - `ServerScriptService.Gaxia_ServerBootstrap`
 - `StarterPlayer.StarterPlayerScripts.Gaxia_ClientBootstrap`
 
 Every mapped service has `$ignoreUnknownInstances: true`, so **the Sprout game
 content (HarvestService, the map, etc.) is NOT touched or deleted** by Rojo.
 
-The package folders are mapped with **explicit children** (not a bare `$path`) on
-purpose: a `$path` to a folder containing `init.lua` would trip Rojo's init.lua
-convention and turn `Gaxia_Packages` / `AntiCheat` into a *ModuleScript*, breaking
-every `:WaitForChild("init")` + the detector auto-discovery. Explicit mapping keeps
-the exact Folder+`init` structure the code expects — **no code refactor needed.**
+`default.project.json` maps each package directory with a plain `$path`, so Rojo's
+`init.lua` convention applies: `src/ReplicatedStorage/Gaxia_Packages/init.lua` becomes
+the `Gaxia_Packages` **ModuleScript itself**, with `Shared/` and `Client/` as its children
+(same for `Gaxia_Packages_Server` and `AntiCheat`). Require the package directly —
+`require(ReplicatedStorage.Gaxia_Packages)` — there is no child called `init`.
 
 ## One-time setup
 ```sh
@@ -28,8 +28,8 @@ rokit install            # or: aftman install  (if you use aftman)
 # 2. VERIFY the tree WITHOUT touching your real place — build a throwaway file:
 rojo build default.project.json --output GaxiaTest.rbxl
 #    open GaxiaTest.rbxl in Studio and confirm:
-#      ReplicatedStorage.Gaxia_Packages  is a FOLDER with children: init, Shared, Client
-#      ServerStorage.Gaxia_Packages_Server.AntiCheat  is a FOLDER with init + 15 detectors
+#      ReplicatedStorage.Gaxia_Packages  is a ModuleScript with children: Shared, Client, Features
+#      ServerStorage.Gaxia_Packages_Server.AntiCheat  is a ModuleScript with 15 detector children
 #    (if the structure is right, the live sync below is safe)
 ```
 
@@ -41,7 +41,27 @@ Then in your real place: **Plugins → Rojo → Connect**. Files now sync into S
 live; edit in your editor (VS Code / Cursor with the Rojo + luau-lsp extensions).
 
 - `stylua src/` — format    ·    `selene src/` — lint
+- `node tools/check-architecture.mjs` — service architecture rules (needs `luau-ast` from the
+  Luau releases on PATH, or `LUAU_AST=/path/to/luau-ast`)
+- `node tools/run-game.mjs --game <dir>` — run the framework and your game scripts headless (no Studio)
+  and list every error; see [tools/harness/README.md](tools/harness/README.md)
 - `rojo build default.project.json -o GaxiaPackages.rbxm` — build a distributable model
+
+## Installing only some packages
+`default.project.json` maps every package (the framework's own development tree). For a
+game that uses only some of them, build a picked tree instead:
+```sh
+node tools/packages.mjs list                                     # packages by category
+node tools/packages.mjs build --select Data,Economy,Pet --out ../MyGame/gaxia
+rojo serve ../MyGame/gaxia/default.project.json                  # or: rojo build … -o Gaxia.rbxm
+```
+It copies the picked packages, what they Require and Core, trims the loaders' types to
+match, and records the pick (`$attributes.GaxiaPackages`) so the server boots the picked
+packages that need it. Re-run with `--from ../MyGame/gaxia/gaxia-packages.json` after
+updating Gaxia. See MANUAL §4.3.
+
+After adding or removing a `require` in the framework, run `node tools/packages.mjs fix`
+(`check` and `check-architecture` fail while `Packages.lua` is stale).
 
 ## Note on the MCP plugin
 Rojo replaces only **file→Studio sync**. The Claude MCP plugin is still used for

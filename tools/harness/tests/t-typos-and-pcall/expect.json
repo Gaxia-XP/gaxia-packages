@@ -1,0 +1,15 @@
+{
+  "description": "(t) typos error like Roblox (Enum item, class, service), pcall always returns a string, ContentId properties default to \"\", IntValue holds integers, a nil argument to a stub is the game's error",
+  "framework": false,
+  "exit": 0,
+  "errorCount": 0,
+  "prints": [
+    { "contains": "enum false string ServerScriptService.Typos:5: Neonx is not a valid member of \"Enum.Material\"" },
+    { "contains": "class false string ServerScriptService.Typos:6: Unable to create an Instance of type \"Partt\"" },
+    { "contains": "service false string ServerScriptService.Typos:7: 'NopeService' is not a valid Service name" },
+    { "contains": "soundid true string" },
+    { "contains": "int 13" },
+    { "contains": "damage false string ServerScriptService.Typos:17: Argument 1 missing or nil" }
+  ],
+  "warnings": [{ "contains": "bad color: " }]
+}

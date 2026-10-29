@@ -12,11 +12,24 @@
 --   local checkBuy = Gaxia.Guard.strictInterface({ id = Gaxia.Guard.string, qty = Gaxia.Guard.integer })
 --   local ok, err = checkBuy(payload); if not ok then return end
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 export type Check = (value: any) -> (boolean, string?)
 
 local Guard = {}
+
+-- A finite number: not NaN (NaN ~= NaN) and not ±inf. Every numeric check uses
+-- it, so a client cannot slip NaN / math.huge past a validator.
+local function finiteNumber(value: any, label: string): (boolean, string?)
+	if typeof(value) ~= "number" then
+		return false, `expected {label}, got {typeof(value)}`
+	end
+	if value ~= value then
+		return false, `expected {label}, got NaN`
+	end
+	if value == math.huge or value == -math.huge then
+		return false, `expected {label}, got {value > 0 and "inf" or "-inf"}`
+	end
+	return true, nil
+end
 
 -- ── Primitives ──
 local function prim(typeName: string): Check
@@ -28,7 +41,10 @@ local function prim(typeName: string): Check
 	end
 end
 
-Guard.number   = prim("number")
+-- A finite number (rejects NaN and ±inf).
+function Guard.number(value: any): (boolean, string?)
+	return finiteNumber(value, "number")
+end
 Guard.string   = prim("string")
 Guard.boolean  = prim("boolean")
 Guard.table    = prim("table")
@@ -42,9 +58,11 @@ function Guard.any(_: any): (boolean, string?)
 	return true
 end
 
+-- A whole number (rejects floats, NaN and ±inf).
 function Guard.integer(value: any): (boolean, string?)
-	if typeof(value) ~= "number" then
-		return false, `expected integer, got {typeof(value)}`
+	local finite, err = finiteNumber(value, "integer")
+	if not finite then
+		return false, err
 	end
 	if value % 1 ~= 0 then
 		return false, "expected integer, got a float"
@@ -87,11 +105,12 @@ function Guard.union(...: Check): Check
 	end
 end
 
--- Number within [min, max].
+-- Finite number within [min, max] (rejects NaN and ±inf, even with a math.huge bound).
 function Guard.numberRange(min: number, max: number): Check
 	return function(value: any): (boolean, string?)
-		if typeof(value) ~= "number" then
-			return false, `expected number, got {typeof(value)}`
+		local finite, err = finiteNumber(value, "number")
+		if not finite then
+			return false, err
 		end
 		if value < min or value > max then
 			return false, `number {value} out of range [{min}, {max}]`

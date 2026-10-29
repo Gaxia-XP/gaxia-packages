@@ -8,47 +8,29 @@
 
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
--- WHY this explicit type:
--- The early-return guard below needs to match the module's real return shape
--- so Luau collapses the (server-return | client-return) union into a single
--- typed value. Without this, `Gaxia.UI.HealthBarController.Attach` does not
--- autocomplete because the union resolves to `any`.
+-- Returned by Attach: push a value / remove the bar.
 export type HealthBarHandle = {
 	Update: (current: number, max: number) -> (),
 	Destroy: () -> (),
 }
-export type HealthBarController = {
-	Attach: (humanoid: Humanoid, parent: GuiBase2d?) -> HealthBarHandle,
-}
 
--- Client-only module.
+local HealthBarController = {}
+-- The module's own type (Attach below), so the server stub and the client module
+-- share one type and `Gaxia.UI.HealthBarController.Attach` autocompletes.
+export type HealthBarController = typeof(HealthBarController)
+
+-- Client-only module. The server gets an EMPTY table (Attach errors there); only
+-- its type is the client module's.
 if not RunService:IsClient() then
-	return ({} :: any) :: HealthBarController
+	return ({} :: any) :: typeof(HealthBarController)
 end
 
-local UIController = require(script.Parent:WaitForChild("UIController"))
+local UIController = require(script.Parent.UIController)
 
 -- ── Constants ──
-local function getConstants(): { [string]: any }
-	local pkg = ReplicatedStorage:FindFirstChild("Gaxia_Packages")
-	if not pkg then return {} end
-	local shared = pkg:FindFirstChild("Shared")
-	if not shared then return {} end
-	local constMod = shared:FindFirstChild("Constants")
-	if not constMod or not constMod:IsA("ModuleScript") then return {} end
-	local ok, data = pcall(require, constMod)
-	if ok and typeof(data) == "table" then
-		return data
-	end
-	return {}
-end
-
-local CONST = getConstants()
-local _ANIM_TIME: number = (CONST.UI_ANIMATION_TIME :: number?) or 0.25
 local FILL_TWEEN_TIME: number = 0.15  -- snappier than generic UI tweens
-local TEMPLATE_NAME: string = "HealthBarTemplate"
+local TEMPLATE_NAME: UIController.TemplateName = "HealthBarTemplate"
 
 local COLOR_GREEN: Color3 = Color3.fromRGB(80, 200, 120)
 local COLOR_YELLOW: Color3 = Color3.fromRGB(240, 200, 70)
@@ -69,8 +51,6 @@ local function colorFor(ratio: number): Color3
 		return COLOR_RED
 	end
 end
-
-local HealthBarController = {}
 
 -- ── Attach ──
 function HealthBarController.Attach(
@@ -161,4 +141,4 @@ function HealthBarController.Attach(
 	return control
 end
 
-return HealthBarController :: HealthBarController
+return HealthBarController

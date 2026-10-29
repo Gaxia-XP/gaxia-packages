@@ -15,25 +15,13 @@
 --   local r = Gaxia.Codex.Discover(player, "Goldfish")   -- {isNew, count}
 --   Gaxia.Codex.GetCompletion(player)                    -- 0..1
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage     = game:GetService("ServerStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal = SharedPkg.Signal
-
--- Lazy DataManager (resolved at call-time; never yields in the module body).
-local GaxiaServer: any = nil
-local function getData(): any
-	if not GaxiaServer then
-		-- Instance-typed local + `:: any` so luau-lsp does not follow this require
-		-- back into the loader (false-positive cyclic dep; see IdleService for the why).
-		local serverInit: Instance = ServerStorage:WaitForChild("Gaxia_Packages_Server")
-		GaxiaServer = require(serverInit :: any)
-	end
-	return GaxiaServer.Data
-end
+-- ── Dependencies ──
+local Shared      = ReplicatedStorage.Gaxia_Packages.Shared
+local Signal      = require(Shared.Signal)
+local Lifecycle   = require(script.Parent.ServiceLifecycle)
+local DataManager = require(script.Parent.DataManager)
 
 local PROFILE_KEY : string = "Codex"
 local SETS_FIELD  : string = "__sets" -- reserved sub-key tracking already-completed sets
@@ -44,10 +32,14 @@ export type DiscoverResult = { isNew: boolean, count: number }
 
 local CodexService = {}
 
-CodexService.OnDiscover = Signal.new()    -- (player, entryId, isNew)
-CodexService.OnSetComplete = Signal.new() -- (player, setName, reward)
+-- (player, entryId, isNew) on every Discover
+CodexService.OnDiscover = Signal.new() :: Signal.Signal<Player, string, boolean>
+-- (player, setName, reward) once per set, the first time all its entries are collected
+CodexService.OnSetComplete = Signal.new() :: Signal.Signal<Player, string, any>
 
 -- ── Global catalog (registered at startup; not per-player) ──
+-- Module-level so registrations made by other services (e.g. PetService's Init)
+-- persist whatever order services start in.
 local catalog: { [string]: EntryDef } = {}
 local sets: { [string]: { entries: { string }, reward: any } } = {}
 
@@ -82,20 +74,12 @@ end
 -- ── Per-player persistence ──
 
 local function load(player: Player): { [string]: any }
-	local Data = getData()
-	if not Data then
-		return {}
-	end
-	local c = Data.Get(player, PROFILE_KEY)
+	local c = DataManager.Get(player, PROFILE_KEY)
 	return (typeof(c) == "table") and c or {}
 end
 
 local function save(player: Player, c: { [string]: any }): boolean
-	local Data = getData()
-	if not Data then
-		return false
-	end
-	return Data.Set(player, PROFILE_KEY, c) == true
+	return DataManager.Set(player, PROFILE_KEY, c) == true
 end
 
 local function entryOf(c: { [string]: any }, entryId: string): EntryState?
@@ -197,5 +181,11 @@ end
 function CodexService.IsSetComplete(player: Player, setName: string): boolean
 	return isSetCompleteWith(load(player), setName)
 end
+
+-- Pure registry: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(CodexService, {
+	Name = "Codex",
+	Needs = {},
+})
 
 return CodexService

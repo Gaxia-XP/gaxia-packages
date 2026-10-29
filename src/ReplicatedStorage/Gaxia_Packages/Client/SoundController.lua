@@ -11,7 +11,6 @@
 -- ─────────────────────────────────────────────────────────────
 
 local ContentProvider   = game:GetService("ContentProvider")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService        = game:GetService("RunService")
 local SoundService      = game:GetService("SoundService")
 local TweenService      = game:GetService("TweenService")
@@ -20,10 +19,20 @@ local TweenService      = game:GetService("TweenService")
 
 export type Category = "music" | "sfx" | "ui"
 
+-- Play / PlayOnce options: any Sound property by name (Looped, PlaybackSpeed,
+-- RollOffMaxDistance, ...) plus two special keys:
+--   category — mixer bus ("music" | "sfx" | "ui", case-insensitive; default "sfx")
+--   volume / Volume — intrinsic volume before the category mix (default 1)
+export type SoundProps = {
+	category: (Category | string)?,
+	volume: (number | string)?, -- read with tonumber, so "0.5" works too
+	[string]: any,
+}
+
 export type SoundControllerType = {
 	Preload            : (soundIds: { string }) -> (),
-	Play               : (soundId: string, props: { [string]: any }?) -> Sound,
-	PlayOnce           : (soundId: string, props: { [string]: any }?) -> (),
+	Play               : (soundId: string, props: SoundProps?) -> Sound,
+	PlayOnce           : (soundId: string, props: SoundProps?) -> (),
 	SetCategoryVolume  : (category: Category, volume: number) -> (),
 	GetCategoryVolume  : (category: Category) -> number,
 	StopAll            : (category: Category?) -> (),
@@ -40,6 +49,8 @@ end
 local POOL_FOLDER_NAME : string = "Gaxia_SoundPool"
 local DEFAULT_FADE     : number = 0.5    -- seconds; common crossfade length
 local MAX_POOL_PER_CAT : number = 16     -- cap to bound memory; over-cap = destroy
+local LOAD_TIMEOUT     : number = 10     -- PlayOnce: seconds to wait for a sound to load
+local END_MARGIN       : number = 1      -- PlayOnce: seconds after its own length before forcing release
 
 -- ── State ──
 
@@ -84,6 +95,10 @@ local pools : { [Category]: Pool } = {
 	ui    = { available = {}, active = {} },
 }
 
+-- Bumped on every acquire, so a timer started for one use of a pooled Sound
+-- does nothing once that Sound has been released and reused.
+local useCount : { [Sound]: number } = setmetatable({}, { __mode = "k" }) :: any
+
 -- Currently-playing music slot — at most one. Crossfade target lives here
 -- between PlayMusic() and the fade completing.
 local currentMusic : Sound? = nil
@@ -93,7 +108,7 @@ local SoundController = {}
 -- ── Helpers ──
 
 -- Default category for Play() — we use sfx unless caller overrides via props.
-local function categoryFromProps(props: { [string]: any }?): Category
+local function categoryFromProps(props: SoundProps?): Category
 	if props and props.category then
 		local c = tostring(props.category):lower()
 		if c == "music" or c == "sfx" or c == "ui" then
@@ -107,13 +122,16 @@ end
 -- acquire so a previously-used Sound starts in a clean state.
 local function acquire(category: Category): Sound
 	local pool = pools[category]
-	local s : Sound? = table.remove(pool.available)
-	if not s then
-		s = Instance.new("Sound")
-		s.Parent = poolFolder
+	local sound : Sound
+	local recycled : Sound? = table.remove(pool.available)
+	if recycled then
+		sound = recycled
+	else
+		sound = Instance.new("Sound")
+		sound.Parent = poolFolder
 	end
-	local sound = s :: Sound
 	pool.active[sound] = true
+	useCount[sound] = (useCount[sound] or 0) + 1
 	sound:SetAttribute(CATEGORY_ATTR, category)
 	-- Reset state so a recycled Sound doesn't leak prior config.
 	sound.Looped = false
@@ -122,7 +140,9 @@ local function acquire(category: Category): Sound
 	return sound
 end
 
--- Return a Sound to its pool (or destroy if over capacity).
+-- Return a Sound to its pool (or destroy if over capacity). Releasing a Sound
+-- that is not active (already released) does nothing, so two cleanup paths
+-- (StopAll and a fade-out, Ended and a timeout) never pool it twice.
 local function release(sound: Sound): ()
 	local cat = sound:GetAttribute(CATEGORY_ATTR)
 	if typeof(cat) ~= "string" then
@@ -132,6 +152,9 @@ local function release(sound: Sound): ()
 	local pool = pools[cat :: Category]
 	if not pool then
 		sound:Destroy()
+		return
+	end
+	if not pool.active[sound] then
 		return
 	end
 	pool.active[sound] = nil
@@ -154,7 +177,7 @@ end
 
 -- Apply caller-supplied props to a Sound. The `category` and `volume` keys are
 -- special-cased; everything else passes through.
-local function applyProps(sound: Sound, soundId: string, category: Category, props: { [string]: any }?): ()
+local function applyProps(sound: Sound, soundId: string, category: Category, props: SoundProps?): ()
 	sound.SoundId = soundId
 	local intrinsic : number = 1
 	if props then
@@ -204,8 +227,8 @@ end
 -- Pool-backed playback; returns the Sound so callers can stop / inspect it.
 -- Caller is responsible for calling :Stop or letting it finish (PlayOnce
 -- handles auto-release).
-function SoundController.Play(soundId: string, props: { [string]: any }?): Sound
-	local category = categoryFromProps(props)
+function SoundController.Play(soundId: string, props: SoundProps?): Sound
+	local category: Category = categoryFromProps(props)
 	local sound = acquire(category)
 	applyProps(sound, soundId, category, props)
 	sound:Play()
@@ -216,12 +239,42 @@ end
 -- Fire-and-forget convenience. Sound auto-releases back to pool on Ended.
 -- WHY a separate API: callers that don't need the Sound handle shouldn't
 -- have to manage release themselves — easy to leak otherwise.
-function SoundController.PlayOnce(soundId: string, props: { [string]: any }?): ()
+-- Ended never fires for a sound that fails to load (a wrong or moderated id), so
+-- the Sound is also released after its own length once loaded, or after
+-- LOAD_TIMEOUT seconds when it has not loaded (TimeLength is 0 until then).
+-- A Looped sound is released only by StopAll.
+function SoundController.PlayOnce(soundId: string, props: SoundProps?): ()
 	local sound = SoundController.Play(soundId, props)
+	local use = useCount[sound]
 	local conn : RBXScriptConnection? = nil
-	conn = sound.Ended:Connect(function()
-		if conn then conn:Disconnect() end
-		release(sound)
+	local function finish(): ()
+		if conn then
+			conn:Disconnect()
+			conn = nil
+		end
+		if useCount[sound] == use then
+			release(sound)
+		end
+	end
+	conn = sound.Ended:Connect(finish)
+	if sound.Looped then
+		return
+	end
+	task.delay(LOAD_TIMEOUT, function()
+		if useCount[sound] ~= use or conn == nil then
+			return
+		end
+		if not sound.IsLoaded or sound.TimeLength <= 0 then
+			finish() -- never loaded: Ended will not fire
+			return
+		end
+		local speed = math.max(sound.PlaybackSpeed, 0.01)
+		local left = math.max(0, (sound.TimeLength - sound.TimePosition) / speed)
+		task.delay(left + END_MARGIN, function()
+			if useCount[sound] == use then
+				finish()
+			end
+		end)
 	end)
 end
 

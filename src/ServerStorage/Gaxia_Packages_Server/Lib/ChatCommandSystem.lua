@@ -6,51 +6,55 @@
 --           coercion, gate by AdminCommands roles, and dispatch
 --           to registered handlers. Supports modern TextChatService
 --           with LegacyChat fallback.
+--
+-- Lifecycle: Init reads the prefix, creates Events/Chat/SystemMessage, registers
+--            the built-ins (help, credits) and hooks TextChatService + legacy chat.
+--            Role gating uses the resolver AdminCommands installs
+--            (SetRoleResolver); without it every role-gated command is denied.
 -- ─────────────────────────────────────────────────────────────
 
 local Players           = game:GetService("Players")
 local TextChatService   = game:GetService("TextChatService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal    = SharedPkg.Signal
+-- ── Dependencies ──
+local Shared    = ReplicatedStorage.Gaxia_Packages.Shared
+local Signal    = require(Shared.Signal)
+local Lifecycle = require(script.Parent.ServiceLifecycle)
+local Config    = require(script.Parent.Parent.Config)
+local Types     = require(script.Parent.Parent.Types)
 
--- Config-driven command prefix (default "/"). FindFirstChild: no-yield require.
-local Config = require((script.Parent :: any).Parent:FindFirstChild("Config") :: ModuleScript) :: any
-local PREFIX : string = ((Config.Admin or {}) :: any).CommandPrefix or "/"
+-- Config-driven command prefix (Config.Admin.CommandPrefix, default "/"), read in Init.
+local PREFIX : string = "/"
 local PREFIX_LEN : number = #PREFIX
 
--- ── Lazy AdminCommands ref (sibling in same Lib folder) ──
-local _adminRef : any = nil
-local function getAdmin(): any
-	if _adminRef ~= nil then return _adminRef end
-	local lib = (script.Parent :: any)
-	local mod = lib:FindFirstChild("AdminCommands")
-	if mod and mod:IsA("ModuleScript") then
-		local ok, m = pcall(require, mod)
-		if ok then _adminRef = m end
-	end
-	return _adminRef
-end
+-- Role lookup for gated commands, installed by AdminCommands' Init
+-- (ChatCommandSystem never requires AdminCommands: AdminCommands depends on it).
+local roleResolver : Types.PlayerRoleResolver? = nil
 
-type CmdOpts = {
-	roles : { string }?,
-	args  : { string }?,
+export type CmdOpts = {
+	roles : { string }?,  -- caller must be at least ONE of these roles (none = everyone)
+	args  : { string }?,  -- type hints ("player" | "number" | "boolean" | "string"), see ParseArgs
 	help  : string?,
 }
+
+-- Returns the reply shown to the caller (nil = no reply).
+export type CommandHandler = (caller: Player, args: { string }) -> string?
 
 type CmdEntry = {
 	name    : string,
 	roles   : { string },
 	args    : { string },
 	help    : string,
-	handler : (caller: Player, args: { string }) -> string?,
+	handler : CommandHandler,
 }
 
 local commands : { [string]: CmdEntry } = {}
 
 local ChatCommandSystem = {}
-ChatCommandSystem.OnCommand = Signal.new()
+-- (caller, name, args, success) after every prefixed message: name as typed;
+-- args are the split arguments ({} when the command is unknown or denied)
+ChatCommandSystem.OnCommand = Signal.new() :: Signal.Signal<Player, string, { string }, boolean>
 
 -- ── Argument type parsers ──
 -- WHY: type hints let handlers receive raw strings AND get pre-validation;
@@ -115,7 +119,7 @@ end
 function ChatCommandSystem.Register(
 	name: string,
 	opts: CmdOpts,
-	handler: (caller: Player, args: { string }) -> string?
+	handler: CommandHandler
 ): ()
 	commands[name:lower()] = {
 		name    = name:lower(),
@@ -124,6 +128,12 @@ function ChatCommandSystem.Register(
 		help    = opts.help or "",
 		handler = handler,
 	}
+end
+
+-- Install the (player, role) -> boolean lookup used to gate commands that have
+-- roles. AdminCommands does this in its Init; game code does not need to call it.
+function ChatCommandSystem.SetRoleResolver(fn: Types.PlayerRoleResolver): ()
+	roleResolver = fn
 end
 
 -- WHY splitArgs handles quoted strings: `/say "hello world"` should be one arg.
@@ -160,7 +170,8 @@ end
 -- silently dropped. The Gaxia.ChatFeedback client module renders these locally.
 local _replyRemote: RemoteEvent? = nil
 local function replyRemote(): RemoteEvent
-	if _replyRemote then return _replyRemote :: RemoteEvent end
+	local existing = _replyRemote
+	if existing then return existing end
 	local events = ReplicatedStorage:FindFirstChild("Events") or Instance.new("Folder")
 	events.Name = "Events"
 	events.Parent = ReplicatedStorage
@@ -173,9 +184,13 @@ local function replyRemote(): RemoteEvent
 		remote.Name = "SystemMessage"
 		remote.Parent = chatFolder
 	end
-	_replyRemote = remote :: RemoteEvent
-	return _replyRemote :: RemoteEvent
+	local created = remote :: RemoteEvent
+	_replyRemote = created
+	return created
 end
+-- (Created in Init — when the chat system starts, not on the first reply: the
+-- client's ChatFeedback waits at most 30 s for Events/Chat/SystemMessage, so a
+-- remote that appeared later left every reply after that silently dropped.)
 
 local function reply(caller: Player, text: string?): ()
 	if text == nil then return end
@@ -204,11 +219,11 @@ function ChatCommandSystem.Run(caller: Player, raw: string): boolean
 	end
 	-- Role gate
 	if #cmd.roles > 0 then
-		local admin = getAdmin()
+		local resolve = roleResolver
 		local allowed = false
-		if admin then
+		if resolve then
 			for _, role in cmd.roles do
-				if admin.IsAtLeast(caller, role) then
+				if resolve(caller, role) then
 					allowed = true
 					break
 				end
@@ -237,30 +252,51 @@ function ChatCommandSystem.Run(caller: Player, raw: string): boolean
 	end
 end
 
--- ── Built-in commands ──
-ChatCommandSystem.Register("help", { args = { "string" }, help = "List commands or show help for one" },
-	function(_caller: Player, args: { string }): string?
-		if args[1] then
-			local c = commands[args[1]:lower()]
-			if not c then return `Unknown command: {args[1]}` end
-			return `/{c.name} — {c.help}`
-		end
-		local names : { string } = {}
-		for n in commands do table.insert(names, n) end
-		table.sort(names)
-		return `Commands: {table.concat(names, ", ")}`
-	end)
+-- ── Built-in commands (registered in Init) ──
+local function registerBuiltins(): ()
+	ChatCommandSystem.Register("help", { args = { "string" }, help = "List commands or show help for one" },
+		function(_caller: Player, args: { string }): string?
+			if args[1] then
+				local c = commands[args[1]:lower()]
+				if not c then return `Unknown command: {args[1]}` end
+				return `/{c.name} — {c.help}`
+			end
+			local names : { string } = {}
+			for n in commands do table.insert(names, n) end
+			table.sort(names)
+			return `Commands: {table.concat(names, ", ")}`
+		end)
 
-ChatCommandSystem.Register("credits", { help = "Show credits" },
-	function(_caller: Player, _args: { string }): string?
-		return "Powered by Gaxia_Packages"
-	end)
+	ChatCommandSystem.Register("credits", { help = "Show credits" },
+		function(_caller: Player, _args: { string }): string?
+			return "Powered by Gaxia_Packages"
+		end)
+end
 
 -- ── Chat hooks ──
 -- WHY both paths: experiences may have TextChatService disabled (LegacyChatService)
 -- depending on TextChatService.ChatVersion setting.
 
--- Server-side intercept: redact the original message if it's a command.
+-- Server-side intercept: redact the original message if it's a command, and run
+-- the command ONCE per message.
+-- WHY the dedupe: Roblox calls ShouldDeliverCallback once PER RECIPIENT (every
+-- player in the channel, the sender included), so dispatching from it ran a
+-- command N times with N players (/givecoins Bob 10 gave 10 * N). The server has
+-- no once-per-message hook for TextChatService, so the first call for a
+-- MessageId runs the command and later calls for the same id only redact.
+local DISPATCH_TTL = 30 -- seconds a MessageId is remembered (all recipients are asked well within this)
+local dispatched: { [string]: boolean } = {}
+
+-- True the first time a message is seen. Marks it seen for `ttl` seconds.
+local function firstDelivery(key: string, ttl: number): boolean
+	if dispatched[key] then return false end
+	dispatched[key] = true
+	task.delay(ttl, function()
+		dispatched[key] = nil
+	end)
+	return true
+end
+
 local function hookChannel(channel: Instance): ()
 	if not channel:IsA("TextChannel") then return end
 	channel.ShouldDeliverCallback = function(msg: TextChatMessage, _target: TextSource): boolean
@@ -270,11 +306,22 @@ local function hookChannel(channel: Instance): ()
 		if not src then return true end
 		local player = Players:GetPlayerByUserId(src.UserId)
 		if not player then return true end
-		-- WHY task.spawn: ShouldDeliverCallback must return promptly; command may take time.
-		task.spawn(function()
-			ChatCommandSystem.Run(player, text)
-		end)
-		return false -- redact original
+		-- A message always has a MessageId; the fallback key (sender + channel +
+		-- text, remembered 1 s so the same command typed again later still runs)
+		-- only guards against an empty one.
+		local key = msg.MessageId
+		local ttl = DISPATCH_TTL
+		if key == "" then
+			key = `{src.UserId}\0{channel:GetFullName()}\0{text}`
+			ttl = 1
+		end
+		if firstDelivery(key, ttl) then
+			-- WHY task.spawn: ShouldDeliverCallback must return promptly; command may take time.
+			task.spawn(function()
+				ChatCommandSystem.Run(player, text)
+			end)
+		end
+		return false -- redact original (for every recipient, the sender included)
 	end
 end
 
@@ -313,10 +360,20 @@ local function hookLegacyChat(): ()
 	for _, p in Players:GetPlayers() do onPlayer(p) end
 end
 
--- WHY both: TextChatService is the modern path; legacy Chatted still fires on
--- some legacy-configured experiences. Hooking both is safe — TCS redacts so
--- there's no double-dispatch (legacy Chatted doesn't fire for TCS messages).
-tryHookTextChatService()
-hookLegacyChat()
+Lifecycle.Define(ChatCommandSystem, {
+	Name = "Chat",
+	Needs = {},
+	Init = function()
+		PREFIX = Config.Admin.CommandPrefix or "/"
+		PREFIX_LEN = #PREFIX
+		replyRemote()
+		registerBuiltins()
+		-- WHY both: TextChatService is the modern path; legacy Chatted still fires on
+		-- some legacy-configured experiences. Hooking both is safe — TCS redacts so
+		-- there's no double-dispatch (legacy Chatted doesn't fire for TCS messages).
+		tryHookTextChatService()
+		hookLegacyChat()
+	end,
+})
 
 return ChatCommandSystem

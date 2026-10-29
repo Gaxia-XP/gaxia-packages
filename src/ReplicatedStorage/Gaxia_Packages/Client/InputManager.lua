@@ -12,26 +12,34 @@
 -- ─────────────────────────────────────────────────────────────
 
 local ContextActionService = game:GetService("ContextActionService")
-local ReplicatedStorage    = game:GetService("ReplicatedStorage")
 local RunService           = game:GetService("RunService")
+
+-- ── Dependencies ──
+-- Shared/Signal directly (pure; no loader round-trip, and the Signal type flows
+-- into OnAction below).
+local Signal = require(script.Parent.Parent.Shared.Signal)
 
 -- ── Types ──
 
 export type ActionState = "Begin" | "End"
 
+-- A bindable input: a keyboard/gamepad key or a mouse/touch input type.
+export type InputKey = Enum.KeyCode | Enum.UserInputType
+
 export type InputBinding = {
 	name     : string,
-	keys     : { Enum.KeyCode | Enum.UserInputType },
+	keys     : { InputKey },
 	callback : (actionName: string, state: ActionState) -> (),
 }
 
 export type InputManagerType = {
-	Bind        : (name: string, keys: { Enum.KeyCode | Enum.UserInputType }, callback: (name: string, state: ActionState) -> ()) -> (),
+	Bind        : (name: string, keys: { InputKey }, callback: (name: string, state: ActionState) -> ()) -> (),
 	Unbind      : (name: string) -> (),
-	Rebind      : (name: string, newKeys: { Enum.KeyCode | Enum.UserInputType }) -> boolean,
+	Rebind      : (name: string, newKeys: { InputKey }) -> boolean,
 	IsHeld      : (name: string) -> boolean,
-	GetBindings : () -> { [string]: { Enum.KeyCode | Enum.UserInputType } },
-	OnAction    : any, -- Signal — fires (name, state) for every bound action
+	GetBindings : () -> { [string]: { InputKey } },
+	-- (name, state) — fires for every bound action
+	OnAction    : Signal.Signal<string, ActionState>,
 }
 
 -- Client-only guard. Server require returns a typed empty shell so cross-context
@@ -40,27 +48,17 @@ if not RunService:IsClient() then
 	return ({} :: any) :: InputManagerType
 end
 
--- ── Shared deps ──
--- Resolve via the master init so we get the lazy-loaded singletons every other
--- module sees. `any` cast keeps the typechecker happy without dragging the full
--- GaxiaPackage type into this file.
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal    = SharedPkg.Signal
-
 -- ── State ──
 -- bindings[name] holds the *user-facing* record. We re-register with CAS on
 -- Rebind by Unbind+Bind under the hood, so we only need one source of truth.
 local bindings : { [string]: InputBinding } = {}
 local held     : { [string]: boolean } = {}
 
-local OnAction = Signal.new()
+-- (name, state)
+local OnAction = Signal.new() :: Signal.Signal<string, ActionState>
 
 local InputManager = {}
--- Cast to `any` once so we can attach the OnAction field without fighting
--- the `function-only methods` shape inference. The exported type covers the
--- public surface; runtime stays a plain table.
-local self = InputManager :: any
-self.OnAction = OnAction
+InputManager.OnAction = OnAction
 
 -- ── Helpers ──
 
@@ -106,7 +104,7 @@ end
 -- replaces the prior registration cleanly.
 function InputManager.Bind(
 	name     : string,
-	keys     : { Enum.KeyCode | Enum.UserInputType },
+	keys     : { InputKey },
 	callback : (name: string, state: ActionState) -> ()
 ): ()
 	if bindings[name] then
@@ -135,7 +133,7 @@ end
 -- ── Rebind ──
 -- Swap keys for an existing action without losing the callback. Returns false
 -- if the name was never bound (caller can decide whether to Bind fresh).
-function InputManager.Rebind(name: string, newKeys: { Enum.KeyCode | Enum.UserInputType }): boolean
+function InputManager.Rebind(name: string, newKeys: { InputKey }): boolean
 	local existing = bindings[name]
 	if not existing then return false end
 	local cb = existing.callback
@@ -154,8 +152,8 @@ end
 -- ── GetBindings ──
 -- Shallow-clone the keys per action so the caller (settings UI, rebind menu)
 -- can iterate without mutating our internal state.
-function InputManager.GetBindings(): { [string]: { Enum.KeyCode | Enum.UserInputType } }
-	local copy : { [string]: { Enum.KeyCode | Enum.UserInputType } } = {}
+function InputManager.GetBindings(): { [string]: { InputKey } }
+	local copy : { [string]: { InputKey } } = {}
 	for n, b in pairs(bindings) do
 		local keys = table.create(#b.keys)
 		for i, k in ipairs(b.keys) do

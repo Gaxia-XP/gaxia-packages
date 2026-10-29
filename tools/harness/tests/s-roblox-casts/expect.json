@@ -1,0 +1,13 @@
+{
+  "description": "(s) Robux / badge / group calls cast their arguments like Roblox: UserOwnsGamePassAsync(player, id) is 'Unable to cast Instance to int64'",
+  "framework": false,
+  "exit": 1,
+  "errorCount": 1,
+  "errors": [{ "contains": "ServerScriptService.Pass:12: Unable to cast Instance to int64" }],
+  "prints": [
+    { "contains": "prompt false ServerScriptService.Pass:7: Unable to cast value to Object" },
+    { "contains": "rank false ServerScriptService.Pass:8: Unable to cast string to int64" },
+    { "contains": "badge false ServerScriptService.Pass:9: Unable to cast Instance to int64" },
+    { "contains": "owns-ok true" }
+  ]
+}

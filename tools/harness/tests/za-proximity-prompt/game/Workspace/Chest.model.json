@@ -1,0 +1,9 @@
+{
+  "className": "Part",
+  "properties": { "Anchored": true },
+  "children": [
+    { "name": "OpenPrompt", "className": "ProximityPrompt", "properties": { "ActionText": "Open" } },
+    { "name": "LockedPrompt", "className": "ProximityPrompt", "properties": { "Enabled": false } },
+    { "name": "HoldPrompt", "className": "ProximityPrompt", "properties": { "HoldDuration": 1.5 } }
+  ]
+}

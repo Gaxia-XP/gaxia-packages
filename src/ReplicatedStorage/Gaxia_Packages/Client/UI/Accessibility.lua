@@ -19,8 +19,10 @@ local CollectionService = game:GetService("CollectionService")
 
 local RunService = game:GetService("RunService")
 
+export type ColorblindMode = "None" | "Deuteranopia" | "Protanopia" | "Tritanopia"
+
 export type Settings = {
-	ColorblindMode: string,
+	ColorblindMode: ColorblindMode,
 	TextScale: number,
 	HighContrast: boolean,
 	ReducedMotion: boolean,
@@ -46,7 +48,7 @@ local HIGH_CONTRAST: { [string]: Color3 } = {
 	Surface        = Color3.fromRGB(35, 35, 35),
 }
 
--- ── Server stub ──
+-- ── Server stub (typed as the client module so Gaxia.UI.Accessibility autocompletes) ──
 if not RunService:IsClient() then
 	return ({
 		SetColorblindMode = function() end,
@@ -57,7 +59,7 @@ if not RunService:IsClient() then
 		ReducedMotion = function(): boolean return false end,
 		Get = function(): any return { ColorblindMode = "None", TextScale = 1, HighContrast = false, ReducedMotion = false } end,
 		OnChanged = function(): any return function() end end,
-	} :: any)
+	} :: any) :: typeof(Accessibility)
 end
 
 -- ── Client implementation ──
@@ -93,7 +95,7 @@ end
 
 -- ── Public API ──
 
-function Accessibility.SetColorblindMode(mode: string): ()
+function Accessibility.SetColorblindMode(mode: ColorblindMode | string): ()
 	local override = CB_PALETTES[mode]
 	if not override then
 		warn(`[Accessibility] unknown colorblind mode '{mode}'`)
@@ -104,7 +106,7 @@ function Accessibility.SetColorblindMode(mode: string): ()
 		palette[k] = override[k] or baseColors[k]
 	end
 	Theme.SetTheme({ Color = palette })
-	state.ColorblindMode = mode
+	state.ColorblindMode = mode :: ColorblindMode -- a CB_PALETTES key, checked above
 	fire()
 end
 

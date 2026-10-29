@@ -11,7 +11,8 @@
 --   Data · AntiCheat · Admin · Economy · Raid · Idle · Daily
 --   Vault · Mail · Party · Cooldown · Leaderboard · Level
 --   Inventory · Pets · Teleport · CrossServer · Event
---   Interaction · Social · Webhook · Runtime
+--   Interaction · Social · Webhook · Runtime · Player
+--   Features (which services boot)
 
 return {
 	Data        = require(script.Data),
@@ -36,4 +37,6 @@ return {
 	Social      = require(script.Social),
 	Webhook     = require(script.Webhook),
 	Runtime     = require(script.Runtime),
+	Player      = require(script.Player),
+	Features    = require(script.Features),
 }

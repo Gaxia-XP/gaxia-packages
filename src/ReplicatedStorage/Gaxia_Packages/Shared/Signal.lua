@@ -13,6 +13,10 @@
 -- Authors:                                                                   --
 --   stravant - July 31st, 2021 - Created the file.                           --
 --   sleitnick - August 3rd, 2021 - Modified for Knit.                        --
+--                                                                            --
+-- Gaxia local edit (types only): the exported Signal<T...> type also lists   --
+-- ConnectOnce (deprecated alias of Once, defined below), so it type-checks   --
+-- and autocompletes like every other method. No runtime change.              --
 -- -----------------------------------------------------------------------------
 
 -- Signal types
@@ -27,6 +31,7 @@ export type Signal<T...> = {
 	FireDeferred: (self: Signal<T...>, T...) -> (),
 	Connect: (self: Signal<T...>, fn: (T...) -> ()) -> Connection,
 	Once: (self: Signal<T...>, fn: (T...) -> ()) -> Connection,
+	ConnectOnce: (self: Signal<T...>, fn: (T...) -> ()) -> Connection, -- deprecated alias of Once
 	DisconnectAll: (self: Signal<T...>) -> (),
 	GetConnections: (self: Signal<T...>) -> { Connection },
 	Destroy: (self: Signal<T...>) -> (),

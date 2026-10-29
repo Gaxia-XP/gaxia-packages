@@ -8,49 +8,32 @@
 
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
--- WHY this explicit type:
--- The early-return guard below needs to match the module's real return shape
--- so Luau collapses the (server-return | client-return) union into a single
--- typed value. Without this, `Gaxia.UI.InventoryController.<method>` does not
--- autocomplete because the union resolves to `any`.
+-- One slot in the grid.
 export type InventoryItem = {
 	name: string,
 	icon: string,
 	count: number?,
 }
-export type InventoryController = {
-	Open: (items: { InventoryItem }) -> Frame?,
-	Close: () -> (),
-}
 
--- Client-only module.
+local InventoryController = {}
+-- The module's own type (every function below), so the server stub and the
+-- client module share one type and `Gaxia.UI.InventoryController.<method>` autocompletes.
+export type InventoryController = typeof(InventoryController)
+
+-- Client-only module. The server gets an EMPTY table (calls error there); only
+-- its type is the client module's.
 if not RunService:IsClient() then
-	return ({} :: any) :: InventoryController
+	return ({} :: any) :: typeof(InventoryController)
 end
 
-local UIController = require(script.Parent:WaitForChild("UIController"))
+local UIController = require(script.Parent.UIController)
+local Constants = require(script.Parent.Parent.Parent.Shared.Constants)
 
 -- ── Constants ──
-local function getConstants(): { [string]: any }
-	local pkg = ReplicatedStorage:FindFirstChild("Gaxia_Packages")
-	if not pkg then return {} end
-	local shared = pkg:FindFirstChild("Shared")
-	if not shared then return {} end
-	local constMod = shared:FindFirstChild("Constants")
-	if not constMod or not constMod:IsA("ModuleScript") then return {} end
-	local ok, data = pcall(require, constMod)
-	if ok and typeof(data) == "table" then
-		return data
-	end
-	return {}
-end
+local ANIM_TIME: number = Constants.UI_ANIMATION_TIME
 
-local CONST = getConstants()
-local ANIM_TIME: number = (CONST.UI_ANIMATION_TIME :: number?) or 0.25
-
-local TEMPLATE_NAME: string = "InventoryTemplate"
+local TEMPLATE_NAME: UIController.TemplateName = "InventoryTemplate"
 local SLOT_BG_COLOR: Color3 = Color3.fromRGB(45, 50, 60)
 local SLOT_CORNER: UDim = UDim.new(0, 6)
 local SLOT_SIZE: UDim2 = UDim2.new(0, 64, 0, 64)   -- fallback if no UIGridLayout
@@ -59,8 +42,6 @@ local BADGE_SIZE: UDim2 = UDim2.new(0, 22, 0, 18)
 
 -- ── State ──
 local activeInventory: Frame? = nil
-
-local InventoryController = {}
 
 -- ── Internal: build one slot ──
 local function buildSlot(item: InventoryItem, parent: Instance): ImageButton
@@ -186,4 +167,4 @@ function InventoryController.Open(items: { InventoryItem }): Frame?
 	return frame
 end
 
-return InventoryController :: InventoryController
+return InventoryController

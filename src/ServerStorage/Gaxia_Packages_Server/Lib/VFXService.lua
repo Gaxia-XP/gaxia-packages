@@ -14,13 +14,12 @@
 --   Gaxia.VFX.Register("Hit", function(p) local e=Instance.new("ParticleEmitter"); e.Parent=p end)
 --   Gaxia.VFX.PlayAt("Hit", hrp.Position, { EmitCount = 30 })
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
+local RunService        = game:GetService("RunService")
 local Workspace         = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Pool = SharedPkg.Pool
+local Pool      = require(ReplicatedStorage.Gaxia_Packages.Shared.Pool)
+local Lifecycle = require(script.Parent.ServiceLifecycle)
 
 export type EffectBuilder = (parent: Instance) -> ()
 export type PlayOpts = { Duration: number?, EmitCount: number? }
@@ -28,7 +27,7 @@ export type PlayOpts = { Duration: number?, EmitCount: number? }
 local VFXService = {}
 
 local builders: { [string]: EffectBuilder } = {}
-local pools: { [string]: any } = {}
+local pools: { [string]: Pool.PoolObject } = {}
 
 local function effectsFolder(): Instance
 	local f = Workspace:FindFirstChild("Effects")
@@ -78,27 +77,43 @@ end
 
 -- ── One-shot ──
 
-function VFXService.PlayAt(name: string, where: any, opts: PlayOpts?): boolean
+-- Plays effect `name` once at `where` (a world position (Vector3) or a full CFrame)
+-- for opts.Duration seconds (default 2): every ParticleEmitter bursts
+-- opts.EmitCount particles (default 20) and keeps emitting, Beams / Trails /
+-- Highlights turn on. The burst is emitted on the next frame, after the holder has
+-- been parented and has reached the clients (an Emit in the same frame as the
+-- parenting can be lost on clients). Returns false (with a warning) for an unknown name.
+function VFXService.PlayAt(name: string, where: Vector3 | CFrame, opts: PlayOpts?): boolean
 	local pool = pools[name]
 	if not pool then
 		warn(`[VFX] no effect '{name}'`)
 		return false
 	end
-	local o = opts or {}
+	local o: PlayOpts = opts or {}
 	local holder: Part = pool.Get()
 	holder.CFrame = if typeof(where) == "CFrame" then where else CFrame.new(where)
 	holder.Parent = effectsFolder()
 
+	local returned = false
 	for _, child in ipairs(holder:GetDescendants()) do
-		if child:IsA("ParticleEmitter") then
-			child.Enabled = true
-			child:Emit(o.EmitCount or 20)
-		elseif child:IsA("Beam") or child:IsA("Trail") or child:IsA("Highlight") then
+		if child:IsA("ParticleEmitter") or child:IsA("Beam") or child:IsA("Trail") or child:IsA("Highlight") then
 			child.Enabled = true
 		end
 	end
+	task.spawn(function()
+		RunService.Heartbeat:Wait()
+		if returned or holder.Parent == nil then
+			return
+		end
+		for _, child in ipairs(holder:GetDescendants()) do
+			if child:IsA("ParticleEmitter") then
+				child:Emit(o.EmitCount or 20)
+			end
+		end
+	end)
 
 	task.delay(o.Duration or 2, function()
+		returned = true
 		for _, child in ipairs(holder:GetDescendants()) do
 			if child:IsA("ParticleEmitter") or child:IsA("Beam") or child:IsA("Trail") or child:IsA("Highlight") then
 				child.Enabled = false
@@ -131,5 +146,11 @@ function VFXService.Attach(name: string, host: BasePart, opts: PlayOpts?): () ->
 		att:Destroy()
 	end
 end
+
+-- Pure API: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(VFXService, {
+	Name = "VFX",
+	Needs = {},
+})
 
 return VFXService

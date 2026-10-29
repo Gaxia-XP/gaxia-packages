@@ -20,15 +20,10 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 
--- WHY this explicit type: the early-return guard below must match the module's
--- real return shape so Luau collapses the (server-stub | client-impl) union into
--- one typed value — otherwise Gaxia.UI.LoadingScreenController.Show won't autocomplete.
-export type LoadingScreenController = {
-	Show: () -> (),
-	Hide: () -> (),
-	SetProgress: (alpha: number) -> (),
-	SetStatus: (text: string) -> (),
-}
+local LoadingScreenController = {}
+-- The module's own type (every function below), so the server stub and the client
+-- module share one type and Gaxia.UI.LoadingScreenController.Show autocompletes.
+export type LoadingScreenController = typeof(LoadingScreenController)
 
 -- Client-only module; return a no-op stub on the server so server require() is safe.
 if not RunService:IsClient() then
@@ -37,15 +32,15 @@ if not RunService:IsClient() then
 		Hide = function() end,
 		SetProgress = function(_: number) end,
 		SetStatus = function(_: string) end,
-	} :: any) :: LoadingScreenController
+	} :: any) :: typeof(LoadingScreenController)
 end
 
-local UIController = require(script.Parent:WaitForChild("UIController"))
+local UIController = require(script.Parent.UIController)
 
 -- ── Constants ──
 local PROGRESS_TWEEN_TIME : number = 0.2    -- bar fill, snappier than the fade
 local FADE_TIME           : number = 0.3    -- Hide() fade-out duration
-local TEMPLATE_NAME       : string = "LoadingScreenTemplate"
+local TEMPLATE_NAME       : UIController.TemplateName = "LoadingScreenTemplate"
 local SCREEN_NAME         : string = "Gaxia_LoadingScreen"
 local DISPLAY_ORDER       : number = 10000  -- above all gameplay HUD/Overlays
 
@@ -62,8 +57,6 @@ local fillFrame   : Frame?     = nil
 local statusLabel : TextLabel? = nil
 local progressTween : Tween? = nil
 local fadeTween     : Tween? = nil
-
-local LoadingScreenController = {}
 
 -- ── Internal: build (or reuse) the overlay ──
 local function ensureBuilt(): boolean
@@ -203,4 +196,4 @@ function LoadingScreenController.SetStatus(text: string): ()
 	end
 end
 
-return LoadingScreenController :: LoadingScreenController
+return LoadingScreenController

@@ -8,25 +8,30 @@
 --           Play2D for UI/global. Per-category volume (SFX/Music/Ambient) scales
 --           every sound in that bus, and Duck() temporarily drops a bus (lower
 --           music while a cutscene voice plays) then restores. Sounds auto-clean
---           when they end. Category volumes pair with SettingsService for a
+--           when they end (or after their own length, or after 10 s when they
+--           never load). Category volumes pair with SettingsService for a
 --           player audio-options menu.
 --
 -- Access  : Gaxia.SFX  (server)
 --   Gaxia.SFX.Register("Explosion", { SoundId = "rbxassetid://12222200", PitchVariation = 0.2, Category = "SFX" })
 --   Gaxia.SFX.PlayAt("Explosion", hrp.Position)
 -- ─────────────────────────────────────────────────────────────
-local CollectionService = game:GetService("CollectionService")
-
 local Workspace = game:GetService("Workspace")
 
-local FALLBACK_LIFETIME : number = 10 -- destroy holder after this if Ended never fires
+local Lifecycle = require(script.Parent.ServiceLifecycle)
+
+local FALLBACK_LIFETIME : number = 10 -- longest wait for a sound to load (Ended never fires if it does not)
+local END_MARGIN        : number = 1  -- seconds kept after the sound's own length, before forcing cleanup
+
+-- The built-in buses; any other string is a custom category.
+export type SoundCategory = "SFX" | "Music" | "Ambient"
 
 export type SoundDef = {
 	SoundId: string,
 	Volume: number?,
 	Pitch: number?,
 	PitchVariation: number?,
-	Category: string?,
+	Category: (SoundCategory | string)?,
 	RollOffMaxDistance: number?,
 }
 
@@ -47,17 +52,17 @@ function SFXService.Register(name: string, def: SoundDef): ()
 	bank[name] = def
 end
 
-function SFXService.SetCategoryVolume(category: string, volume: number): ()
+function SFXService.SetCategoryVolume(category: SoundCategory | string, volume: number): ()
 	categoryVolume[category] = math.max(0, volume)
 end
 
-function SFXService.GetCategoryVolume(category: string): number
+function SFXService.GetCategoryVolume(category: SoundCategory | string): number
 	local v = categoryVolume[category]
 	return v ~= nil and v or 1
 end
 
 -- Temporarily scale a category by `factor` for `duration`, then restore.
-function SFXService.Duck(category: string, factor: number, duration: number): ()
+function SFXService.Duck(category: SoundCategory | string, factor: number, duration: number): ()
 	local original = SFXService.GetCategoryVolume(category)
 	SFXService.SetCategoryVolume(category, original * factor)
 	task.delay(duration, function()
@@ -88,6 +93,11 @@ local function buildSound(def: SoundDef): Sound
 	return sound
 end
 
+-- Destroy `holder` when the sound ends. Ended does not fire for a sound that never
+-- loads, so a fallback also cleans up: once the sound has loaded, after its own
+-- length (TimeLength / PlaybackSpeed, plus a margin); if it has not loaded (or its
+-- TimeLength is still 0) within FALLBACK_LIFETIME seconds, then. A sound longer than
+-- FALLBACK_LIFETIME (music) is no longer cut off.
 local function autoClean(holder: Instance, sound: Sound): ()
 	local cleaned = false
 	local function destroy()
@@ -98,7 +108,39 @@ local function autoClean(holder: Instance, sound: Sound): ()
 		holder:Destroy()
 	end
 	sound.Ended:Once(destroy)
-	task.delay(FALLBACK_LIFETIME, destroy)
+
+	local function lengthLeft(): number?
+		-- TimeLength is 0 until the asset has loaded.
+		if not sound.IsLoaded or sound.TimeLength <= 0 then
+			return nil
+		end
+		local speed = math.max(sound.PlaybackSpeed, 0.01)
+		return math.max(0, (sound.TimeLength - sound.TimePosition) / speed) + END_MARGIN
+	end
+	local function scheduleFromLength(): boolean
+		local left = lengthLeft()
+		if left == nil then
+			return false
+		end
+		task.delay(left, destroy)
+		return true
+	end
+
+	if scheduleFromLength() then
+		return
+	end
+	local loadedConn = sound.Loaded:Once(function()
+		scheduleFromLength()
+	end)
+	task.delay(FALLBACK_LIFETIME, function()
+		loadedConn:Disconnect()
+		if cleaned then
+			return
+		end
+		if not scheduleFromLength() then
+			destroy() -- never loaded: Ended will not fire
+		end
+	end)
 end
 
 -- ── Playback ──
@@ -137,5 +179,11 @@ function SFXService.Play2D(name: string): Sound?
 	autoClean(sound, sound)
 	return sound
 end
+
+-- Pure API: nothing to set up. Registered so Features / IsEnabled know it.
+Lifecycle.Define(SFXService, {
+	Name = "SFX",
+	Needs = {},
+})
 
 return SFXService

@@ -6,19 +6,32 @@
 --           rolling-average FPS, memory usage, network ping,
 --           and a per-frame Signal. Single Heartbeat subscription
 --           shared across all callers.
+--
+-- Side effect on require (unchanged, by design): the Heartbeat connection that
+-- feeds the FPS buffer and OnFrame is made when this module is first required,
+-- in every VM that requires it. Keep it keep-lazy (never require it from a
+-- module body that does not need it).
 -- ─────────────────────────────────────────────────────────────
 
 local RunService        = game:GetService("RunService")
 local Stats             = game:GetService("Stats")
 local Players           = game:GetService("Players")
 local ScriptContext     = game:GetService("ScriptContext")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal    = SharedPkg.Signal
+-- Sibling Shared module, required directly (NOT through the Gaxia_Packages loader:
+-- a Shared module never requires its own loader, and the loader erased the type).
+local Signal = require(script.Parent.Signal)
+
+export type Snapshot = {
+	fps         : number,
+	memoryMB    : number,
+	scriptCount : number,
+	ping        : number?, -- client only
+}
 
 local PerformanceMonitor = {}
-PerformanceMonitor.OnFrame = Signal.new() -- fires (dt) each Heartbeat
+-- (dt) — fires every Heartbeat with the frame's delta time in seconds
+PerformanceMonitor.OnFrame = Signal.new() :: Signal.Signal<number>
 
 -- ── Rolling FPS buffer ──
 -- WHY rolling avg over 60 frames: instantaneous 1/dt is noisy and useless
@@ -74,13 +87,6 @@ local function getScriptCount(): number
 	if ok and typeof(kids) == "table" then return #kids end
 	return 0
 end
-
-type Snapshot = {
-	fps         : number,
-	memoryMB    : number,
-	scriptCount : number,
-	ping        : number?,
-}
 
 function PerformanceMonitor.Snapshot(): Snapshot
 	local snap : Snapshot = {

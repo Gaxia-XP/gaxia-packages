@@ -38,8 +38,8 @@ export type GaxiaPackage = {
 	VERSION : string,
 	-- ── Shared (always available) ──
 	Signal    : typeof(require(script.Shared.Signal)),
-	Maid      : typeof(require(script.Shared.Maid)),
-	Janitor   : typeof(require(script.Shared.Janitor)),
+	Maid      : typeof(require(script.Shared.Maid)),     -- DEPRECATED: use Trove
+	Janitor   : typeof(require(script.Shared.Janitor)),  -- DEPRECATED: use Trove
 	Trove     : typeof(require(script.Shared.Trove)),
 	Promise   : typeof(require(script.Shared.Promise)),
 	TweenUtil : typeof(require(script.Shared.TweenUtil)),
@@ -96,6 +96,11 @@ export type GaxiaPackage = {
 		Haptics : typeof(require(script.Client.UI.Haptics)),
 		Motion : typeof(require(script.Client.UI.Motion)),
 		AdminPanel : typeof(require(script.Client.UI.AdminPanel)),
+		FriendListPanel : typeof(require(script.Client.UI.FriendListPanel)),
+		GuildPanel : typeof(require(script.Client.UI.GuildPanel)),
+		InviteToast : typeof(require(script.Client.UI.InviteToast)), -- `true`; requiring it wires the invite toasts (does not wait for their remotes)
+		PetController : typeof(require(script.Client.UI.PetController)),
+		Templates : typeof(require(script.Client.UI.Templates)),
 	},
 
 	-- ── Client modules accessed via short keys (CLIENT_KEY_MAP) ──
@@ -112,6 +117,10 @@ export type GaxiaPackage = {
 
 	-- ── Convenience helpers ──
 	Tween : (instance: Instance, info: TweenInfo, props: { [string]: any }) -> Tween,
+	-- True when the module behind a key is installed ("Signal", "Camera", "Util",
+	-- "UI.Toast", "Util.Table"). Client keys are false on the server; server
+	-- packages are not visible here (use GaxiaServer.IsInstalled). Never loads anything.
+	IsInstalled : (key: string) -> boolean,
 }
 
 -- ── Constants ────────────────────────────────────────────────
@@ -143,6 +152,13 @@ local SHARED_KEY_MAP : { [string]: string } = {
 	Bench      = "PerformanceBenchmark",
 	TestRunner = "TestRunner",
 	MockPlayer = "MockPlayer",
+}
+
+-- Deprecated vendored modules: they still resolve (game code may use them) but
+-- warn once on first access. First-party deprecated modules (Maid,
+-- ComponentLegacy) warn from their own body instead.
+local DEPRECATED_SHARED : { [string]: string } = {
+	Janitor = "Gaxia.Trove",
 }
 
 -- ── Internal Cache ───────────────────────────────────────────
@@ -180,10 +196,12 @@ end
 -- ── Auto-tagger ──────────────────────────────────────────────
 
 local function autoTagDescendants(): ()
-	-- script.Parent is the Gaxia_Packages Folder; script is the `init` ModuleScript
-	-- (sibling). Tag the folder + all package descendants so consumers can query
-	-- "everything that belongs to Gaxia_Packages" via CollectionService.
-	local packageRoot = script.Parent :: Instance
+	-- Under Rojo this `init` IS the Gaxia_Packages ModuleScript and the package's
+	-- modules are its descendants. (It used to tag script.Parent, which is the
+	-- whole ReplicatedStorage — every game asset got the tag.) Tag the
+	-- package + all its descendants so consumers can query "everything that
+	-- belongs to Gaxia_Packages" via CollectionService.
+	local packageRoot = script :: Instance
 	if not CollectionService:HasTag(packageRoot, TAG_NAME) then
 		CollectionService:AddTag(packageRoot, TAG_NAME)
 	end
@@ -305,6 +323,26 @@ local function buildGaxia(): { [string]: any }
 		end
 	end
 
+	function Gaxia.IsInstalled(key: string): boolean
+		local namespace, name = string.match(key, "^([^.]+)%.([^.]+)$")
+		if namespace == "Util" and utilFolder then
+			return resolveChild(utilFolder, name :: string) ~= nil
+		elseif namespace == "UI" then
+			local uiFolder = if clientFolder then clientFolder:FindFirstChild("UI") else nil
+			return uiFolder ~= nil and resolveChild(uiFolder, name :: string) ~= nil
+		elseif namespace ~= nil then
+			return false
+		end
+		if key == "Util" then
+			return utilFolder ~= nil and utilFolder:FindFirstChildWhichIsA("ModuleScript") ~= nil
+		end
+		if resolveChild(sharedFolder, SHARED_KEY_MAP[key] or key) ~= nil then
+			return true
+		end
+		local clientName = CLIENT_KEY_MAP[key]
+		return clientFolder ~= nil and clientName ~= nil and resolveChild(clientFolder, clientName) ~= nil
+	end
+
 	-- ── Root __index for flat Shared/ + Client/ modules ──────
 	setmetatable(Gaxia, {
 		__index = function(t: { [string]: any }, key: string): any?
@@ -316,6 +354,10 @@ local function buildGaxia(): { [string]: any }
 			local sharedName = SHARED_KEY_MAP[key] or key
 			local sharedMod = resolveChild(sharedFolder, sharedName)
 			if sharedMod then
+				local replacement = DEPRECATED_SHARED[sharedName]
+				if replacement then
+					warn(`[Gaxia_Packages] {sharedName} is deprecated — use {replacement} instead`)
+				end
 				local result = safeRequire(sharedMod, key)
 				moduleCache[key] = result
 				rawset(t, key, result)

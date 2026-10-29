@@ -3,30 +3,32 @@
 	Module : ZoneService
 	Location: ServerStorage.Gaxia_Packages_Server.Lib.ZoneService
 	Purpose : Trigger zones. Wraps a BasePart region with Enter/Left signals
-	          via OBB containment sampled at Constants.SAMPLER_INTERVAL (0.5s).
+	          via OBB containment sampled every SAMPLER_INTERVAL (0.5s).
 ]]
 
 
 -- ── Services ──
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService        = game:GetService("RunService")
 
--- ── Shared ──
-local SharedPkg = require(ReplicatedStorage:WaitForChild("Gaxia_Packages")) :: any
-local Signal    = SharedPkg.Signal
-local Maid      = SharedPkg.Maid
+-- ── Dependencies ──
+local Shared    = ReplicatedStorage.Gaxia_Packages.Shared
+local Signal    = require(Shared.Signal)
+local Trove     = require(Shared.Trove)
+local Lifecycle = require(script.Parent.ServiceLifecycle)
 
--- Constants is a frozen table; fall back to defaults if missing.
-local Constants = SharedPkg.Constants or {}
-local SAMPLER_INTERVAL : number = (Constants.SAMPLER_INTERVAL :: any) or 0.5
+-- Seconds between containment samples. (It used to read Constants.SAMPLER_INTERVAL,
+-- which no longer exists there, so the effective value has long been this 0.5.)
+local SAMPLER_INTERVAL : number = 0.5
 
 -- ── Types ──
 export type Zone = {
 	Name: string,
 	Region: BasePart,
-	OnEntered: any,
-	OnLeft: any,
+	-- (player) when the player's HumanoidRootPart enters the region
+	OnEntered: Signal.Signal<Player>,
+	-- (player) when the player leaves the region, loses their character, or leaves the game
+	OnLeft: Signal.Signal<Player>,
 	IsInside: (self: Zone, player: Player) -> boolean,
 	GetPlayers: (self: Zone) -> { Player },
 	Destroy: (self: Zone) -> (),
@@ -59,10 +61,10 @@ local function newZone(name: string, region: BasePart): Zone
 	local self = setmetatable({
 		Name      = name,
 		Region    = region,
-		OnEntered = Signal.new(),
-		OnLeft    = Signal.new(),
+		OnEntered = Signal.new() :: Signal.Signal<Player>,
+		OnLeft    = Signal.new() :: Signal.Signal<Player>,
 		_inside   = {} :: { [Player]: boolean },
-		_maid     = Maid.new(),
+		_trove    = Trove.new(),
 	}, Zone)
 
 	-- Heartbeat-style polling. Sampling instead of Touched events because
@@ -95,7 +97,7 @@ local function newZone(name: string, region: BasePart): Zone
 	end)
 
 	-- Fire OnLeft when a tracked player leaves the game so external state stays consistent.
-	s._maid:GiveTask(Players.PlayerRemoving:Connect(function(player)
+	s._trove:Add(Players.PlayerRemoving:Connect(function(player)
 		if s._inside[player] then
 			s._inside[player] = nil
 			-- Emit Left when a tracked player disconnects so listeners
@@ -123,7 +125,7 @@ end
 
 function Zone:Destroy(): ()
 	local s = self :: any
-	s._maid:DoCleaning()
+	s._trove:Clean()
 	-- Drop the BasePart reference so the sampler loop exits naturally.
 	s.Region = nil
 	s.OnEntered:DisconnectAll()
@@ -156,5 +158,12 @@ function ZoneService.Destroy(name: string): ()
 	local z = zonesByName[name]
 	if z then z:Destroy() end
 end
+
+-- Pure API: nothing to set up (each Create starts its own sampler).
+-- Registered so Features / IsEnabled know it.
+Lifecycle.Define(ZoneService, {
+	Name = "Zone",
+	Needs = {},
+})
 
 return ZoneService

@@ -1,0 +1,9 @@
+{
+  "description": "(n) wrong argument to a framework function (Toast.Show(\"text\")): Roblox's error inside Gaxia, and the summary points at the game line",
+  "framework": true,
+  "exit": 1,
+  "errorCount": 1,
+  "errors": [{ "contains": "Unable to assign property Text. string expected, got nil", "world": "client:Player1" }],
+  "errorTrace": ["Players.Player1.PlayerScripts.Hello:5"],
+  "summary": ["your code: Players.Player1.PlayerScripts.Hello:5"]
+}
