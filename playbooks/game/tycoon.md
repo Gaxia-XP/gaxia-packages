@@ -85,7 +85,7 @@ local DROP_SECONDS = 2 -- how long a drop takes to slide to the collector
 -- Saved field: the ids the player bought, for example { Dropper1 = true, Dropper2 = true }.
 Data.SetDefaults({ TycoonOwned = {} })
 
-type Plot = { name: string, floor: Part, collector: Part, items: Folder, sign: TextLabel, owner: Player? }
+type Plot = { name: string, floor: Part, collector: Part, items: Folder, signs: { TextLabel }, owner: Player? }
 local plots: { Plot } = {}
 local plotOf: { [Player]: Plot } = {}
 local troves: { [Player]: typeof(Gaxia.Trove.new()) } = {}
@@ -113,18 +113,23 @@ for index = 1, PLOT_COUNT do
 	local floor = makePart("Floor", Vector3.new(40, 1, 40), center, Color3.fromRGB(110, 160, 90), model)
 	local collector = makePart("Collector", Vector3.new(6, 2, 6), center + Vector3.new(0, 1.5, 0), Color3.fromRGB(40, 200, 90), model)
 	local signPart = makePart("Sign", Vector3.new(8, 4, 1), center + Vector3.new(0, 2.5, -19), Color3.fromRGB(240, 240, 240), model)
-	local gui = Instance.new("SurfaceGui")
-	gui.Face = Enum.NormalId.Front -- the side that faces the Baseplate middle
-	gui.Parent = signPart
-	local sign = Instance.new("TextLabel")
-	sign.Size = UDim2.fromScale(1, 1)
-	sign.TextScaled = true
-	sign.Text = `Plot {index}: free`
-	sign.Parent = gui
+	-- Text on both sides of the sign, so you can read it from the plot and from outside.
+	local signs: { TextLabel } = {}
+	for _, face in { Enum.NormalId.Front, Enum.NormalId.Back } do
+		local gui = Instance.new("SurfaceGui")
+		gui.Face = face
+		gui.Parent = signPart
+		local label = Instance.new("TextLabel")
+		label.Size = UDim2.fromScale(1, 1)
+		label.TextScaled = true
+		label.Text = `Plot {index}: free`
+		label.Parent = gui
+		table.insert(signs, label)
+	end
 	local items = Instance.new("Folder")
 	items.Name = "Items"
 	items.Parent = model
-	table.insert(plots, { name = model.Name, floor = floor, collector = collector, items = items, sign = sign, owner = nil })
+	table.insert(plots, { name = model.Name, floor = floor, collector = collector, items = items, signs = signs, owner = nil })
 end
 
 local function getOwned(player: Player): { [string]: boolean }
@@ -172,10 +177,16 @@ local function spawnCFrame(plot: Plot): CFrame
 	return CFrame.lookAt(position, plot.floor.Position + Vector3.new(0, 4, 0))
 end
 
--- Gives the player a plot once their data is loaded. Safe to call many times. nil = no free plot (or they left).
+-- Gives the player a plot once their data is loaded. Safe to call many times. nil = data did not load, no free plot, or they left.
 local function ensurePlot(player: Player): Plot?
-	if Data.WaitFor(player, 60) == nil or player.Parent == nil then
+	if Data.WaitFor(player, 120) == nil then
+		if player.Parent ~= nil then
+			warn(`[Tycoon] data did not load for {player.Name}`)
+		end
 		return nil
+	end
+	if player.Parent == nil then
+		return nil -- they left while the data loaded
 	end
 	local existing = plotOf[player]
 	if existing then
@@ -194,7 +205,9 @@ local function ensurePlot(player: Player): Plot?
 	end
 	plot.owner = player
 	plotOf[player] = plot
-	plot.sign.Text = `{plot.name}: {player.DisplayName}`
+	for _, label in plot.signs do
+		label.Text = `{plot.name}: {player.DisplayName}`
+	end
 	-- Rebuild everything the player bought before, in shop order.
 	local owned = getOwned(player)
 	local rebuilt = 0
@@ -235,7 +248,9 @@ local function releasePlot(player: Player)
 	plotOf[player] = nil
 	plot.owner = nil
 	plot.items:ClearAllChildren() -- removes the items and the drops; the drop loops stop
-	plot.sign.Text = `{plot.name}: free`
+	for _, label in plot.signs do
+		label.Text = `{plot.name}: free`
+	end
 	print(`[Tycoon] {player.Name} left, {plot.name} is free`)
 end
 
@@ -256,6 +271,10 @@ local function buy(player: Player, itemId: any): (boolean, string)
 	local item = if typeof(itemId) == "string" then TycoonItems.BY_ID[itemId] else nil
 	if item == nil then
 		return false, "That item does not exist"
+	end
+	if item.price < 0 or item.price % 1 ~= 0 then
+		warn(`[Tycoon] bad price {item.price} for {item.id} in TycoonItems: use a whole number from 0`)
+		return false, "This item has a bad price"
 	end
 	local plot = plotOf[player]
 	if plot == nil or not Data.IsLoaded(player) then
@@ -288,6 +307,9 @@ end
 -- The client asks for its plot and buy list. It waits until the data is loaded.
 Net.OnInvoke("TycoonGetShop", function(player: Player): (string, { ShopEntry })
 	if ensurePlot(player) == nil then
+		if not Data.IsLoaded(player) then
+			return "Your data did not load. Rejoin.", {}
+		end
 		return "No free plot. Try another server.", {}
 	end
 	local list = shopFor(player)
@@ -418,12 +440,12 @@ What it does: it asks the server for the buy list once, then shows the new list 
 ## Check that it works
 
 1. Press **Play** in Studio. Output shows `[Tycoon] ready`, `[TycoonShopUI] ready`, and no red errors.
-2. Within a few seconds Output shows `[Tycoon] <YourName> claimed Plot1 (0 items rebuilt)`. You stand on a green plot. Its white sign says `Plot1: <YourName>`.
+2. Within a few seconds Output shows `[Tycoon] <YourName> claimed Plot1 (0 items rebuilt)`. You stand on a green plot. The white sign at the front edge of your plot says `Plot1: <YourName>` (turn around to see it).
 3. The left of the screen shows one button: **Dropper 1 - Free**. Click it. Output shows `[Tycoon] <YourName> bought Dropper1 for 0 Cash`. A grey box appears, and yellow drops slide into the green collector.
 4. The player list (top right) has a **Cash** column. It goes up by 2 every 2 seconds.
 5. The button now says **Dropper 2 - 25 Cash**. Click it before you have 25 Cash: the screen says `Not enough Cash: it costs 25`. Click it again with 25 Cash or more: it is bought and **Back Wall - 60 Cash** appears.
 6. Stop, then press **Play** again. With **Enable Studio Access to API Services** on ([player-data](player-data.md)), Output shows `[Tycoon] <YourName> claimed Plot1 (2 items rebuilt)` and both droppers are back. Without it, data resets on every Play.
-7. (Two players) In the **Test** tab, set **Clients and Servers** to 2 players and click **Start**. Each player gets a different plot. Close one player window: Output shows `[Tycoon] Player1 left, Plot1 is free` and its items disappear.
+7. (Two players) In the **Test** tab, set **Clients and Servers** to 2 players and click **Start**. Each player gets a different plot. Close one player window. In the **Server** window's Output, you see `[Tycoon] Player1 left, Plot1 is free` and its items disappear.
 
 ## Common mistakes
 
@@ -437,7 +459,7 @@ What it does: it asks the server for the buy list once, then shows the new list 
 | `Data.Get(player, "TycoonOwned")` in `PlayerAdded` right away | `ensurePlot` calls `Data.WaitFor` first | Data loads after the player joins. Before that `Get` returns `nil`. |
 | `character.HumanoidRootPart.CFrame = ...` to send a player home | `PlayerService.Teleport(player, cframe)` | A big jump without it is a `Teleport` cheat flag. |
 | More players than plots | Set **Max Players** to `PLOT_COUNT` (Game Settings → Places) | A player with no plot gets `No free plot` and Output warns `[Tycoon] no free plot`. |
-| A price like `12.5` or `-10` | Whole numbers from 0 | `Economy.Spend` refuses other amounts: the buy fails with `Not enough Cash`. |
+| A price like `12.5` or `-10` | Whole numbers from 0 | The server refuses the buy: Output warns `[Tycoon] bad price` and the screen says `This item has a bad price`. |
 
 ## Change it
 

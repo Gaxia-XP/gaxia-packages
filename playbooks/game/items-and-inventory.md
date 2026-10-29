@@ -215,4 +215,4 @@ print("[ToolGiver] ready")
 
 ## See also
 
-- [API: Item](../api/Item.md) · [API: Tool](../api/Tool.md) · [API: Inventory](../api/Inventory.md) · [API: ItemDef](../api/ItemDef.md) · [API: Trade](../api/Trade.md) · [Player data](player-data.md) · [Shop](shop.md) · [Signals and cleanup](signals-cleanup-and-timing.md) · [Anti-cheat and bans](anticheat-and-bans.md) · [Troubleshooting](../troubleshooting.md)
+- [API: Item](../api/Item.md) · [API: Tool](../api/Tool.md) · [API: Inventory](../api/Inventory.md) · [API: ItemDef](../api/ItemDef.md) · [API: Trade](../api/Trade.md) · [Player data](player-data.md) · [Shop](shop.md) · [Sword combat and enemy NPCs](combat-and-npcs.md) · [Signals and cleanup](signals-cleanup-and-timing.md) · [Anti-cheat and bans](anticheat-and-bans.md) · [Troubleshooting](../troubleshooting.md)

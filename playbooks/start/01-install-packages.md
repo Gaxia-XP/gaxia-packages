@@ -28,7 +28,7 @@ No row fits (farm, shooter, racing, …)? Pick **Every game**, then one package 
 | Every game | `Data`, `Player`, `AntiCheat`, `Admin`, `Input` |
 | Simulator (collect, upgrade, rebirth) | `Economy`, `Item`, `Pet`, `Level`, `Quest`, `DailyReward`, `Leaderboard`, `Shop`, `UI.Toast` |
 | Obby | `Zone`, `Cooldown`, `Leaderboard`, `Monetization`, `UI.Toast` |
-| Tycoon | `Economy`, `Idle`, `Placement`, `Visit`, `Interaction`, `Shop`, `UI.Toast` |
+| Tycoon | `Economy` (+ `Player` from the row above) is all [game/tycoon](../game/tycoon.md) needs. Add later: `Idle`, `Placement`, `Visit`, `Interaction`, `Shop`, `UI.Toast` |
 | RPG / adventure | `Inventory`, `ItemDef`, `Level`, `Quest`, `Loot`, `Interaction`, `Zone`, `Dialog`, `AI`, `Anim`, `Shop`, `UI.Toast` |
 | Social hangout | `Friend`, `Party`, `Settings`, `Chat`, `Anim`, `UI.Toast` |
 | Fighting | `Cooldown`, `Anim`, `Ragdoll`, `VFX`, `SFX`, `Camera`, `Level`, `Leaderboard`, `UI.Toast` |

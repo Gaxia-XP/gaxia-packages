@@ -15,7 +15,7 @@ How the game fits together (each part reuses a pattern from another playbook):
 | Coin parts on the map, picked up on touch | `SimCoins` | [currency-and-leaderstats](currency-and-leaderstats.md) (`Economy.Add`) |
 | The 2x Coins upgrade, bought on the server | `SimShop` | [shop](shop.md), [04-client-server](../start/04-client-server-communication.md) |
 | Coins label, buy button and pop-up message | `SimHud` | [show-values-on-screen](show-values-on-screen.md), [ui](ui.md) |
-| Test Coins in Studio | `StudioTestCoins` | [currency-and-leaderstats](currency-and-leaderstats.md) (Step 4) |
+| Test Coins in Studio | `StudioTestCoins` | [currency-and-leaderstats, Studio test Coins](currency-and-leaderstats.md#studio-test-coins-used-by-other-playbooks) |
 
 ## Step 1 — Install the packages
 
@@ -376,7 +376,7 @@ What it does: the label shows your Coins, the button shows the price (or OWNED),
 
 ## Step 7 — Give yourself test Coins in Studio
 
-Create the Script **StudioTestCoins** in **ServerScriptService**. Copy it exactly from [currency-and-leaderstats, Step 4](currency-and-leaderstats.md#step-4--studio-only-give-yourself-test-coins).
+Create the Script **StudioTestCoins** in **ServerScriptService**. Copy it exactly from [currency-and-leaderstats, Studio test Coins](currency-and-leaderstats.md#studio-test-coins-used-by-other-playbooks).
 It gives every tester at least 500 Coins on each Play, only in Studio, so you can test the shop without collecting 20 coins first.
 
 ## Check that it works
@@ -411,6 +411,7 @@ If you cannot press Play, ask the user to do these steps and paste the Output li
 ## Change it
 
 - Coin value, number of coins, spawn speed, area or upgrade price: change the numbers in `SimConfig`. Nothing else.
+- After [simulator-extras](simulator-extras.md) Step 2, `SimConfig.CoinValue` is not used anymore: change the coin value in `BaseCoinValue` of `SimMultiplier`.
 - To put the coins somewhere else: set `SpawnCenter` to the middle of that area (Y = floor height + 3).
 - A 3x upgrade instead: change `return 2` to `return 3` in `GetMultiplier`, and the text in `SimShop` and `SimHud`.
 - More items in the shop (Tools, boosts): [shop](shop.md). Sell the upgrade for Robux: [robux-purchases](robux-purchases.md).

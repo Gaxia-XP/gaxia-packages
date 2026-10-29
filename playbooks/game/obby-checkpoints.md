@@ -85,8 +85,14 @@ local function getAlivePlayer(hit: BasePart): (Player?, Humanoid?)
 	return player, humanoid
 end
 local function onCheckpointTouched(checkpoint: BasePart, hit: BasePart)
-	local player = getAlivePlayer(hit)
-	if player == nil or not Data.IsLoaded(player) then
+	local player, humanoid = getAlivePlayer(hit)
+	if player == nil or humanoid == nil or not Data.IsLoaded(player) then
+		return
+	end
+	-- Exploiters can fake touches: the body must really be near the checkpoint.
+	local root = humanoid.RootPart
+	local maxDistance = checkpoint.Size.Magnitude / 2 + 10
+	if root == nil or (root.Position - checkpoint.Position).Magnitude > maxDistance then
 		return
 	end
 	local stage = checkpoint:GetAttribute("Stage")
@@ -198,7 +204,7 @@ end
 print("[ObbyCheckpoints] ready")
 ```
 
-What it does: touching the next checkpoint saves the stage. Lava kills. Every spawn moves the player to their saved checkpoint.
+What it does: touching the next checkpoint saves the stage (only when the body is really near it). Lava kills. Every spawn moves the player to their saved checkpoint.
 
 ## Step 3 — (Optional) Create the Skip Stage product on Roblox
 
@@ -217,6 +223,7 @@ Create a **Script** in **ServerScriptService** named **ObbySkipStage**. Paste yo
 local CollectionService = game:GetService("CollectionService")
 local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
 local Gaxia = require(game:GetService("ReplicatedStorage").Gaxia_Packages)
+assert(GaxiaServer.IsInstalled("Data"), "ObbySkipStage needs the Data package: install it (playbooks/start/01-install-packages.md)")
 assert(GaxiaServer.IsInstalled("Monetization"), "ObbySkipStage needs the Monetization package: install it (playbooks/start/01-install-packages.md)")
 local Net = Gaxia.Net
 local Data = GaxiaServer.Data
@@ -242,7 +249,12 @@ if SKIP_PRODUCT_ID ~= 0 then
 		if typeof(stage) ~= "number" then
 			error("ObbyStage is not loaded")
 		end
-		local newStage = math.min(stage + 1, getLastStage())
+		if stage >= getLastStage() then
+			-- They reached the last stage on foot before paying. The skip is used up.
+			print(`[ObbySkipStage] {player.Name} was already on the last stage (purchase {receipt.PurchaseId})`)
+			return
+		end
+		local newStage = stage + 1
 		if not Data.Set(player, "ObbyStage", newStage) then
 			error("Data.Set failed")
 		end
@@ -276,9 +288,11 @@ end, { rate = 2, burst = 4 })
 print("[ObbySkipStage] ready")
 ```
 
-What it does: a paid skip adds 1 to `ObbyStage` and respawns the player there. Players on the last stage are never asked to pay.
+What it does: a paid skip adds 1 to `ObbyStage` and respawns the player there. Players on the last stage are never asked to pay. If a player reaches the last stage on foot while the Robux window is open and then buys, the skip is used up and Output shows `was already on the last stage`.
 
 ## Step 5 — (Optional) Add the Skip Stage button
+
+Do Step 4 first. This button needs the ObbySkipStage script.
 
 Create a **LocalScript** in **StarterPlayer → StarterPlayerScripts** named **ObbySkipButton**:
 
@@ -333,6 +347,8 @@ print("[ObbySkipButton] ready")
 | Teleport right away in `PlayerAdded` | Teleport in `CharacterAdded`, after `Data.WaitFor` | The body spawns again after every death. The data is not loaded yet when the first body spawns. |
 | `humanoid.Health = 0` alone in a kill brick | `Combat.RegisterDamage(humanoid, humanoid.Health)` first | AntiCheat treats every health drop it was not told about as a hard `Combat` cheat. |
 | `Data.Set(player, "ObbyStage", stage)` whenever any checkpoint is touched | Only when `stage == current + 1` | Touching an old checkpoint would send the player back. A far checkpoint would skip stages. |
+| Trusting `Touched` alone | Also check the distance from the body to the checkpoint | Exploiters can fake touches and run through every stage in a second. |
+| Adding the Step 5 button without Step 4 | Do Step 4 first | Output warns `is still waiting: the server has not created remote 'ObbyMessage'` and the button does nothing. |
 | Saving the checkpoint Part in data | Save the stage number | DataStores cannot save Instances. |
 | A checkpoint with the tag but no `Stage` attribute (or a string `"3"`) | A **number** attribute `Stage` | ObbyCheckpoints warns and ignores the part. |
 | `player.leaderstats.Stage.Value = stage` | `Data.Set` (Step 2 copies it to the leaderboard) | Leaderstats are not saved, and AntiCheat flags direct writes (`StatTamper`). |

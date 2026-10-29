@@ -164,9 +164,9 @@ What it does: it shows one button. A press asks the server and shows the answer 
 1. Press **Play** in Studio.
 2. Output shows `[PotionStand] ready` and `[PotionStandButton] ready`, and no red errors.
 3. Wait 3 seconds, then click the button. A new player has 0 Coins, so Output shows `[PotionStandButton] answer: false Not enough Coins (costs 50)`. The server checked and said no: this is correct. (`Your data is still loading` means you clicked too early: wait 2 seconds and click again.) If you already have 50 Coins or more (for example from `CoinPayout` in [currency-and-leaderstats](../game/currency-and-leaderstats.md)), you see the lines of item 5 instead: skip to item 6.
-4. Stop. Create the Script **StudioTestCoins** in **ServerScriptService**. Copy it exactly from [currency-and-leaderstats, Step 4](../game/currency-and-leaderstats.md#step-4--studio-only-give-yourself-test-coins). It gives you at least 500 Coins on each Play, only in Studio.
+4. Stop. Create the Script **StudioTestCoins** in **ServerScriptService**. Copy it exactly from [currency-and-leaderstats, Studio test Coins](../game/currency-and-leaderstats.md#studio-test-coins-used-by-other-playbooks). It gives you at least 500 Coins on each Play, only in Studio.
 5. Press **Play**. Wait until Output shows `[StudioTestCoins] <YourName> now has at least 500 Coins`, then click. Output shows these three lines (their order may differ): `[PotionStand] <YourName> bought 2 SpeedPotion for 50 Coins`, `[PotionStandButton] <YourName> bought 2 SpeedPotion` and `[PotionStandButton] answer: true Bought 2 SpeedPotion`.
-6. Keep `StudioTestCoins` while you test (it gives nothing in a live game), or delete it.
+6. Delete `StudioTestCoins` when you are done testing. Delete it to see the `Not enough Coins` answer of check 3 again. Delete it before Team Test and before you publish: with Studio API access on, its 500 Coins are saved to your real save.
 
 ## Common mistakes
 

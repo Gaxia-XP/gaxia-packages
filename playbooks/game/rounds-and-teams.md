@@ -2,7 +2,7 @@
 
 > Players wait in the lobby, a countdown shows on every screen, then a random map loads. Players are split into Red and Blue, sent to the map, and the round runs on a timer. The team with the most players still alive wins Coins. Everyone goes back to the lobby, and it starts again.
 
-**Use this when** the user asks for: "rounds", "round system", "game loop", "intermission", "countdown before the match", "teams", "split players into teams", "red vs blue", "random map", "map voting", "round timer", "winner gets coins", "minimum players to start" (ไทย: "ระบบรอบ", "พักก่อนเริ่มรอบ", "นับถอยหลัง", "แบ่งทีม", "ทีมแดงทีมน้ำเงิน", "สุ่มแมพ", "เวลารอบ", "ทีมที่ชนะได้เหรียญ", "ต้องมีผู้เล่นครบก่อนเริ่ม").
+**Use this when** the user asks for: "rounds", "round system", "game loop", "intermission", "countdown before the match", "teams", "split players into teams", "red vs blue", "random map", "round timer", "winner gets coins", "minimum players to start" (ไทย: "ระบบรอบ", "พักก่อนเริ่มรอบ", "นับถอยหลัง", "แบ่งทีม", "ทีมแดงทีมน้ำเงิน", "สุ่มแมพ", "เวลารอบ", "ทีมที่ชนะได้เหรียญ", "ต้องมีผู้เล่นครบก่อนเริ่ม").
 **Packages:** `Player` and `Economy` (it also installs `Data`). `State` and `Trove` are Core: always installed. The Script stops with a clear message if one is missing.
 **You will create:** a ModuleScript `ServerStorage/GameModules/RoundMaps`, a Script `ServerScriptService/RoundManager` and a LocalScript `StarterPlayer/StarterPlayerScripts/RoundHud`.
 
@@ -193,7 +193,16 @@ local function startRound(map: Model)
 			roundTrove:Connect(humanoid.Died, function()
 				knockOut(player, "died")
 			end)
-			PlayerService.Teleport(player, spawnCFrame(map, team, index))
+			local target = spawnCFrame(map, team, index)
+			task.spawn(function()
+				-- Load the map around the player first (StreamingEnabled), so they do not fall through it.
+				pcall(function()
+					player:RequestStreamAroundAsync(target.Position)
+				end)
+				if alive[player] == team then -- still in the round
+					PlayerService.Teleport(player, target)
+				end
+			end)
 			print(`[RoundManager] {player.Name} is on team {team.Name}`)
 		end
 	end
@@ -231,8 +240,9 @@ end
 
 local function endRound(map: Model, winner: Team?)
 	roundTrove:Clean() -- disconnects the Died connections
+	local message = if winner then `{winner.Name} team wins!` else "Draw! Nobody wins"
+	setState("Ended", END_SECONDS, message)
 	if winner then
-		setState("Ended", END_SECONDS, `{winner.Name} team wins!`)
 		print(`[RoundManager] winner: {winner.Name}`)
 		for _, player in winner:GetPlayers() do
 			if Data.IsLoaded(player) and Economy.Add(player, "Coins", WIN_COINS) then
@@ -240,7 +250,6 @@ local function endRound(map: Model, winner: Team?)
 			end
 		end
 	else
-		setState("Ended", END_SECONDS, "Draw! Nobody wins")
 		print("[RoundManager] draw")
 	end
 	for player in alive do -- players who died already respawned in the lobby
@@ -251,7 +260,10 @@ local function endRound(map: Model, winner: Team?)
 	end
 	table.clear(alive)
 	map:Destroy()
-	task.wait(END_SECONDS)
+	for timeLeft = END_SECONDS, 1, -1 do -- the winner message counts down
+		setState("Ended", timeLeft, message)
+		task.wait(1)
+	end
 end
 
 Players.PlayerAdded:Connect(function(player: Player)
@@ -284,7 +296,13 @@ while true do
 	if map then
 		print("[RoundManager] round started")
 		startRound(map)
-		endRound(map, runRound())
+		if teamsWithPlayers() < math.min(2, minPlayers()) then
+			-- Only one team has players (someone had no character): no free win.
+			print("[RoundManager] not enough players on teams")
+			endRound(map, nil)
+		else
+			endRound(map, runRound())
+		end
 	elseif enough then
 		task.wait(5) -- no map: try again in 5 seconds
 	end
@@ -334,6 +352,7 @@ roundState:OnChanged("TimeLeft", refresh)
 roundState:OnChanged("Phase", function(phase: any)
 	print(`[RoundHud] phase: {tostring(phase)}`)
 end)
+print(`[RoundHud] phase: {tostring(roundState:Get("Phase"))}`) -- the phase right now
 refresh()
 print("[RoundHud] ready")
 ```
@@ -343,11 +362,12 @@ What it does: the label changes every time the server sets `Status` or `TimeLeft
 ## Check that it works
 
 1. Press **Play** in Studio. Output shows `[RoundManager] ready` and `[RoundHud] ready`, and no red errors.
-2. The top label shows `Intermission - 15 s`, counting down. Output shows `[RoundHud] phase: Intermission`.
+2. The top label shows `Intermission - 15 s` (or a smaller number), counting down. Output shows `[RoundHud] phase: Intermission` (or `Waiting` first, then `Intermission`).
 3. After 15 seconds Output shows `[RoundManager] map: Grassland` (or `Desert`), `[RoundManager] round started` and `[RoundManager] <YourName> is on team Red` (or Blue). You stand on a floating island. Your name in the player list is in the team color.
-4. The label shows `Red 1 vs Blue 0 - 60 s`, counting down. When it ends, Output shows `[RoundManager] winner: Red` and `[RoundManager] <YourName> got 25 Coins`. You are back above the Baseplate.
+4. The label shows `Red 1 vs Blue 0 - 60 s`, counting down. When it ends, Output shows `[RoundManager] winner: Red` and `[RoundManager] <YourName> got 25 Coins`. The label shows `Red team wins! - 5 s`, counting down to 1. You are back above the Baseplate.
 5. Walk off the island during a round. Output shows `[RoundManager] <YourName> is out (died)`, then `[RoundManager] draw` (nobody is left). If `AntiCheat` is installed, a yellow `[AntiCheat] observe mode ... Combat` warning may also show: that death did not go through `RegisterDamage` ([anticheat-and-bans](anticheat-and-bans.md)).
-6. Minimum players: in the **Test** tab, set **Clients and Servers** to 2 players and click **Start**. Both players are put on different teams. Close one player window during the countdown: the label shows `Waiting for players (1/2)`.
+6. Two players: in the **Test** tab, set **Clients and Servers** to 2 players and click **Start**. When the round starts, Output shows one player on team Red and one on team Blue.
+7. Minimum players (optional): Studio needs only `STUDIO_MIN_PLAYERS` (1) players, so first set `STUDIO_MIN_PLAYERS = 2` in RoundManager. Start 2 players again. Close one player window during the countdown: the label shows `Waiting for players (1/2)`. Set `STUDIO_MIN_PLAYERS` back to `1` when you are done.
 
 ## Common mistakes
 
@@ -359,6 +379,8 @@ What it does: the label changes every time the server sets `Status` or `TimeLeft
 | `humanoid.Died:Connect(...)` every round, never disconnected | `roundTrove:Connect(humanoid.Died, ...)` and `roundTrove:Clean()` at the end | Old connections pile up. A death in a later round runs old code. |
 | `MIN_PLAYERS = 1` for the live game | `MIN_PLAYERS = 2`, `STUDIO_MIN_PLAYERS = 1` | One player alone always wins. Studio Play only lifts the limit while you test. |
 | `State.Create("Round", ...)` | `State.Create("RoundInfo", ...)` | [show-values-on-screen](show-values-on-screen.md) already uses `Round` with other keys. Two scripts in one container overwrite each other. |
+| `PlayerService.Teleport(...)` right after the map is cloned, with no `RequestStreamAroundAsync` | `pcall(function() player:RequestStreamAroundAsync(target.Position) end)` first, then Teleport | With `Workspace.StreamingEnabled` on (new places have it on), the far map may not be loaded on the client yet. The player falls through it, dies and is out. |
+| A round that starts with players on one team only | `teamsWithPlayers() < math.min(2, minPlayers())` → end as a draw with no Coins | The lone team would win `WIN_COINS` for free. An alt account that resets at the right moment could farm Coins. |
 | Map parts with `Anchored = false` | Anchor every map part | Unanchored floors fall into the void before players arrive. |
 
 ## Change it

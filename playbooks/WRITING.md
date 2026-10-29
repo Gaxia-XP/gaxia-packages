@@ -17,7 +17,8 @@ title, one-line result, *Use this when*, *Packages*, *You will create*, numbered
 - Name things the same way every time (a script called `CoinShop` stays `CoinShop`).
 - *Use this when* lists the phrases users type, in English and Thai.
 - Explain *why* in one line after the code, not in long paragraphs before it.
-- Under 220 lines (a full example game may be longer).
+- Under 220 lines. Two cases may be longer: a full example game, and a playbook whose
+  complete scripts alone pass 150 lines. Then keep the prose and *Change it* short.
 
 ## Rules for the code
 

@@ -163,7 +163,7 @@ What it does: it asks the server for the list once, makes one button per item, a
 
 ## Step 3 — Give yourself test Coins in Studio
 
-Create the Script **StudioTestCoins** in **ServerScriptService**. Copy it exactly from [currency-and-leaderstats, Step 4](currency-and-leaderstats.md#step-4--studio-only-give-yourself-test-coins).
+Create the Script **StudioTestCoins** in **ServerScriptService**. Copy it exactly from [currency-and-leaderstats, Studio test Coins](currency-and-leaderstats.md#studio-test-coins-used-by-other-playbooks).
 It gives every tester at least 500 Coins on each Play, only in Studio, so you can test buying at once.
 
 ## Check that it works

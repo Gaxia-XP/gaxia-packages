@@ -158,6 +158,10 @@ Flags look like `[AntiCheat] observe mode — would take HARD action against <Na
 | `unknown package(s): X` | A misspelled package name | Copy names from `node tools/packages.mjs list`: commas, no spaces. |
 | Rojo game boots the wrong services after a rebuild | The game's own project still has the old `GaxiaPackages` value in `$attributes` | Copy the new value from `gaxia/default.project.json` into the game's project. |
 
+### J. Other packages
+
+Each package playbook has a **Common mistakes** table with its own symptoms: [items-and-inventory](game/items-and-inventory.md) · [progression](game/progression.md) · [live-ops](game/live-ops.md) · [zones-and-interactions](game/zones-and-interactions.md) · [effects-and-feel](game/effects-and-feel.md) · [admin-and-chat-commands](game/admin-and-chat-commands.md) · [config-and-flags](game/config-and-flags.md) · [pets](game/pets.md) · [social](game/social.md) · [multi-server](game/multi-server.md) · [webhooks-and-analytics](game/webhooks-and-analytics.md) · [signals-cleanup-and-timing](game/signals-cleanup-and-timing.md).
+
 ### K. Headless runs (`tools/run-game.mjs`, `check-playbooks.mjs --run`)
 
 These lines come from the Gaxia repo's test tools, not from Studio. Pass = the `RESULT:` line ends `→ exit 0`.
@@ -173,10 +177,6 @@ These lines come from the Gaxia repo's test tools, not from Studio. Pass = the `
 | `Infinite yield possible on '…:WaitForChild("X")'`, then a `HANGS` entry | A script waits for an instance that never appears (no timeout). This is a hang in Studio too | Create `X` where the script waits, fix the name, or pass a timeout: `WaitForChild("X", 10)`. For a remote: `Net.DeclareEvent("X")` on the server (table D). |
 | A `HANGS` entry on `InvokeServer` or `require` | A call never returned: a server handler that waits forever, or a ModuleScript that waits at its top level | Make the handler return. Never wait at the top level of a ModuleScript. |
 | `RESULT: 0 errors, 0 hangs, N warnings → exit 0` | Pass. Warnings do not fail a run | Still read each warning: most rows of this page start from a yellow line. |
-
-### J. Other packages
-
-Each package playbook has a **Common mistakes** table with its own symptoms: [items-and-inventory](game/items-and-inventory.md) · [progression](game/progression.md) · [live-ops](game/live-ops.md) · [zones-and-interactions](game/zones-and-interactions.md) · [effects-and-feel](game/effects-and-feel.md) · [admin-and-chat-commands](game/admin-and-chat-commands.md) · [config-and-flags](game/config-and-flags.md) · [pets](game/pets.md) · [social](game/social.md) · [multi-server](game/multi-server.md) · [webhooks-and-analytics](game/webhooks-and-analytics.md) · [signals-cleanup-and-timing](game/signals-cleanup-and-timing.md).
 
 ## Step 3 — (Only when a GaxiaServer service is nil) Run HealthCheck
 

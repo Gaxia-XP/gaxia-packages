@@ -15,7 +15,7 @@ How it works (the scripts build their own NPC, so they work in an empty Baseplat
 
 ## Step 1 — Write what the NPC says
 
-In **ReplicatedStorage**, create a **Folder** named **GameShared**. In it, create a **ModuleScript** named **NpcDialogs**. Paste this whole block into it:
+In **ReplicatedStorage**, find the **Folder** **GameShared**. If it is not there, create it (other playbooks use the same folder; do not make a second one). In it, create a **ModuleScript** named **NpcDialogs**. Paste this whole block into it:
 
 ```lua
 -- ModuleScript: ReplicatedStorage/GameShared/NpcDialogs
@@ -297,7 +297,7 @@ local Dialog = Gaxia.Dialog
 local Cutscene = Gaxia.Cutscene
 local Toast = Gaxia.UI.Toast
 local player = Players.LocalPlayer
-local WALK_AWAY_DISTANCE = 20 -- studs: the dialog closes when the player walks this far from the NPC
+local WALK_AWAY_DISTANCE = 14 -- studs: the dialog closes when the player walks this far from the NPC. Keep it smaller than TALK_DISTANCE (15) in the NpcDialog Script.
 
 local function distanceTo(position: Vector3): number
 	local character = player.Character
@@ -363,13 +363,13 @@ What it does: it opens the dialog when the server says so, sends the clicked cho
 ## Check that it works
 
 1. Press **Play** in Studio. Output shows `[NpcDialog] ready` and `[NpcDialogUI] ready`, and no red errors.
-2. Walk to the blue NPC named **Guide**. It is 40 studs from the middle of the Baseplate (`0, 0, 0`), toward +Z. To find it, select **Workspace → Guide** in Explorer.
+2. Walk to the blue NPC named **Guide**. It is 40 studs from the middle of the Baseplate (`0, 0, 0`), toward +Z. From the spawn, walk straight forward along +Z (about 40 studs) to a blue block with the name **Guide** above it. If you cannot see it: in Explorer, select **Workspace → Guide**, then press **F** in the 3D view to move the camera to it.
 3. Stand next to it and press **E** (**Talk**). Output shows `[NpcDialog] <YourName> talks to Guide` and `[NpcDialogUI] talking to Guide`. A dialog box types `Hello, traveller! ...`.
 4. Click **Continue** until the 3 choice buttons show. Click **Can I have some Coins?**. A toast says `+25 Coins! You have 25` (more if you already had Coins). Output shows `[NpcDialog] <YourName> got 25 Coins`.
 5. Talk again and pick **Can I have some Coins?** again. The toast says `Come back in <number> s for more Coins`.
 6. Talk again and pick **Show me the village**. The screen fades to black, the camera flies above the NPC and subtitles show. You cannot walk. Output shows `[VillageTour] started`. After about 9 seconds, Output shows `[VillageTour] control is back` and you can walk and turn the camera again.
 7. Start the tour again and click **Skip** (top right). Output shows `[VillageTour] skipped`, `[VillageTour] stopped early: cancelled` and `[VillageTour] control is back`.
-8. Talk again, then walk away without choosing. After about 20 studs the dialog closes and Output shows `[NpcDialogUI] walked away, dialog closed`.
+8. Talk again, then walk away without choosing. After about 14 studs the dialog closes and Output shows `[NpcDialogUI] walked away, dialog closed`.
 
 ## Common mistakes
 
@@ -386,11 +386,43 @@ What it does: it opens the dialog when the server says so, sends the clicked cho
 ## Change it
 
 - To change the words: edit `lines` and the `text` of each choice in `NpcDialogs`. Keep the `id`s: the server uses them.
-- To add an NPC: add one more entry to `NpcDialogs` (for example `Baker = { name = "Baker", position = Vector3.new(20, 3, 40), lines = {...}, choices = {...} }`). The server builds it and puts a prompt on it.
-- To add a choice: add `{ id = "heal", text = "Heal me" }` to `choices`, then add `elseif choiceId == "heal" then ... return true, "Healed!"` in `NpcDialogChoose`, above `return true, "Goodbye!"`.
+- To add an NPC: in `NpcDialogs`, add one more entry inside the table, below the `Guide = { ... },` entry. The server builds it and puts a prompt on it. Every NPC needs at least one line and one choice. For example:
+
+  ```lua
+  -- fragment
+  	Baker = {
+  		name = "Baker",
+  		position = Vector3.new(20, 3, 40),
+  		lines = { "Fresh bread! Come back tomorrow for more." },
+  		choices = {
+  			{ id = "bye", text = "Goodbye" },
+  		},
+  	},
+  ```
+- To add a choice: add `{ id = "heal", text = "Heal me" },` to the NPC's `choices` in `NpcDialogs`. Then, in the `NpcDialog` Script, in `NpcDialogChoose`, paste these lines directly above the line `end` that comes just before `return true, "Goodbye!"`:
+
+  ```lua
+  -- fragment
+  	elseif choiceId == "heal" then
+  		local humanoid = if player.Character then player.Character:FindFirstChildOfClass("Humanoid") else nil
+  		if humanoid then
+  			humanoid.Health = humanoid.MaxHealth
+  		end
+  		return true, "Healed!"
+  ```
 - To use your own NPC model: name it `Guide`, put it in **Workspace**, and in `makeNpc` replace everything from `local model = Instance.new("Model")` to `model.Parent = Workspace` with `local model = Workspace:WaitForChild(npc.name) :: Model` and `local body = model.PrimaryPart :: BasePart`. Set the model's **PrimaryPart** in Studio, and set `position` in `NpcDialogs` to where the model stands (the client uses it for the tour and the walk-away check).
 - To change the tour: edit the steps in `Cutscene.Play`. Step types: `camera` (`cframe`, `duration`), `fade` (`to` 1 = black, 0 = clear), `subtitle` (`text`, `duration`), `wait` (`duration`), `action` (`fn`, a function). Keep the whole tour shorter than `MAX_SECONDS`.
-- To play the tour when a player joins (an intro): in `NpcDialogUI`, above the last `print`, add `task.delay(3, VillageTour.Play, Vector3.new(0, 3, 40))`.
+- To play the tour when a player joins (an intro): in `NpcDialogUI`, paste these lines above the last `print`. They wait for the character first, so the player is frozen and the tour is not cut off by the spawn:
+
+  ```lua
+  -- fragment
+  task.spawn(function()
+  	local character = player.Character or player.CharacterAdded:Wait()
+  	character:WaitForChild("Humanoid")
+  	task.wait(1)
+  	VillageTour.Play(Vector3.new(0, 3, 40))
+  end)
+  ```
 - To shake the camera in the tour: install the `Camera` package and add the step `{ type = "action", fn = function() Gaxia.Camera.Shake(1, 0.3) end }`.
 
 ## See also

@@ -110,9 +110,19 @@ end
 
 `Spend` takes nothing and returns `false` when the balance is too low. A full button-to-server purchase is in [04-client-server-communication](../start/04-client-server-communication.md); a full shop is in [shop](shop.md).
 
-## Step 4 — (Studio only) Give yourself test Coins
+## Check that it works
 
-Other playbooks send you here to test buying. Do this step after the checks below pass, or when a playbook links here.
+Do these checks without the Script `StudioTestCoins` (it changes the numbers).
+
+1. Press **Play** in Studio.
+2. Output shows `[CoinLeaderstats] ready` and `[CoinPayout] ready`, and no red errors.
+3. Within a few seconds Output shows `[CoinLeaderstats] <YourName> has 0 Coins`. The player list (top right) has a **Coins** column showing 0.
+4. After 10 seconds Output shows `[CoinPayout] <YourName> +10 Coins, now 10`, and the **Coins** column shows 10.
+5. With **Enable Studio Access to API Services** on (see [player-data](player-data.md)), stop and press **Play** again: the Coins are still there.
+
+## Studio test Coins (used by other playbooks)
+
+Do this only when another playbook links here to test buying. It is not part of the steps above.
 Create a **Script** in **ServerScriptService** named **StudioTestCoins**:
 
 ```lua
@@ -150,16 +160,10 @@ else
 end
 ```
 
-What it does: in Studio each tester has at least 500 Coins after their data loads, on every Play. `Economy.Set` fires `OnTransaction`, so the **Coins** column follows. In a live game it does nothing, so you can leave it in. Delete it when you no longer need it.
+What it does: in Studio each tester has at least 500 Coins after their data loads, on every Play. `Economy.Set` fires `OnTransaction`, so the **Coins** column follows. In a live game it does nothing.
+With Studio API access on, or in Team Test, the 500 Coins are saved to the real save of each tester. Delete `StudioTestCoins` before Team Test and before you publish.
 
-## Check that it works
-
-1. Press **Play** in Studio.
-2. Output shows `[CoinLeaderstats] ready` and `[CoinPayout] ready`, and no red errors.
-3. Within a few seconds Output shows `[CoinLeaderstats] <YourName> has 0 Coins`. The player list (top right) has a **Coins** column showing 0.
-4. After 10 seconds Output shows `[CoinPayout] <YourName> +10 Coins, now 10`, and the **Coins** column shows 10.
-5. With **Enable Studio Access to API Services** on (see [player-data](player-data.md)), stop and press **Play** again: the Coins are still there.
-6. (Only if you made `StudioTestCoins`, Step 4) Output shows `[StudioTestCoins] ready (Studio only)`, then `[StudioTestCoins] <YourName> now has at least 500 Coins`. The **Coins** column shows 500 or more.
+Check it: press **Play**. Output shows `[StudioTestCoins] ready (Studio only)`, then `[StudioTestCoins] <YourName> now has at least 500 Coins`. The **Coins** column shows 500 or more.
 
 ## Common mistakes
 
@@ -176,7 +180,7 @@ What it does: in Studio each tester has at least 500 Coins after their data load
 | `Economy.Add(player, 100, "Coins")` | `Economy.Add(player, "Coins", 100)`: player, currency, then amount | Swapped arguments return `false` and warn `currency must be a non-empty string, got number 100 (are currency and amount swapped?)`. |
 | A price or reward above 1,000,000 | Keep each amount at or below `Economy.MaxTransaction`, or raise it: `GaxiaServer.EConfig.Set("Economy.MaxTransaction", 5000000)` ([config-and-flags](config-and-flags.md)) | Bigger amounts are refused, not cut: `Spend(player, "Coins", 2000000)` returns `false`, takes nothing and warns `amount 2000000 is above Economy.MaxTransaction (1000000)`. `Economy.GetMaxTransaction()` returns the current limit. |
 | A currency named like any saved field (`Level`, `Inventory`, `Pets`, `Quests`, your own `Wins` …) | `Coins`, `Gems` or a new name like `Tokens` | A field that holds a number (`Level`, `Wins`) is changed as if it were money. A field that holds something else (`Inventory`, `Pets`, `Quests`) is refused with a warning (`the saved value "Inventory" is a table, not a number`). Full list of taken names: [player-data](player-data.md). |
-| Test Coins added inside a game Script (`if RunService:IsStudio() then Economy.Add(...)` in `CoinShop`) | The separate Script `StudioTestCoins` (Step 4) | One test pattern for every playbook. `Add` on every Play keeps growing the saved balance; `StudioTestCoins` tops up to a fixed number. Delete one Script when you are done. |
+| Test Coins added inside a game Script (`if RunService:IsStudio() then Economy.Add(...)` in `CoinShop`) | The separate Script `StudioTestCoins` ([Studio test Coins](#studio-test-coins-used-by-other-playbooks)) | One test pattern for every playbook. `Add` on every Play keeps growing the saved balance; `StudioTestCoins` tops up to a fixed number. Delete one Script when you are done. |
 | `GaxiaServer.Player.SetLeaderstat` before `GaxiaServer.Player.SetupLeaderstats` | Set up first (Step 1 does it on load) | `SetLeaderstat` creates a missing column, but the column order follows the order they were made, and before data loads it shows a wrong value. |
 
 ## Change it

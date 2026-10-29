@@ -94,7 +94,7 @@ Net.OnServer("SwordSwing", function(player: Player)
 	enemy:SetAttribute("LastHitUserId", player.UserId) -- EnemyNPCs reads it to pay the killer
 	enemyHumanoid:TakeDamage(SWORD_DAMAGE)
 	print(`[CombatSword] {player.Name} hit {enemy.Name}: {enemyHumanoid.Health} HP left`)
-end, { rate = 4, burst = 4 })
+end, { rate = 4, burst = 8 }) -- room above 2 swings a second: a fast honest clicker is never flagged
 
 local function onPlayerAdded(player: Player)
 	local trove = Trove.new()
@@ -296,7 +296,14 @@ local Gaxia = require(game:GetService("ReplicatedStorage").Gaxia_Packages)
 local Net = Gaxia.Net
 local player = Players.LocalPlayer
 
+local SWING_COOLDOWN = 0.5 -- the same as in CombatSword
+local lastSwing = 0
+
 local function onSwordActivated()
+	if os.clock() - lastSwing < SWING_COOLDOWN then
+		return -- too soon: the server would ignore it, and many requests get flagged RemoteRate
+	end
+	lastSwing = os.clock()
 	-- Send only "I swung". No target, no damage: the server decides both.
 	Net.FireServer("SwordSwing")
 	print("[SwordInput] swing")
@@ -322,7 +329,7 @@ end
 print("[SwordInput] ready")
 ```
 
-What it does: `Activated` fires when the player clicks while holding the Sword. The script only tells the server; the server does the rest.
+What it does: `Activated` fires on every click while the player holds the Sword. The script sends at most one swing every 0.5 seconds. The server does the rest.
 
 ## Check that it works
 
@@ -332,13 +339,15 @@ What it does: `Activated` fires when the player clicks while holding the Sword. 
 4. Stand next to a Zombie and click. Output shows `[SwordInput] swing` and `[CombatSword] <YourName> hit Zombie: 40 HP left`. Click far from every Zombie: `[CombatSword] <YourName> swung and missed`.
 5. Hit the same Zombie 3 times. Output shows `[EnemyNPCs] <YourName> killed a Zombie: +10 Coins, now 10` (more if you already had Coins). About 5 seconds later: `[EnemyNPCs] spawned a Zombie at ...`.
 6. Let a Zombie touch you. Output shows `[EnemyNPCs] a Zombie hit <YourName>: 90 HP left`. For the first 10 seconds after you spawn, the Baseplate's spawn shield (a ForceField) blocks the damage: the number stays at `100`.
-7. If AntiCheat is installed: Output has **no** yellow line `[AntiCheat] observe mode — would take HARD action against <YourName> (...): Combat`.
+7. Click as fast as you can for 5 seconds. Output shows `[SwordInput] swing` about twice a second, not on every click.
+8. If AntiCheat is installed: Output has **no** yellow `[AntiCheat]` line with `Combat` or `RemoteRate:SwordSwing` in it.
 
 ## Common mistakes
 
 | Wrong | Right | Why |
 |---|---|---|
 | The client sends `"SwordSwing", zombie, 20` (a target or damage) | The client sends only `"SwordSwing"` | A cheater can send any target and any damage. The server finds the target and knows the damage. |
+| `Net.FireServer("SwordSwing")` on every click | Skip clicks within `SWING_COOLDOWN` on the client (`lastSwing`) | Fast clicks go over the remote's `rate`. AntiCheat flags `RemoteRate:SwordSwing`, then takes HARD action. |
 | `sword.Handle.Touched` deals the damage | The distance check in `SwordSwing` | Touched misses fast swings and can be faked. The server checks the real distance. |
 | `humanoid:TakeDamage(10)` on a player alone | `Combat.RegisterDamage(humanoid, 10)` right before it | AntiCheat flags every health drop it was not told about (reason `Combat`). With `AntiCheat.Enforce` on it kicks the player. |
 | Two hits on one player in the same moment | One hit at most every `HURT_GAP` seconds (`hurtPlayer`) | `RegisterDamage` remembers only the last amount. A second drop in the same moment is flagged `Combat`. |
@@ -351,15 +360,15 @@ What it does: `Activated` fires when the player clicks while holding the Sword. 
 
 - More Zombies, or other places: add or change the `Vector3` values in `SPAWN_POINTS` (`y = 4` stands on the Baseplate).
 - Harder or easier: change `ENEMY_HEALTH`, `ENEMY_SPEED`, `ATTACK_DAMAGE`, `ATTACK_COOLDOWN` (EnemyNPCs) or `SWORD_DAMAGE`, `HIT_RANGE`, `SWING_COOLDOWN` (CombatSword). Bigger reward: `KILL_REWARD`.
-- Your own enemy model: put a Model named `Zombie` in **ServerStorage** with an unanchored part named `HumanoidRootPart` and a `Humanoid`. In `buildEnemy`, replace the lines from `local model = Instance.new("Model")` to `humanoid.HipHeight = 2` with:
+- Your own enemy model: put a Model named `Zombie` in **ServerStorage**. It needs a part named `HumanoidRootPart` and a `Humanoid`. Every part must be unanchored and welded to `HumanoidRootPart` (select the model, uncheck **Anchored**). In `buildEnemy`, replace the lines from `local model = Instance.new("Model")` to `humanoid.HipHeight = 2` with:
   ```lua
   -- fragment
-  local model = (game:GetService("ServerStorage"):WaitForChild("Zombie") :: Model):Clone()
-  local root = model:WaitForChild("HumanoidRootPart") :: BasePart
-  local humanoid = model:WaitForChild("Humanoid") :: Humanoid
+  local template = game:GetService("ServerStorage"):FindFirstChild("Zombie")
+  assert(template and template:IsA("Model"), "EnemyNPCs: put a Model named Zombie in ServerStorage")
+  local model = template:Clone()
+  local root, humanoid = model:FindFirstChild("HumanoidRootPart") :: BasePart, model:FindFirstChildOfClass("Humanoid") :: Humanoid
   model:PivotTo(CFrame.new(position))
   ```
-- Players can hit players (PvP): in `findClosestEnemy`, also check other players' characters, and call `Combat.RegisterDamage(victimHumanoid, SWORD_DAMAGE)` right before `TakeDamage` (the same way as `hurtPlayer`).
 - Enemies that walk around walls: the optional `AI` package follows a target with pathfinding (`GaxiaServer.AI.Follow`, see [API: AI](../api/AI.md)).
 - Only owners get the Sword: give it from saved items instead ([items-and-inventory](items-and-inventory.md), Step 3).
 - Show Coins on the leaderboard: [currency-and-leaderstats](currency-and-leaderstats.md). Swing sounds and hit effects: [effects-and-feel](effects-and-feel.md).

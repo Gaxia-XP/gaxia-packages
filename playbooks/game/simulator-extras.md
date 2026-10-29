@@ -47,7 +47,7 @@ local SimMultiplier = {
 	AutoCollectSeconds = 1, -- it looks for coin parts every 1 second
 	StudioAutoCollect = false, -- Studio only: true = every tester has auto-collect without the pass
 
-	StudioTestCoins = 1000, -- Studio only: extra Coins each tester gets on join, to test the buttons
+	StudioTestCoins = 1000, -- Studio only: each tester starts every Play with at least 1000 Coins. 0 = off
 
 	-- Saved fields. DoubleField must be the same text as UpgradeField in SimConfig.
 	DoubleField = "SimDoubleCoins",
@@ -139,6 +139,8 @@ local amount = SimMultiplier.CoinPayout(player)
 
 Do not change anything else in `SimCoins`. `SimConfig.GetMultiplier` stays: `SimShop` still uses it to check "already owns 2x".
 
+`SimConfig.CoinValue` is not used anymore. To change what one coin is worth, change `BaseCoinValue` in `SimMultiplier`.
+
 ## Step 3 — Save the new fields and send them to the screen
 
 Create a **Script** in **ServerScriptService** named **SimExtrasStats**. Paste this whole block into it:
@@ -172,7 +174,7 @@ Data.SetDefaults({
 local hudState = State.Create("SimExtrasState", {
 	BoostMinutes = SimMultiplier.BoostMinutes,
 	BoostPrice = SimMultiplier.BoostPrice,
-	BonusPercent = SimMultiplier.BonusPerLevel * 100,
+	BonusPercent = math.floor(SimMultiplier.BonusPerLevel * 100 + 0.5), -- rounded: 0.1 * 100 is not exactly 10
 })
 local KEYS = { "Multiplier_", "RebirthPrice_", "BonusPrice_", "BoostLeft_" }
 
@@ -215,9 +217,12 @@ local function onPlayerAdded(player: Player)
 	refresh(player)
 	print(`[SimExtrasStats] {player.Name} loaded: {SimMultiplier.GetRebirths(player)} rebirths, bonus level {SimMultiplier.GetBonusLevel(player)}, boost {SimMultiplier.BoostSecondsLeft(player)} s, multiplier x{SimMultiplier.Rounded(player)}`)
 
+	-- Studio only: top the Coins up to StudioTestCoins (it never adds more on top). Never in a live game.
 	if RunService:IsStudio() and SimMultiplier.StudioTestCoins > 0 then
-		Economy.Add(player, "Coins", SimMultiplier.StudioTestCoins)
-		print(`[SimExtrasStats] Studio test: gave {player.Name} {SimMultiplier.StudioTestCoins} Coins`)
+		if Economy.Get(player, "Coins") < SimMultiplier.StudioTestCoins then
+			Economy.Set(player, "Coins", SimMultiplier.StudioTestCoins)
+		end
+		print(`[SimExtrasStats] Studio test: {player.Name} has at least {SimMultiplier.StudioTestCoins} Coins`)
 	end
 end
 
@@ -465,7 +470,7 @@ local Toast = Gaxia.UI.Toast
 local StateBinding = Gaxia.UI.StateBinding
 local player = Players.LocalPlayer
 
--- 1. Build the screen in code: a column under the Coins label of SimHud.
+-- 1. Build the screen in code: a grid of 2 columns at the top middle (it fits on a phone too).
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "SimExtrasHud"
 screenGui.ResetOnSpawn = false
@@ -473,21 +478,22 @@ screenGui.Parent = player:WaitForChild("PlayerGui")
 
 local panel = Instance.new("Frame")
 panel.Name = "Panel"
-panel.Size = UDim2.fromOffset(260, 0)
-panel.AutomaticSize = Enum.AutomaticSize.Y -- grows with its children
-panel.Position = UDim2.new(0, 10, 0.5, 30)
+panel.Size = UDim2.fromOffset(346, 102) -- 2 columns of 170 px, 3 rows of 30 px, 6 px gaps
+panel.AnchorPoint = Vector2.new(0.5, 0)
+panel.Position = UDim2.new(0.5, 0, 0, 6) -- top middle, under the Roblox top bar
 panel.BackgroundTransparency = 1
 panel.Parent = screenGui
 
-local layout = Instance.new("UIListLayout")
-layout.Padding = UDim.new(0, 6)
+local layout = Instance.new("UIGridLayout")
+layout.CellSize = UDim2.fromOffset(170, 30) -- every label and button gets this size
+layout.CellPadding = UDim2.fromOffset(6, 6)
+layout.FillDirectionMaxCells = 2
 layout.SortOrder = Enum.SortOrder.LayoutOrder
 layout.Parent = panel
 
 local function makeLabel(name: string, order: number): TextLabel
 	local label = Instance.new("TextLabel")
 	label.Name = name
-	label.Size = UDim2.new(1, 0, 0, 36)
 	label.LayoutOrder = order
 	label.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 	label.BackgroundTransparency = 0.4
@@ -502,7 +508,6 @@ end
 local function makeButton(name: string, order: number, color: Color3): TextButton
 	local button = Instance.new("TextButton")
 	button.Name = name
-	button.Size = UDim2.new(1, 0, 0, 44)
 	button.LayoutOrder = order
 	button.BackgroundColor3 = color
 	button.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -609,17 +614,24 @@ What it does: two labels (multiplier, boost time left) and four buttons. Every a
 
 ## Check that it works
 
-If you cannot press Play, ask the user to do these steps and paste the Output lines. Start with no saved data (Studio API access off, or a new place).
+If you cannot press Play, ask the user to do these steps and paste the Output lines.
+
+**Part A: no saved data.** Turn **Enable Studio Access to API Services** off (Home → Game Settings → Security) for items 1-7. Then every Play starts from 0 rebirths, bonus level 0, no boost and no 2x Coins, so the numbers below are exact. (If you test with API access on and own 2x Coins from example-simulator, every multiplier shown is 2 times higher: that is fine.)
 
 1. Press **Play**. Output shows `[SimExtrasStats] ready`, `[SimExtrasShop] ready`, `[SimAutoCollect] ready`, `[SimExtrasHud] ready` (and the example-simulator lines), and no red errors.
-2. Output shows `[SimExtrasStats] <YourName> loaded: 0 rebirths, bonus level 0, boost 0 s, multiplier x1`, then `Studio test: gave <YourName> 1000 Coins`. You have 1100 Coins (100 more from `SimStats`). The `[SimStats] ... loaded:` line may say 0 or 1000 Coins: both are fine.
-3. The player list has a **Rebirths** column (0). The panel shows `Multiplier: x1`, `2x Boost: off` and four buttons.
+2. Output shows `[SimExtrasStats] <YourName> loaded: 0 rebirths, bonus level 0, boost 0 s, multiplier x1`, then `[SimExtrasStats] Studio test: <YourName> has at least 1000 Coins`. You have 1000 Coins. The `[SimStats] ... loaded:` line may say 0, 500 or 1000 Coins (the scripts start in any order): all are fine.
+3. The player list has a **Rebirths** column (0). At the top middle of the screen, the panel shows `Multiplier: x1`, `2x Boost: off` and four buttons.
 4. Click **Coin Bonus +25% - 50 Coins**. Output shows `[SimExtrasShop] <YourName> bought Coin Bonus level 1 for 50 Coins, multiplier now x1.25`. The button shows `- 100 Coins`.
 5. Click **Buy 2x Boost (5 min) - 200 Coins**. The label shows `2x Boost: 4:59 left` and counts down. The multiplier shows `x2.5`.
 6. Click **Rebirth (resets Coins) - 500 Coins**. Output shows `rebirthed: 1 rebirths, multiplier now x3.75`. Coins become 0. Rebirths becomes 1. The button shows `- 1000 Coins`.
 7. Walk into a coin. Output shows `[SimCoins] <YourName> +18 Coins` (5 x 3.75, rounded down).
-8. Click **Buy Auto-Collect (Robux)**. With `AutoCollectPassId = 0`, Output warns `no Pass ID`. With your ID and API access on, a test window opens; buy it. Output shows `has auto-collect`, the button shows `Auto-Collect: ON`, and `auto-collected N coins` lines appear when you stand near coins.
-9. Rejoin test (API access on): stop, then Play again within 5 minutes. The `loaded:` line shows `1 rebirths`, `bonus level 1` and the boost seconds still left.
+8. Phone test: in Studio, open **Test → Device** (the device emulator) and pick a phone in landscape. All four buttons and both labels are on the screen and can be clicked. Stop.
+
+**Part B: saving and Robux.** These need API access.
+
+9. Turn **Enable Studio Access to API Services** on. Press **Play**. Click **Coin Bonus**, **Buy 2x Boost** and **Rebirth** once each (skip Rebirth if it costs more Coins than you have). Note the `bonus level`, the rebirths and the boost time left.
+10. Stop, then press **Play** again within 5 minutes. The `loaded:` line shows the same rebirths and bonus level as before you stopped, and the boost seconds still left (a bit less: the boost kept counting while you were away).
+11. Click **Buy Auto-Collect (Robux)**. With `AutoCollectPassId = 0`, Output warns `no Pass ID`: that is expected. With your Pass ID, a test purchase window opens; buy it (Studio test purchases cost no Robux). Output shows `has auto-collect`, the button shows `Auto-Collect: ON`, and `auto-collected N coins` lines appear when you stand near coins.
 
 ## Common mistakes
 
@@ -627,6 +639,7 @@ If you cannot press Play, ask the user to do these steps and paste the Output li
 |---|---|---|
 | Error `SimMultiplier is not a valid member of Folder` | The ModuleScript `SimMultiplier` inside **ServerStorage → GameModules** | The require path must match the Explorer exactly. |
 | `SimCoins` still uses `SimConfig.CoinValue * SimConfig.GetMultiplier(player)` | `SimMultiplier.CoinPayout(player)` (Step 2) | Otherwise rebirths, Coin Bonus and the boost give nothing. |
+| Changing `CoinValue` in `SimConfig` to make coins worth more | Change `BaseCoinValue` in `SimMultiplier` | After Step 2, `SimConfig.CoinValue` is not used anymore. |
 | Changing `GetMultiplier` in `SimConfig` to return the combined value | Leave it; use `SimMultiplier.Get` | `SimShop` checks `GetMultiplier(player) == 2` to know who owns 2x Coins. |
 | Saving "seconds left" for the boost | Save the end time: `os.time() + seconds` | Seconds left would need saving every second, and stop while the player is offline. |
 | `Economy.Spend(player, "Coins", Economy.Get(player, "Coins"))` for a rebirth | `Economy.Set(player, "Coins", 0)` | Spend refuses amounts over 1,000,000 (`Economy.MaxTransaction`). |
@@ -634,16 +647,73 @@ If you cannot press Play, ask the user to do these steps and paste the Output li
 | The client sends the price or the multiplier | Send only `"CoinBonus"`, `"Boost"` or `"Rebirth"` | A cheater can send any value. |
 | `DoubleField` not equal to `UpgradeField` in `SimConfig` | Both `"SimDoubleCoins"` | `Get` would never see the 2x Coins upgrade. |
 | Auto-collect saved in player data | Check the pass on every join (`OwnsGamePass`) | Passes can be refunded; the pass is the truth. |
-| Expecting the boost to pause while offline | It keeps counting (`os.time`) | See *Change it* for a boost that pauses. |
+| Testing the real coin loop in Studio with `StudioTestCoins = 1000` | Set `StudioTestCoins = 0` in `SimMultiplier` (and delete the Script `StudioTestCoins` from example-simulator) | Both top your Coins up on every Play in Studio. They never give Coins in a live game. |
+| Expecting the boost to pause while offline | It keeps counting (`os.time`) | This is on purpose: the saved end time works with no extra code. |
 
 ## Change it
 
-- Prices, bonus per level, boost length, auto-collect radius: change the numbers in `SimMultiplier`. Nothing else.
+- Prices, coin value (`BaseCoinValue`), bonus per level, boost length, auto-collect radius: change the numbers in `SimMultiplier`. Nothing else.
 - To reset the Coin Bonus on rebirth too: in `rebirth` of `SimExtrasShop`, under `Economy.Set(player, "Coins", 0)`, add `Data.Set(player, SimMultiplier.BonusLevelField, 0)`.
 - A new multiplier (a VIP pass, a pet): add one `multiplier *= ...` line inside `SimMultiplier.Get`. Every coin uses it at once.
 - To test auto-collect without a pass: set `StudioAutoCollect = true` in `SimMultiplier` (Studio only).
-- To sell the boost for Robux: in `SimExtrasShop`, `GaxiaServer.Monetization.RegisterProduct(yourProductId, function(player) ... end)` that does the `Data.Set` of `buyBoost` and calls `error()` when it fails ([robux-purchases](robux-purchases.md)).
-- A boost that pauses while offline: save the seconds left in `Players.PlayerRemoving`, and set a new end time on join.
+- To test the real economy in Studio: set `StudioTestCoins = 0` in `SimMultiplier`.
+
+### Sell the 2x boost for Robux too
+
+1. On **create.roblox.com**, create a developer product named `2x Boost` (see [robux-purchases](robux-purchases.md) Step 1). Copy its **Product ID**.
+2. Create a **Script** in **ServerScriptService** named **SimBoostRobux**. Paste this whole block, then paste your ID on the `BOOST_PRODUCT_ID` line. `0` is fine until then: the button only warns.
+
+```lua
+-- Script: ServerScriptService/SimBoostRobux
+local ServerStorage = game:GetService("ServerStorage")
+local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
+local Gaxia = require(game:GetService("ReplicatedStorage").Gaxia_Packages)
+local SimMultiplier = require(ServerStorage.GameModules.SimMultiplier)
+
+assert(GaxiaServer.IsInstalled("Monetization"), "SimBoostRobux needs the Monetization package: install it (playbooks/start/01-install-packages.md)")
+
+local Net = Gaxia.Net
+local Data = GaxiaServer.Data
+local Monetization = GaxiaServer.Monetization
+
+local BOOST_PRODUCT_ID = 0 -- your developer product ID (a number). 0 = not set yet
+
+if BOOST_PRODUCT_ID ~= 0 then
+	-- Runs once per purchase. error() means "not given yet": Roblox retries later (for example when the data is not loaded).
+	Monetization.RegisterProduct(BOOST_PRODUCT_ID, function(player: Player, receipt)
+		-- The player paid Robux, so never refuse: add the minutes, but stop at BoostMaxMinutes.
+		local seconds = SimMultiplier.BoostSecondsLeft(player) + SimMultiplier.BoostMinutes * 60
+		seconds = math.min(seconds, SimMultiplier.BoostMaxMinutes * 60)
+		if not Data.Set(player, SimMultiplier.BoostEndsField, os.time() + seconds) then
+			error("SimBoostRobux: the boost was not saved, Roblox will retry")
+		end
+		print(`[SimBoostRobux] {player.Name} bought a 2x boost for Robux: {seconds} s left (purchase {receipt.PurchaseId})`)
+	end)
+end
+
+-- The client asks to open the Robux window. It sends nothing: the server knows the product.
+Net.OnServer("SimBuyBoostRobux", function(player: Player)
+	if BOOST_PRODUCT_ID == 0 then
+		warn("[SimBoostRobux] no Product ID: paste it into BOOST_PRODUCT_ID in SimBoostRobux")
+	else
+		Monetization.PromptProduct(player, BOOST_PRODUCT_ID)
+	end
+end, { rate = 2, burst = 4 })
+
+print("[SimBoostRobux] ready")
+```
+
+3. Open the LocalScript **SimExtrasHud**. Above the last line `print("[SimExtrasHud] ready")`, paste:
+
+```lua
+-- fragment
+panel.Size = UDim2.fromOffset(346, 138) -- one more row of buttons
+local robuxBoostButton = makeButton("RobuxBoostButton", 7, Color3.fromRGB(0, 170, 120))
+robuxBoostButton.Text = "2x Boost (Robux)"
+robuxBoostButton.Activated:Connect(function() Net.FireServer("SimBuyBoostRobux") end)
+```
+
+4. Check: press **Play**. Output shows `[SimBoostRobux] ready`. Click **2x Boost (Robux)**. With ID `0`, Output warns `no Product ID`. With your ID and API access on, a test window opens; buy it. Output shows `bought a 2x boost for Robux`, and the boost label counts down.
 
 ## See also
 

@@ -67,6 +67,7 @@ Start with the playbook, not the API pages. Each one is a numbered recipe with c
 | show live values on the screen (coins, timer) / แสดงค่าบนจอ | [game/show-values-on-screen](playbooks/game/show-values-on-screen.md) |
 | notifications, menus, buttons, UI kit, a settings menu for players / แจ้งเตือน, เมนู, UI, หน้าตั้งค่า | [game/ui](playbooks/game/ui.md) |
 | areas that react when players enter, "press E" prompts / โซน, ปุ่มกด E | [game/zones-and-interactions](playbooks/game/zones-and-interactions.md) |
+| NPC dialog with choices, talk to an NPC, cutscene, camera tour / คุยกับ NPC, บทสนทนา, คัตซีน | [game/npc-dialog-and-cutscenes](playbooks/game/npc-dialog-and-cutscenes.md) |
 | admin commands, chat commands, roles / คำสั่งแอดมิน | [game/admin-and-chat-commands](playbooks/game/admin-and-chat-commands.md) |
 | anti-cheat, bans / กันโกง, แบน | [game/anticheat-and-bans](playbooks/game/anticheat-and-bans.md) |
 | game tuning values, limits, feature flags (developer settings) / ปรับค่าเกม, flag | [game/config-and-flags](playbooks/game/config-and-flags.md) |
@@ -76,6 +77,10 @@ Start with the playbook, not the API pages. Each one is a numbered recipe with c
 | events between scripts, cleanup, timers, promises / signal, cleanup | [game/signals-cleanup-and-timing](playbooks/game/signals-cleanup-and-timing.md) |
 | teleport between places, messages between servers / ข้ามเซิร์ฟเวอร์ | [game/multi-server](playbooks/game/multi-server.md) |
 | Discord webhooks, analytics / webhook, analytics | [game/webhooks-and-analytics](playbooks/game/webhooks-and-analytics.md) |
+| an obby, checkpoints, kill bricks/lava, skip stage / ออบบี้, เช็คพอยต์, ลาวา, ข้ามด่าน | [game/obby-checkpoints](playbooks/game/obby-checkpoints.md) |
+| sword combat, enemy NPCs/mobs that chase and attack, kill rewards / ระบบต่อสู้, ดาบ, มอนสเตอร์, ซอมบี้ | [game/combat-and-npcs](playbooks/game/combat-and-npcs.md) |
+| a tycoon: plots, droppers, buy buttons / ไทคูน, ดรอปเปอร์, ปุ่มซื้อ | [game/tycoon](playbooks/game/tycoon.md) |
+| translate the game, Thai language, language setting / แปลเกม, ภาษาไทย, เปลี่ยนภาษา | [game/translation](playbooks/game/translation.md) |
 | a whole small game from scratch / ทำเกมทั้งเกม | [game/example-simulator](playbooks/game/example-simulator.md) |
 | add a service to the framework | [framework/add-a-service](playbooks/framework/add-a-service.md) |
 | change the framework, run its checks | [framework/change-the-framework](playbooks/framework/change-the-framework.md) |

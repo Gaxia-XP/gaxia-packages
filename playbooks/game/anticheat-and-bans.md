@@ -215,4 +215,4 @@ Agent: check your scripts against Steps 1–4. The user runs these in Studio. No
 ## See also
 
 - [API: AntiCheat](../api/AntiCheat.md) · [API: Ban](../api/Ban.md) · [API: Journal](../api/Journal.md) · [API: AntiCheatAdmin](../api/AntiCheatAdmin.md)
-- [Admin and chat commands](admin-and-chat-commands.md) · [Config and flags](config-and-flags.md) · [Add an anti-cheat detector](../framework/add-an-anticheat-detector.md) · [Troubleshooting](../troubleshooting.md)
+- [Combat and enemy NPCs](combat-and-npcs.md) (enemy hits with `RegisterDamage`) · [Admin and chat commands](admin-and-chat-commands.md) · [Config and flags](config-and-flags.md) · [Add an anti-cheat detector](../framework/add-an-anticheat-detector.md) · [Troubleshooting](../troubleshooting.md)

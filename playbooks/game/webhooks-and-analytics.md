@@ -182,7 +182,8 @@ What it does: Coins changes appear in the Creator Dashboard (**Analytics → Eco
 1. Turn on **Game Settings → Security → Allow HTTP Requests** (the place must be published). Press **Play** in Studio.
 2. Output shows `[WebhookSetup] ready`, `[ModerationReports] ready`, `[AnalyticsSetup] ready`, and no red errors.
 3. Without a URL, Output shows `[WebhookSetup] paste your Discord webhook URL into ALERTS_URL`. With a URL, a green **Webhook test** message appears in Discord and Output shows `[WebhookSetup] delivered to Alerts`.
-4. Output shows `[AnalyticsSetup] <YourName> session_start`. To make Coins change, add the Script `CoinPayout` from [currency-and-leaderstats, Step 2](currency-and-leaderstats.md#step-2--give-10-coins-every-10-seconds). Within 10 seconds Output shows `[AnalyticsSetup] <YourName> currency_change`.
+4. Output shows `[AnalyticsSetup] <YourName> session_start`. Skip the rest of this check if the game has no `Economy` package (no Coins).
+   With `Economy`: if no script changes Coins yet, add the Script `CoinPayout` from [currency-and-leaderstats, Step 2](currency-and-leaderstats.md#step-2--give-10-coins-every-10-seconds) for this test. Within 10 seconds Output shows `[AnalyticsSetup] <YourName> currency_change`. Then delete `CoinPayout` again, unless the game should pay 10 Coins every 10 seconds (it pays in the live game too).
 5. Ban test (Ban package, admin role): `/ban <player> test` in chat posts **Player banned** in Discord.
 6. Checks 3 and 5 need a real Discord URL and a published place. An agent cannot do them: give the user these steps and say they are still open.
 

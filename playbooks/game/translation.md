@@ -8,12 +8,9 @@
 
 How it works:
 
-- `Gaxia.Localization.Load(locale, table)` stores the texts of one language. `Localization.T(key, vars)` returns the text for `key` in the current language.
-- A key missing in Thai shows the **English** text. A key missing everywhere shows the key itself (never an error).
-- `{name}` in a text is replaced by `vars.name`: `T("hud.greeting", { name = "Gax" })`.
-- `Localization.SetLocale("th")` switches the language and runs every `OnLocaleChanged` function, so the UI can redraw.
-- The current language is **one value per script world**. The server cannot translate for each player. So the server sends a **key** (and vars) and the client translates it.
-- `GaxiaServer.Settings` saves the chosen language in the player's data.
+- `Localization.T(key, vars)` returns the text of `key` in the current language, with `{name}` replaced by `vars.name`. A key missing in Thai shows the English text.
+- `Localization.SetLocale("th")` switches the language and runs every `OnLocaleChanged` function, so the UI redraws.
+- The server has one language for everyone, so it sends a **key** and the client translates it. `GaxiaServer.Settings` saves the choice.
 
 ## Step 1 — Write the texts for each language
 
@@ -88,8 +85,13 @@ end)
 
 -- The client saves a new choice. Settings.Set checks it with the function above.
 Net.OnServer("LanguageSet", function(player: Player, language: any)
+	if Data.WaitFor(player, 15) == nil then
+		return -- wait for the data first, or the choice is lost (each call runs on its own, so waiting is safe)
+	end
 	if Settings.Set(player, "Language", language) then
 		print(`[LanguageServer] {player.Name} chose {language}`)
+	else
+		warn(`[LanguageServer] could not save language {tostring(language)} for {player.Name}`)
 	end
 end, { rate = 2, burst = 4 })
 
@@ -109,7 +111,7 @@ end)
 print("[LanguageServer] ready")
 ```
 
-What it does: it saves the language in the player's data and answers **Say hello** with a toast key.
+Note: `RegisterSetting` also lets the client save `Language` through the framework's own Settings remote. The check function above guards both ways.
 
 ## Step 3 — Translate the UI and add the Language menu
 
@@ -201,7 +203,9 @@ panel.Parent = screenGui
 local panelTitle = addLabel(panel, UDim2.fromOffset(0, 8), UDim2.new(1, 0, 0, 36))
 bind("settings.title", nil, function(text: string) panelTitle.Text = text end)
 
+local chosenByPlayer = false -- true after a click: the saved value must not overwrite it
 local function chooseLanguage(language: string)
+	chosenByPlayer = true
 	Localization.SetLocale(language) -- every bound label redraws
 	Net.FireServer("LanguageSet", language) -- the server saves it
 	Toast.Show({ Text = T("toast.language"), Variant = "success", Duration = 3 })
@@ -226,7 +230,7 @@ end)
 -- 7. Use the saved choice (it waits for the player's data), then say welcome in that language.
 task.spawn(function()
 	local called, saved = pcall(Net.InvokeServer, "LanguageGet")
-	if called and typeof(saved) == "string" and Strings[saved] then
+	if called and not chosenByPlayer and typeof(saved) == "string" and Strings[saved] then
 		Localization.SetLocale(saved)
 		print(`[LanguageUI] saved language {saved}`)
 	end
@@ -236,17 +240,15 @@ end)
 print("[LanguageUI] ready")
 ```
 
-What it does: it shows every text through `T`, redraws all of them when the language changes, and saves the choice.
-
 ## Check that it works
 
-1. Press **Play** in Studio. Output shows `[LanguageServer] ready`, `[LanguageUI] Roblox language en-us, using en` and `[LanguageUI] ready`, and no red errors.
+1. Press **Play** in Studio. Output shows `[LanguageServer] ready`, `[LanguageUI] Roblox language <your locale>, using en` (or `using th` if your Roblox language is Thai) and `[LanguageUI] ready`, and no red errors.
 2. The top left shows **My Game**, **Hello, <YourName>!** and the tip. A **Welcome, <YourName>!** toast appears.
 3. Click **Say hello**. Output shows `[LanguageServer] <YourName> said hello 1 times`. A toast says the same.
-4. Click **Language**, then **ภาษาไทย**. Output shows `[LanguageUI] language is now th` and `[LanguageServer] <YourName> chose th`. The labels and buttons turn Thai. The tip stays **English** (it has no Thai text: the fallback). A toast says **ภาษา: ไทย**.
+4. Click **Language**, then **ภาษาไทย**. Output shows `[LanguageServer] <YourName> chose th` (and `[LanguageUI] language is now th` if the UI was English before). The labels and buttons turn Thai. The tip stays **English** (it has no Thai text: the fallback). A toast says **ภาษา: ไทย**.
 5. Click **ทักทาย**. The toast is now Thai: `<YourName> ทักทายแล้ว 2 ครั้ง`.
 6. Stop and press **Play** again (needs **Enable Studio Access to API Services**, see [player-data](player-data.md)). Output shows `[LanguageUI] saved language th` and the UI starts in Thai.
-7. To test the automatic pick: open the **Test** tab → **Player** (Player Emulator), turn it on, set **Locale** to `th-th`, and press **Play**. If no language was saved yet, Output shows `using th`.
+7. The saved choice wins over the Roblox language: in Play, click **Language → English** (this saves `en`). Stop. Open the **Test** tab → **Player** (Player Emulator), turn it on, set **Locale** to `th-th`, and press **Play**. Output shows `using th` first, then `[LanguageUI] saved language en`. The UI ends in English.
 
 ## Common mistakes
 
@@ -261,10 +263,10 @@ What it does: it shows every text through `T`, redraws all of them when the lang
 
 ## Change it
 
-- To add a language (for example Japanese): add `ja = { ["hud.title"] = "マイゲーム", ... }` to `Strings`, add `ja = true` to `LANGUAGES` in LanguageServer, and add one more button in LanguageUI: `Components.Button({ Text = "日本語", Position = UDim2.fromOffset(80, 216), Parent = panel, OnClick = function() chooseLanguage("ja") end })` (make `panel` taller: `UDim2.fromOffset(320, 280)`).
+- Add a language (Japanese): add a `ja = { ... }` table to `Strings`, `ja = true` to `LANGUAGES`, and a button `Components.Button({ Text = "日本語", Position = UDim2.fromOffset(80, 216), Parent = panel, OnClick = function() chooseLanguage("ja") end })`. Make `panel` taller: `UDim2.fromOffset(320, 280)`.
 - To add a new text: add the key to `en` (and `th`), then `bind("my.key", nil, function(text: string) myLabel.Text = text end)`.
 - To show a number that changes (Coins): call `T` each time the number changes, for example `coinsLabel.Text = T("hud.coins", { n = coins })`, and also redraw it in `OnLocaleChanged`.
-- To use a dropdown instead of buttons: `Components.Dropdown({ Options = { "English", "ภาษาไทย" }, Parent = panel, OnChanged = function(name: string) chooseLanguage(if name == "English" then "en" else "th") end })`.
+- Dropdown instead of buttons: in LanguageUI, delete the two `Components.Button` lines for **English** and **ภาษาไทย** and paste: `Components.Dropdown({ Options = { "English", "ภาษาไทย" }, Value = if Localization.GetLocale() == "th" then "ภาษาไทย" else "English", Position = UDim2.fromOffset(60, 54), Parent = panel, OnChanged = function(name: string) chooseLanguage(if name == "English" then "en" else "th") end })`.
 - To translate toasts the client makes itself: `Toast.Show({ Text = T("my.key") })`, as `chooseLanguage` does.
 
 ## See also
