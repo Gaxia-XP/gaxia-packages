@@ -277,7 +277,26 @@ end
 -- WHY both paths: experiences may have TextChatService disabled (LegacyChatService)
 -- depending on TextChatService.ChatVersion setting.
 
--- Server-side intercept: redact the original message if it's a command.
+-- Server-side intercept: redact the original message if it's a command, and run
+-- the command ONCE per message.
+-- WHY the dedupe: Roblox calls ShouldDeliverCallback once PER RECIPIENT (every
+-- player in the channel, the sender included), so dispatching from it ran a
+-- command N times with N players (/givecoins Bob 10 gave 10 * N). The server has
+-- no once-per-message hook for TextChatService, so the first call for a
+-- MessageId runs the command and later calls for the same id only redact.
+local DISPATCH_TTL = 30 -- seconds a MessageId is remembered (all recipients are asked well within this)
+local dispatched: { [string]: boolean } = {}
+
+-- True the first time a message is seen. Marks it seen for `ttl` seconds.
+local function firstDelivery(key: string, ttl: number): boolean
+	if dispatched[key] then return false end
+	dispatched[key] = true
+	task.delay(ttl, function()
+		dispatched[key] = nil
+	end)
+	return true
+end
+
 local function hookChannel(channel: Instance): ()
 	if not channel:IsA("TextChannel") then return end
 	channel.ShouldDeliverCallback = function(msg: TextChatMessage, _target: TextSource): boolean
@@ -287,11 +306,22 @@ local function hookChannel(channel: Instance): ()
 		if not src then return true end
 		local player = Players:GetPlayerByUserId(src.UserId)
 		if not player then return true end
-		-- WHY task.spawn: ShouldDeliverCallback must return promptly; command may take time.
-		task.spawn(function()
-			ChatCommandSystem.Run(player, text)
-		end)
-		return false -- redact original
+		-- A message always has a MessageId; the fallback key (sender + channel +
+		-- text, remembered 1 s so the same command typed again later still runs)
+		-- only guards against an empty one.
+		local key = msg.MessageId
+		local ttl = DISPATCH_TTL
+		if key == "" then
+			key = `{src.UserId}\0{channel:GetFullName()}\0{text}`
+			ttl = 1
+		end
+		if firstDelivery(key, ttl) then
+			-- WHY task.spawn: ShouldDeliverCallback must return promptly; command may take time.
+			task.spawn(function()
+				ChatCommandSystem.Run(player, text)
+			end)
+		end
+		return false -- redact original (for every recipient, the sender included)
 	end
 end
 

@@ -1,0 +1,8 @@
+{
+  "description": "(w) a chat command runs once per typed message, not once per recipient (3 players, 2 messages → 2 runs)",
+  "framework": true,
+  "packages": "Chat",
+  "exit": 0,
+  "errorCount": 0,
+  "prints": [{ "contains": "[PingCount] runs=2;", "world": "server" }]
+}

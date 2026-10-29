@@ -8,6 +8,16 @@ this framework uses a single rolling version until a public release cut.
 
 ## Unreleased
 
+### Fixed — chat commands ran once per player (chat-dispatch)
+- **A chat command runs once per typed message.** `ChatCommandSystem` ran the command
+  from `TextChannel.ShouldDeliverCallback`, which Roblox calls once per recipient, so with
+  N players in the channel a command ran N times (`/givecoins Bob 10` gave 10 × N, the
+  reply showed N times). Only the first call for a `TextChatMessage.MessageId` runs the
+  command now; every call still hides the command line from all players. Legacy chat and
+  the F2 panel were not affected. The admin-and-chat-commands playbook no longer needs its
+  `isRepeat` guard, and the troubleshooting row for this bug is gone. The harness
+  self-test (`w-chat-command-once`) catches it: 3 players, 2 messages, 2 runs.
+
 ### Fixed — hardening (ui-root)
 - **`PlayerGui.Gaxia_UI` is created on demand.** `UIController.GetActiveScreen` / `HUD` /
   `Overlays` now find or create the ScreenGui (ResetOnSpawn off, with the `HUD` and
