@@ -40,6 +40,36 @@ this framework uses a single rolling version until a public release cut.
 - **`MenuTemplate`** is centred (AnchorPoint 0.5, 0.5 at Position 0.5, 0.5), so
   `MenuController` menus and the pet panel open in the middle instead of the top-left.
 
+### Fixed — hardening (economy-econfig)
+- **Behaviour change — Economy rejects instead of clamping.** `Economy.Add`, `Spend` and
+  `Transfer` accept only a whole number from 1 to `Economy.MaxTransaction`. A fraction,
+  NaN, `math.huge`, 0, a negative amount or an amount above the limit now returns `false`
+  and changes nothing (before: fractions were rounded down and big amounts were cut to the
+  limit, so `Spend(player, "Coins", 2000000)` took only 1,000,000 and returned `true`).
+  `Economy.Set` accepts a whole number from 0 to `Economy.MaxBalance` (before: clamped).
+  The balance itself still stops at `MaxBalance` on `Add`.
+- Economy no longer fails silently: every refused call warns once per call site and
+  reason, with the reason, the expected signature and the calling script line, e.g.
+  `Economy.Add(player, 100, "Coins")` → `[Economy] Add refused: currency must be a
+  non-empty string, got number 100 (are currency and amount swapped?). Expected
+  Economy.Add(player: Player, currency: string, amount: number): boolean`. A
+  non-Player `player` is refused the same way.
+- Economy refuses (with a warning) a currency whose saved value is not a number
+  (`Inventory`, `Pets`, …) instead of overwriting that data with a number; `Get` returns 0.
+- Added `Economy.GetMaxTransaction()` and `Economy.GetMaxBalance()`. Idle offline
+  earnings, Raid loot and pet-multiplied Quest coin rewards are capped at
+  `GetMaxTransaction()` before they are paid, so they keep paying the limit (as the old
+  clamp did) instead of being refused. A Trade offering more than the limit of one
+  currency now fails and rolls back (before: only the limit moved).
+- An invalid `Economy.MaxTransaction` / `MaxBalance` (not a finite number above 0) falls
+  back to the default instead of making every call error.
+- **Behaviour change — `EConfig.Get` type-checks overrides.** An override whose type
+  differs from the default's (`"5000000"` or `true` for a number setting) is ignored with a
+  warning (once per key and value) and the default is returned. Before, it was returned
+  as is (`/flag set Economy.MaxTransaction` with no value made every `Add` / `Spend`
+  error). `EConfig.Enabled` therefore uses its default for a non-boolean override. A nil
+  default still returns any override.
+
 ### Added — pick the packages a game installs
 The framework is split into ~100 packages (`Gaxia_Packages_Server/Packages.lua`). Pick
 the ones a game uses and only those, the packages they need, and Core are installed;

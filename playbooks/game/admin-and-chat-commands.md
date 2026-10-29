@@ -90,8 +90,8 @@ Admin.Register("givecoins", {
 	end
 	local target: Player = parsed[1]
 	local amount: number = math.floor(parsed[2])
-	-- Economy adds at most "Economy.MaxTransaction" per call. Read it here: a game can change it.
-	local max = tonumber(GaxiaServer.EConfig.Get("Economy.MaxTransaction", 1000000)) or 1000000
+	-- Economy refuses more than "Economy.MaxTransaction" per call. Read it here: a game can change it.
+	local max = Economy.GetMaxTransaction()
 	if not (amount >= 1 and amount <= max) then
 		return `The amount must be 1 to {max}`, true
 	end

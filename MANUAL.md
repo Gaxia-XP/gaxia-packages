@@ -1130,7 +1130,7 @@ end)
 ```lua
 local Eco = GaxiaServer.Economy
 
--- Add (clamp ที่ MAX_TRANSACTION = 1M ต่อครั้ง)
+-- Add (จำนวนเต็ม 1..MaxTransaction = 1M ต่อครั้ง; เกิน/เศษ/NaN/ติดลบ → ปฏิเสธ return false + warn ไม่ clamp)
 Eco.Add(player, "Coins", 500)
 
 -- Spend (atomic — fail ถ้าเงินไม่พอ)
@@ -1139,7 +1139,7 @@ local ok = Eco.Spend(player, "Coins", 100)
 -- Get
 local coins = Eco.Get(player, "Coins")
 
--- Set (admin override — ไม่เช็ค min/max)
+-- Set (admin override — ไม่เช็ค MaxTransaction; ต้องเป็นจำนวนเต็ม 0..MaxBalance ไม่งั้นปฏิเสธ + warn)
 Eco.Set(player, "Coins", 0)
 
 -- Transfer (atomic ระหว่าง 2 player)

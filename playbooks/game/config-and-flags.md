@@ -14,7 +14,7 @@ How it works — there are three layers:
 | Overrides | A value on top of a default, by key `"<Section>.<Key>"` | Server: `GaxiaServer.EConfig.Set(key, value)` / `GaxiaServer.EConfig.Clear(key)`. Admin chat: `/flag set <key> <value>`. |
 | `ReplicatedStorage/GameShared/GameConfig` | Your game's own values (Step 1) | Edit the module. |
 
-- `EConfig` (effective config) reads an override, else the default. `EConfig.Set` calls `Flags.Set`, so `/flag`, `EConfig` and `Flags` share one store. Read an override with `GaxiaServer.EConfig.Get(key, default)` (server) or `Gaxia.Flags.Get(key, default)` (client). Values: numbers, strings or booleans.
+- `EConfig` (effective config) reads an override, else the default. `EConfig.Set` calls `Flags.Set`, so `/flag`, `EConfig` and `Flags` share one store. Read an override with `GaxiaServer.EConfig.Get(key, default)` (server) or `Gaxia.Flags.Get(key, default)` (client). Values: numbers, strings or booleans. `EConfig.Get` ignores (with a warning) an override whose type differs from the default's, so a number setting never receives a string.
 - An override lasts until that server closes: not saved, not seen by other servers, but read by every client. So `ConfigOverrides` (Step 2) sets them on every server start, and `/flag set` is for live tests and events.
 
 Gaxia keys you can override (the common ones; other packages read more keys, such as `Admin.ActionWhitelistSeconds`, `AntiCheat.Teleport.WhitelistGraceSeconds`, `Idle.DefaultRate`, `Vault.MaxCapacity`, `Mail.MaxMail`, `Leaderboard.CacheTTL`; a key Gaxia never reads does nothing):
@@ -85,7 +85,7 @@ end
 print("[ConfigOverrides] ready")
 ```
 
-What it does: `Economy.Add(player, "Coins", 2000000)` now adds 2,000,000 instead of stopping at 1,000,000.
+What it does: `Economy.Add(player, "Coins", 2000000)` now adds 2,000,000 instead of being refused (above 1,000,000 it returns `false` and warns).
 
 ## Step 3 — Use your settings and a live flag on the server
 
@@ -198,7 +198,7 @@ Agent: check your scripts against Steps 1–4. The user runs these in Studio. No
 | Wrong | Right | Why |
 |---|---|---|
 | Editing `Gaxia_Packages_Server/Config`, or `Config.Economy.MaxTransaction = 5000000` in a script | An entry in `OVERRIDES` (Step 2) | Install / Update replaces the package. A key Gaxia does not read through `EConfig` needs a framework change, which is not allowed. |
-| `EConfig.Set("Economy.MaxTransaction", "5000000")`, or `/flag set Economy.MaxTransaction` with no value (that sets it to `true`) | A number: `5000000` | Gaxia does not check the type: every `Add` / `Spend` errors until `/flag set Economy.MaxTransaction 5000000` (or `/flag clear`, which returns to Gaxia's default 1000000). |
+| `EConfig.Set("Economy.MaxTransaction", "5000000")`, or `/flag set Economy.MaxTransaction` with no value (that sets it to `true`) | A number: `5000000` | `EConfig.Get` ignores an override whose type differs from the default's: Output warns `[EConfig] ignoring override Economy.MaxTransaction = 5000000 (string)` and the default 1000000 stays in use until `/flag set Economy.MaxTransaction 5000000` (or `/flag clear`). |
 | A typo such as `"Economy.MaxTransation"` | Copy the key from the table | A wrong key is accepted and does nothing. `/flag get` only shows what you typed. |
 | `EConfig.Set("Game.Prices", { Sword = 100 })` | Tables go in `GameConfig` | An override must be a number, string or boolean (a table errors). |
 | `Flags.Set(...)` in a LocalScript | Set on the server | `Flags.Set` is server-only; it errors on the client. |
