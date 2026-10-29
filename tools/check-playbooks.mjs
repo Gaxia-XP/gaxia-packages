@@ -27,6 +27,10 @@
 //   node tools/check-playbooks.mjs --no-types         # skip luau-lsp (2 and 3 only)
 //   node tools/check-playbooks.mjs --emit <dir>       # also write each playbook's
 //        game tree (framework + its scripts + default.project.json) to <dir>/<name>/
+//   node tools/check-playbooks.mjs --run              # also RUN each playbook's scripts
+//        headlessly (tools/run-game.mjs: full install, 1 player, 10 s) and report
+//        runtime errors and hangs at their playbook line. Needs `lune` (not rojo or
+//        luau-lsp when combined with --no-types).
 //
 // Needs (unless --no-types): `rojo` and `luau-lsp` on PATH (or ROJO / LUAU_LSP)
 // and the Roblox definitions file (ROBLOX_DEFS, default ./globalTypes.d.luau):
@@ -38,6 +42,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { generate } from './gen-api.mjs'
+import { runGame } from './run-game.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const args = process.argv.slice(2)
@@ -222,8 +227,45 @@ if (!flag('--no-types') && !fs.existsSync(DEFS)) {
   process.exit(2)
 }
 
+// ── 3. run the playbook's scripts headlessly (--run) ─────────────────────────
+// A runtime error names the script by its full name ("ServerScriptService.CoinShop:12:"
+// or, for a LocalScript copied to the player, "Players.Player1.PlayerScripts.ShopUI:3:").
+function blockFor(placed, chunk) {
+  const exact = placed.find((b) => b.dmPath.replaceAll('/', '.') === chunk)
+  if (exact) return exact
+  const leaf = chunk.split('.').pop()
+  const byName = placed.filter((b) => b.dmPath.split('/').pop() === leaf)
+  return byName.length === 1 ? byName[0] : null
+}
+
+function mdLocation(file, placed, text) {
+  const m = /^([A-Za-z_][\w. -]*?):(\d+)\b/.exec(text ?? '')
+  if (m) {
+    const b = blockFor(placed, m[1])
+    if (b) return `${path.relative(ROOT, file)}:${b.start + Number(m[2]) - b.offset}`
+  }
+  return path.relative(ROOT, file)
+}
+
+async function runPlaybook(file, placed, dir) {
+  const report = await runGame({ build: dir })
+  const first = (t) => (t ?? '').split('\n')[0]
+  for (const h of report.harness) report_(file, `HARNESS ERROR (not a playbook bug): ${h.message.split('\n')[0]}`)
+  for (const e of report.errors) {
+    let loc = mdLocation(file, placed, e.message)
+    if (!loc.includes(':')) loc = mdLocation(file, placed, first(e.trace))
+    problems.push(`${loc}: runtime error [${e.world}]: ${e.message}${e.count > 1 ? ` (x${e.count})` : ''}`)
+  }
+  for (const h of report.hangs) problems.push(`${mdLocation(file, placed, first(h.trace))}: hang [${h.world}]: ${h.text} waits forever`)
+  for (const w of report.warnings) warnings.push(`${mdLocation(file, placed, w.source ?? first(w.trace))}: runtime warning [${w.world}]: ${w.text}`)
+  return report
+}
+const report_ = (file, msg) => problems.push(`${path.relative(ROOT, file)}: ${msg}`)
+
 let checkedBlocks = 0
 let fragments = 0
+let ranPlaybooks = 0
+const RUN = flag('--run')
 const emitDir = valueOf('--emit')
 for (const file of files) {
   const md = fs.readFileSync(file, 'utf8')
@@ -245,12 +287,16 @@ for (const file of files) {
   if (!typed.length) continue
   const rel = path.relative(ROOT, file)
   const name = (rel.startsWith('..') ? path.basename(file) : rel).replace(/[\\/]/g, '_').replace(/\.md$/, '')
-  if (!flag('--no-types') || emitDir) {
+  if (!flag('--no-types') || emitDir || RUN) {
     const dir = emitDir ? path.join(path.resolve(emitDir), name) : fs.mkdtempSync(path.join(os.tmpdir(), 'gaxia-playbook-'))
     const placed = buildTree(file, typed, dir)
     if (!flag('--no-types')) {
       typeCheck(file, placed, dir, false)
       if (flag('--v2')) typeCheck(file, placed, dir, true)
+    }
+    if (RUN) {
+      await runPlaybook(file, placed, dir)
+      ranPlaybooks++
     }
     if (!emitDir) fs.rmSync(dir, { recursive: true, force: true })
   }
@@ -258,5 +304,5 @@ for (const file of files) {
 
 for (const w of warnings) console.log(`  warn ${w}`)
 for (const p of problems) console.log(`✗ ${p}`)
-console.log(`check-playbooks: ${files.length} file(s), ${checkedBlocks} code block(s) type-checked${flag('--no-types') ? ' (types skipped)' : ''}, ${fragments} fragment(s), ${problems.length} problem(s)`)
+console.log(`check-playbooks: ${files.length} file(s), ${checkedBlocks} code block(s) type-checked${flag('--no-types') ? ' (types skipped)' : ''}, ${fragments} fragment(s)${RUN ? `, ${ranPlaybooks} playbook(s) run` : ''}, ${problems.length} problem(s)`)
 process.exit(problems.length ? 1 : 0)

@@ -1,0 +1,8 @@
+{
+  "description": "(a) a runtime error in a server Script is reported with script, line and message",
+  "framework": false,
+  "exit": 1,
+  "errorCount": 1,
+  "errors": [{ "contains": "ServerScriptService.Boom:4: attempt to index nil with 'WalkSpeed'", "world": "server" }],
+  "prints": [{ "contains": "before the error" }]
+}

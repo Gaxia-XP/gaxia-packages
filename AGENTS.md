@@ -95,6 +95,7 @@ No row fits? Read [playbooks/api/README.md](playbooks/api/README.md) to find the
 
 - **In Roblox Studio:** open *View → Script Analysis* (no red errors in your scripts), press **Play**, read *Output* for red errors, then do the playbook's "Check that it works" list.
 - **In a Rojo project with luau-lsp:** `luau-lsp analyze --platform=roblox --sourcemap=sourcemap.json --definitions=@roblox=globalTypes.d.luau <your files>` must print no `TypeError`.
+- **Run it headlessly** (no Studio; needs the Gaxia repo, Node and `lune`): put your scripts in a folder that mirrors the Explorer (`mygame/ServerScriptService/CoinShop.server.lua`, `mygame/StarterPlayer/StarterPlayerScripts/ShopUI.client.lua`), then run `node tools/run-game.mjs --game mygame` from the Gaxia repo. It plays the server and one player for 10 s and lists red errors (script and line), warnings and hangs. Exit code `0` = clean. It has no physics, so still do the Studio checks. More: [tools/harness/README.md](tools/harness/README.md).
 - **In the Gaxia repo** (job B): see [playbooks/framework/change-the-framework.md](playbooks/framework/change-the-framework.md).
 
 ## 6. When you are stuck

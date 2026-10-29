@@ -1,0 +1,7 @@
+{
+  "description": "(k) a client's property/attribute write on a server instance does not reach the server",
+  "framework": false,
+  "exit": 0,
+  "errorCount": 0,
+  "prints": [{ "contains": "client sees 999999 500" }, { "contains": "server sees 10 1" }, { "contains": "client later sees 20" }]
+}

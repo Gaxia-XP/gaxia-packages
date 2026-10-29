@@ -1,0 +1,8 @@
+{
+  "description": "(j) common Roblox APIs used correctly produce no error (guards against false errors)",
+  "framework": false,
+  "exit": 0,
+  "errorCount": 0,
+  "hangCount": 0,
+  "prints": [{ "contains": "server ok true true" }, { "contains": "client ok Coins: 50 true" }, { "contains": "closing" }]
+}

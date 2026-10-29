@@ -4,14 +4,14 @@
 
 **Use this when** the user asks for: "change the framework", "fix a bug in Gaxia", "edit a Gaxia service", "add a module to Gaxia", "run the framework checks" (ไทย: "แก้ framework", "แก้บั๊กใน Gaxia", "แก้โค้ดใน src", "เพิ่ม module ให้ Gaxia", "รันเช็คของ framework").
 **Job:** B (you change the Gaxia repo itself). Building a game with Gaxia is job A: read [AGENTS.md](../../AGENTS.md) instead.
-**Tools:** Node 18 or newer, `rojo`, `luau-lsp`, `luau-ast`, the Roblox definitions file, and Roblox Studio.
+**Tools:** Node 18 or newer, `rojo`, `lune`, `luau-lsp`, `luau-ast`, the Roblox definitions file, and Roblox Studio.
 **You will change:** files under `src/`, then the generated `playbooks/api/`, the playbooks that show what you changed, and `CHANGELOG.md`.
 
 Run every command from the repo root.
 
 ## Step 1 — Install the tools and save a baseline (once per change)
 
-1. Run `rokit install`. This installs `rojo`, `stylua` and `selene`.
+1. Run `rokit install`. This installs `rojo`, `lune`, `stylua` and `selene`.
 2. Download `luau-lsp` from https://github.com/JohnnyMorganz/luau-lsp/releases (the repo was last checked with 1.70.0) and `luau-ast` from https://github.com/luau-lang/luau/releases (latest). Put both on your PATH. Check: `luau-lsp --version` prints a version and `luau-ast` prints `Usage:`.
 3. Download the Roblox definitions file into the repo root, and hide it and the `lsp-*.txt` files from git (this changes no tracked file):
 
@@ -125,12 +125,18 @@ node tools/gen-api.mjs
 node tools/gen-api.mjs --check
 node tools/check-architecture.mjs --complete
 node tools/check-playbooks.mjs --v2
+node tools/run-game.mjs --self-test
+node tools/run-game.mjs --quiet
+node tools/run-game.mjs --quiet --packages <YourPackage>
+node tools/check-playbooks.mjs --no-types --run
 rojo sourcemap default.project.json -o sourcemap.json
 luau-lsp analyze --platform=roblox --sourcemap=sourcemap.json --definitions=@roblox=globalTypes.d.luau --ignore="**/ProfileService.lua" src > lsp-after.txt 2>&1
 luau-lsp analyze --flag:LuauSolverV2=true --platform=roblox --sourcemap=sourcemap.json --definitions=@roblox=globalTypes.d.luau --ignore="**/ProfileService.lua" src > lsp-v2-after.txt 2>&1
 grep -c TypeError lsp-before.txt lsp-after.txt lsp-v2-before.txt lsp-v2-after.txt
 grep -c "<YourFile>.*TypeError" lsp-before.txt lsp-after.txt lsp-v2-before.txt lsp-v2-after.txt
 ```
+
+The `run-game` and `--run` lines run the framework headlessly: a server and one player for 10 s of simulated time ([tools/harness/README.md](../../tools/harness/README.md)). `--self-test` must print `self-test: N/N passed` (every case passed). The two `run-game.mjs --quiet` lines must print `RESULT: 0 errors, 0 hangs`, and `--run` must print `0 problem(s)`. `<YourPackage>` = the package in `Packages.lua` that holds the module you changed. A line marked `HARNESS ERROR` is a bug in the harness, not in your change.
 
 Run the last line once for each file you changed (`<YourFile>` = the end of its path, for example `Lib/EconomyService.lua`). Each `after` count must not be higher than its `before` count. A new file must have `0` in both `after` files. Some files already have type errors: those are not yours to fix.
 
@@ -157,9 +163,10 @@ No Studio? Run every command check, report each Studio check as NOT RUN, and tel
 
 1. `packages.mjs check` prints `✓ … catalogue matches the source`; `gen-api.mjs --check` prints `✓ playbooks/api is up to date`.
 2. `check-architecture.mjs --complete` prints `… 0 violation(s)`; `check-playbooks.mjs --v2` prints `… 0 problem(s)`.
-3. The `grep -c` counts in Step 7: no `after` count is higher than its `before` count, and new files have `0`.
-4. The Studio play-test shows no red errors, and the changed feature works.
-5. `CHANGELOG.md` has your entry, and `git status` shows only the files you meant to change.
+3. `run-game.mjs` (full install and your package) prints `RESULT: 0 errors, 0 hangs`; `check-playbooks.mjs --no-types --run` prints `… 0 problem(s)`.
+4. The `grep -c` counts in Step 7: no `after` count is higher than its `before` count, and new files have `0`.
+5. The Studio play-test shows no red errors, and the changed feature works.
+6. `CHANGELOG.md` has your entry, and `git status` shows only the files you meant to change.
 
 ## Common mistakes
 

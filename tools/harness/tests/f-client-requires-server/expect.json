@@ -1,0 +1,7 @@
+{
+  "description": "(f) requiring the server package from the client errors, like Roblox",
+  "framework": true,
+  "exit": 1,
+  "errorCount": 1,
+  "errors": [{ "contains": "Gaxia_Packages_Server is not a valid member of ServerStorage \"ServerStorage\"", "world": "client:Player1" }]
+}

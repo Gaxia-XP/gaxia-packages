@@ -1,0 +1,9 @@
+{
+  "description": "(c) an infinite WaitForChild gives Roblox's 'Infinite yield possible' warning and a hang",
+  "framework": false,
+  "exit": 1,
+  "errorCount": 0,
+  "hangCount": 1,
+  "warnings": [{ "contains": "Infinite yield possible on 'ReplicatedStorage:WaitForChild(\"RemotesThatNobodyCreates\")'" }],
+  "hangs": [{ "contains": "ReplicatedStorage:WaitForChild(\"RemotesThatNobodyCreates\")" }]
+}

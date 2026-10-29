@@ -1,0 +1,13 @@
+{
+  "description": "(i) Roblox's own error messages: missing member, wrong property type, '.' call, module error",
+  "framework": false,
+  "exit": 1,
+  "errorCount": 5,
+  "errors": [
+    { "contains": "Mistakes:7: Lava is not a valid member of Workspace \"Workspace\"" },
+    { "contains": "Mistakes:12: Unable to assign property Visible. bool expected, got string" },
+    { "contains": "Mistakes:18: Expected ':' not '.' calling member function FindFirstChild" },
+    { "contains": "ServerStorage.BrokenModule:3: attempt to index nil with 'speed'" },
+    { "contains": "Mistakes:22: Requested module experienced an error while loading" }
+  ]
+}

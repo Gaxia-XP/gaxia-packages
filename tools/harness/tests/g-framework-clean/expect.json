@@ -1,0 +1,8 @@
+{
+  "description": "(g) the framework (full install) boots, a player joins and leaves: no errors, no hangs",
+  "framework": true,
+  "exit": 0,
+  "errorCount": 0,
+  "hangCount": 0,
+  "prints": [{ "contains": "[Gaxia_ServerBootstrap] complete" }, { "contains": "[Gaxia_ClientBootstrap] complete" }]
+}
