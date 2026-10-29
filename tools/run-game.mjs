@@ -30,6 +30,8 @@
 //   --quiet            do not list prints
 //   --no-studio        RunService:IsStudio() returns false (default: true, like Studio Play)
 //   --datastore M      ok (default) | fail | studio-off: make every DataStore call error
+//   --memorystore M    ok (default) | fail: make every MemoryStore call error
+//                      (an unpublished place, or Studio API access off)
 //   --http             HttpService.HttpEnabled = true (requests return an empty 200)
 //   --signals M        deferred (default, Roblox's default) | immediate
 //   --bare             do not include the framework (only --game)
@@ -318,6 +320,7 @@ async function runGameInner(opts, notes, layout, run) {
     scenarioFile: opts.scenario ? path.resolve(opts.scenario) : undefined,
     seed: opts.seed ?? 1,
     dataStore: opts.dataStore ?? 'ok',
+    memoryStore: opts.memoryStore ?? 'ok',
     httpEnabled: opts.http ?? false,
     signalBehavior: opts.signals ?? 'deferred',
   }))
@@ -679,6 +682,7 @@ function parseArgs(argv) {
       case '--scenario': o.scenario = val(i); i++; break
       case '--json': o.json = val(i); i++; break
       case '--datastore': o.dataStore = val(i); i++; break
+      case '--memorystore': o.memoryStore = val(i); i++; break
       case '--signals': o.signals = val(i); i++; break
       case '--timeout': o.timeout = Number(val(i)); i++; break
       case '--seed': o.seed = Number(val(i)); i++; break
@@ -695,6 +699,7 @@ function parseArgs(argv) {
   if (o.build && o.packages) throw new Error('use --build or --packages, not both')
   if (o.bare && (o.packages !== undefined || o.build)) throw new Error('--bare runs without the framework: do not combine it with --packages or --build')
   if (o.dataStore && !['ok', 'fail', 'studio-off'].includes(o.dataStore)) throw new Error('--datastore must be ok, fail or studio-off')
+  if (o.memoryStore && !['ok', 'fail'].includes(o.memoryStore)) throw new Error('--memorystore must be ok or fail')
   if (o.signals !== undefined && !['deferred', 'immediate'].includes(o.signals)) throw new Error('--signals must be deferred or immediate')
   if (o.packages !== undefined && !o.packages.split(',').some((x) => x.trim())) throw new Error('--packages needs package names (comma separated, or all); see node tools/packages.mjs list')
   if (o.players !== undefined && !(Number.isInteger(o.players) && o.players >= 1)) throw new Error('--players must be a whole number, 1 or more')

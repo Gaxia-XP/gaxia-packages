@@ -1,7 +1,8 @@
 --!nocheck
 -- Online services, in memory: DataStoreService, MemoryStoreService,
 -- MessagingService, MarketplaceService, TeleportService, HttpService.
--- Every call is counted; --datastore fail|studio-off makes DataStore calls error.
+-- Every call is counted; --datastore fail|studio-off makes DataStore calls error,
+-- --memorystore fail makes MemoryStore calls error.
 local roblox = require("@lune/roblox")
 local serde = require("@lune/serde")
 local H = require("./state")
@@ -454,6 +455,10 @@ end
 local function memCall(op)
 	H.counts.memoryStoreCalls = (H.counts.memoryStoreCalls or 0) + 1
 	asyncYield()
+	if H.options.memoryStore == "fail" then
+		-- an unpublished place / Studio API access off (--memorystore fail)
+		error("MemoryStore request failed: the experience is not published or API access is off (simulated by the harness: --memorystore fail)", 3)
+	end
 end
 local function alive(e)
 	return e and (e.expires == nil or e.expires > S.clock)
