@@ -24,16 +24,20 @@ local Migration = GaxiaServer.Migration
 ### Functions
 
 - `Migration.Register(fromVersion: number, toVersion: number, fn: MigrationFn): ()`
+  Registers the step that upgrades saved data from `fromVersion` to `toVersion` (toVersion > fromVersion). Steps run in version order (each step starts at the version the previous one ended at), whatever order they were registered in. Registering a second step from the same version replaces the first (warns).
 - `Migration.SetCurrentVersion(v: number): ()`
+  Sets the newest data version. Saves below it are upgraded on load.
 - `Migration.GetCurrentVersion(): number`
+  Returns the newest data version (default 1).
 - `Migration.Migrate(data: { [string]: any }): boolean`
+  Upgrades `data` (in place) from data.__version to the current version, running each step in version order. All or nothing: the steps run on a copy, and `data` changes only when every step succeeds. When a step is missing or errors, `data` is left exactly as it was (the warning names the step) and the steps run again on the next load. Returns true when `data` was upgraded, false when nothing changed.
 
 ### Signals
 
 Connect with `:Connect(function(...) end)`; the parameters are the payload types, in order.
 
 - `Migration.OnMigrated` — `Signal<Player?, number, number>`
-  (player — always nil: Migrate only sees the data table, fromVersion, toVersion) once per Migrate call that changed the data
+  (player — always nil: Migrate only sees the data table, fromVersion, toVersion) once per Migrate call that upgraded the data (every step succeeded)
 
 ### Types
 
