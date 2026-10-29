@@ -24,8 +24,6 @@
 --   "Settings"       creates the client settings remote (Events/Gaxia_Settings)
 --   "Party"          creates the party invite remotes + joins pending invites
 --   "Analytics"      starts the event funnel (Economy/Level/Quest → sink)
---   "Journal"        records AntiCheat flags/actions (ring buffer + optional store)
---   "AntiCheatAdmin" registers /acflags /acclear /acban /acunban /ac /flag
 --   "Event"          starts the timed-event scheduler loop
 --   "Cooldown"       starts the cooldown sweep loop
 --   "Idle", "Placement", "Visit"   per-player state hooks
@@ -53,6 +51,8 @@ local Features: Types.Features = {
 		"Leaderboard",
 		"Messages",
 		"Ban",
+		"Journal",        -- records AntiCheat flags/actions from boot (quiet: no Output lines)
+		"AntiCheatAdmin", -- registers /acflags /acclear /acban /acunban /ac /flag
 		"Webhook",
 		"Friend",
 		"Guild",

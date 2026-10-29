@@ -24,7 +24,7 @@ local AntiCheat = GaxiaServer.AntiCheat
 ### Functions
 
 - `AntiCheat.Flag(player: Player, reason: string, severity: (Types.Severity | string)?)`
-  External entry-point detectors and gameplay code can use to log violations.
+  Flag a player from game code (or a detector that kept the module instead of its host). Never tied to a detector's enabled switch: the master switch, the whitelists and the thresholds apply as for every flag.
 - `AntiCheat.IsEnabled(): boolean`
 - `AntiCheat.IsEnforcing(): boolean`
   False in observe mode (Config.AntiCheat.Enforce / flag "AntiCheat.Enforce"): hard actions are published as "observe" and detectors must not change game state (e.g. BackpackGuard keeps the tool).

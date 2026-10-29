@@ -524,6 +524,7 @@ GaxiaServer.AntiCheat.Animation.Allow(id: string)   → AntiCheat.md
 GaxiaServer.AntiCheat.Combat.RegisterDamage(victim: Player | Humanoid, amount: number): ()   → AntiCheat.md
 GaxiaServer.AntiCheat.RemoteRate.Wrap(remote: RemoteEvent): RemoteEvent   → AntiCheat.md
 GaxiaServer.AntiCheat.Stat.Expect(player: Player, statName: string, newValue: number)   → AntiCheat.md
+GaxiaServer.Journal.WarnSink(entry: Entry): ()   → Journal.md
 GaxiaServer.Journal.SetSink(fn: (entry: Entry) -> ()): ()   → Journal.md
 GaxiaServer.Journal.GetRecent(n: number?): { Entry }   → Journal.md
 GaxiaServer.Journal.GetForPlayer(player: Player): { Entry }   → Journal.md

@@ -114,7 +114,7 @@ If something is not on these pages, it does not exist — do not guess names.
 | Package | Boot | What it is |
 |---|---|---|
 | [AntiCheat](AntiCheat.md) | yes | Server-side cheat detectors plus the client-side checks (observe mode by default). |
-| [Journal](Journal.md) | yes | Records AntiCheat flags and actions (ring buffer, optional DataStore). |
+| [Journal](Journal.md) | yes | Records AntiCheat flags and actions (ring buffer, optional sink). |
 | [Ban](Ban.md) | yes | Saved bans and an auto-escalation policy for AntiCheat actions. |
 | [Chat](Chat.md) | yes | Slash-command chat parser with typed arguments, and client replies. |
 | [Admin](Admin.md) | yes | Role-gated admin commands and the in-game admin panel (F2). |

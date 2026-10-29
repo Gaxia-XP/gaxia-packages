@@ -7,7 +7,8 @@
 --           persists bans (DataStore, pcall-guarded + session cache so Studio
 --           works without API), gates them on PlayerAdded, and escalates repeat
 --           hard AntiCheat actions: warn/kick → temp-ban → perm-ban (thresholds
---           in Config.AntiCheat.BanPolicy). Exempt from ALL auto-action: the
+--           in Config.AntiCheat.BanPolicy; strikes count per server lifetime,
+--           so they survive a rejoin to the same server). Exempt from ALL auto-action: the
 --           place creator + roles >= BanPolicy.ExemptRole (escalation only
 --           warns; stale creator bans self-heal at the join gate). The role
 --           lookup is installed by AdminCommands (SetRoleResolver); without it
@@ -300,13 +301,17 @@ function BanService.IsEscalationExempt(userId: number): boolean
 	return isEscalationExempt(userId)
 end
 
+-- userId → strikes this server. Kept for the server's lifetime (NOT cleared on
+-- leave): with the default policy (KickAt 1, TempBanAt 2, PermBanAt 3) a cheater
+-- who rejoins the same server after a kick is temp-banned on the next hard
+-- action, then perm-banned. Clearing on leave meant kick → rejoin → kick forever.
+-- One small number per flagged user, so it stays bounded by the server's lifetime.
 local strikes: { [number]: number } = {}
 -- Players already kicked/banned by escalate() whose disconnect is still pending.
 -- Kick is asynchronous, so several hard actions arriving in the same frame used to
 -- add several strikes (KickAt=1 → TempBanAt=2 → PermBanAt=3 inside one frame):
--- three simultaneous flags meant a permanent ban. One punishment per session.
--- Strikes reset on leave, so with the default KickAt = 1 the temp/perm thresholds
--- are only reached when KickAt is raised above 1.
+-- three simultaneous flags meant a permanent ban. One punishment per session
+-- (cleared on leave, so the next session can be punished again).
 local punished: { [number]: boolean } = {}
 local function escalate(player: Player, reason: string): ()
 	local uid = player.UserId
@@ -335,7 +340,7 @@ local function escalate(player: Player, reason: string): ()
 end
 
 local function onPlayerRemoving(p: Player): ()
-	strikes[p.UserId] = nil
+	-- strikes[p.UserId] is kept on purpose (see strikes above).
 	punished[p.UserId] = nil
 	-- Evict the ban cache so a rejoin re-reads the store: bans/unbans issued on
 	-- ANOTHER server while this one held a warm entry must take effect here too.

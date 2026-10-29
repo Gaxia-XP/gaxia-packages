@@ -1662,7 +1662,7 @@ Ban.OnUnban:Connect(function(userId) end)
 **กลไก:**
 - บันทึกลง DataStore (`Config.Admin.Stores.Bans`, fallback `"GaxiaBans"`) + session cache — Studio ไม่มี real DataStore ก็ทำงานได้ (in-memory)
 - `PlayerAdded` gate — kick อัตโนมัติทันทีที่ player เข้า ถ้ายังแบนอยู่
-- Auto-escalation: subscribe `AntiCheat.OnAction` (hard) → นับ strikes → kick → temp-ban → perm-ban ตาม `Config.AntiCheat.BanPolicy`
+- Auto-escalation: subscribe `AntiCheat.OnAction` (hard) → นับ strikes → kick → temp-ban → perm-ban ตาม `Config.AntiCheat.BanPolicy` — strikes นับตลอดอายุ server (ไม่ reset ตอน rejoin server เดิม)
 
 **Role ระดับสูงโดน auto-ban / auto-kick ไม่ได้:**
 - Escalation **ข้าม** place creator (เช็ค `game.CreatorId` แบบ sync — ไม่รอ role โหลด) และทุกคนที่ role ≥ `Config.AntiCheat.BanPolicy.ExemptRole` (default `"admin"`) — ได้แค่ warn ลง console ว่า "would have acted on: …" ตั้ง `ExemptRole = false` ถ้าจะเหลือแค่ creator; ตั้ง `"moderator"` ได้แต่จะเสีย auto-ban deterrent กับ staff tier ล่างสุด
@@ -1710,8 +1710,9 @@ Journal.Clear()                        -- reset buffer (สำหรับ test)
 
 **กลไก:**
 - Subscribe `AntiCheat.OnFlag` + `AntiCheat.OnAction` อัตโนมัติ (deferred)
-- Ring buffer 250 entries ใน memory + per-player history table
-- Default sink = `warn` — entry ไม่หายแม้ sink error
+- Ring buffer 250 entries ใน memory + per-player history (เก็บ 100 entry ล่าสุดต่อคน, ลบทิ้ง 30 วินาทีหลังออกจากเกม)
+- Default sink = ไม่มี (ไม่ spam Output) — อยากเห็นทุก entry ใน Output: `Journal.SetSink(Journal.WarnSink)`; entry ไม่หายแม้ sink error
+- อยู่ใน `Config/Features` (default) — บันทึกตั้งแต่ boot
 
 ---
 
@@ -1728,7 +1729,7 @@ GaxiaServer.AntiCheatAdmin.Register()   -- หรือ explicit (idempotent)
 |---|---|---|
 | `/acflags <player>` | moderator | ดู flags ของ player |
 | `/acclear <player>` | admin | ล้าง flags |
-| `/acban <player> <reason> [secs]` | admin | แบน (temp หรือ perm) |
+| `/acban <player> <reason...> [secs]` | admin | แบน (temp หรือ perm) — reason หลายคำได้, ตัวเลขท้ายสุด = วินาที |
 | `/acunban <userId>` | admin | ยกแบน |
 | `/ac <on\|off\|status\|reset> [Detector]` | admin | toggle AntiCheat / detector |
 | `/flag <set\|get\|clear> <key> [value]` | admin | runtime flag override (EConfig) |

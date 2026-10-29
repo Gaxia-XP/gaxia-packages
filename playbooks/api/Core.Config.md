@@ -443,6 +443,8 @@ local Features: Types.Features = {
 		"Leaderboard",
 		"Messages",
 		"Ban",
+		"Journal",        -- records AntiCheat flags/actions from boot (quiet: no Output lines)
+		"AntiCheatAdmin", -- registers /acflags /acclear /acban /acunban /ac /flag
 		"Webhook",
 		"Friend",
 		"Guild",

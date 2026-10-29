@@ -193,7 +193,7 @@ What it does: Coins changes appear in the Creator Dashboard (**Analytics → Eco
 | The webhook URL in a LocalScript, a ModuleScript in ReplicatedStorage, or a StringValue | Only in a server Script (`WebhookSetup`) | Everything the client can see can be copied; anyone could spam your Discord. |
 | Editing `Config/Webhook.lua` inside `Gaxia_Packages_Server` | Set the URL in `WebhookSetup` (Step 1) | Install / Update replaces the package and your URL is lost. |
 | Expecting the built-in auto-reports to work after Step 1 | Use Step 2 | They use the channels `BanReports` and `GuildEvents`, and only if those have a URL at boot, before your Script runs. |
-| `Journal.SetSink(...)` for Discord reports | `Journal.OnEntry:Connect(...)` (Step 2) | There is only one sink; another script ([anticheat-and-bans](anticheat-and-bans.md)) replaces it. `OnEntry` never replaces anything. |
+| `Journal.SetSink(...)` for Discord reports | `Journal.OnEntry:Connect(...)` (Step 2) | There is only one sink: another script can replace it. `OnEntry` never replaces anything. |
 | `GaxiaServer.EConfig.Set("Webhook.Channels.Alerts", url)` | The `Channels.Alerts = ALERTS_URL` line in `WebhookSetup` (Step 1) | EConfig values are copied to every client, so the URL would leak. Webhook never reads them. |
 | `Webhook.Discord("alerts", ...)` | `Webhook.Discord("Alerts", ...)` | Channel names are case-sensitive. An unknown channel returns `false` and sends nothing. |
 | A message for every Coins change or every second | Only rare, important events | One message per 2 seconds per URL; at most 100 wait, older ones are dropped. |

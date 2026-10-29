@@ -55,8 +55,7 @@ end)
 Ban.OnUnban:Connect(function(userId: number)
 	print(`[AntiCheatLog] unbanned {userId}`)
 end)
--- The Journal keeps every entry. Its own Output line is turned off (this script prints instead).
-Journal.SetSink(function(_entry) end)
+-- The Journal keeps each player's last 100 entries. It prints nothing itself (this script prints instead).
 Players.PlayerRemoving:Connect(function(player: Player)
 	print(`[AntiCheatLog] {player.Name} left with {#Journal.GetForPlayer(player)} anti-cheat entries`)
 end)
@@ -144,12 +143,12 @@ No flags means the game is ready for Step 4. A flag during normal play is a fals
 |---|---|---|
 | `Speed`, `Fly`, `NoClip`, `Teleport`, `Heartbeat`, `WorldBounds` | same as the reason | Yes |
 | `Heuristic:SustainedSpeed` / `HumanoidState:<kind>` | `Heuristic` / `HumanoidState` (off by default) | Yes |
-| `StatTamper` | `Stat` | No: always on |
-| `Backpack`, `ToolDupe`, `Combat`, `Animation`, `RemoteRate` | same as the reason | No: always on |
-| `ClientReport:<kind>` | `ExploitSig` | No: always on |
+| `StatTamper` | `Stat` | Yes |
+| `Backpack`, `ToolDupe`, `Combat`, `Animation`, `RemoteRate` | same as the reason | Yes |
+| `ClientReport:<kind>` | `ExploitSig` | Yes |
 | `RemoteRate:<remote>`, `RemoteValidation:<remote>` | your `Net` remotes ([04-client-server](../start/04-client-server-communication.md)) | No: always on |
 
-For an always-on detector, fix the cause or forgive it: `AntiCheat.Whitelist(player, reason, seconds)`.
+Prefer fixing the cause, or forgive one player: `AntiCheat.Whitelist(player, reason, seconds)`. Turning a detector off stops it for everyone.
 
 ## Step 4 — Turn on enforce (kick on hard actions)
 
@@ -173,7 +172,7 @@ What it does: a hard action now kicks the player. Admins and the owner are still
 
 No code. Staff with the `admin` role type these in chat (or use the F2 panel). You are `owner` in a published place you own; otherwise add your UserId to `STAFF` ([admin-and-chat-commands](admin-and-chat-commands.md) Step 1).
 
-- `/acban <player> "<reason>" 3600`: ban for 3600 seconds. Leave out the number for a permanent ban. Keep the quotes when the reason has spaces: `/acban Bob "speed hacking" 3600`.
+- `/acban <player> <reason> 3600`: ban for 3600 seconds, for example `/acban Bob speed hacking 3600`. The reason can be several words; a number at the end is the seconds. Leave out the number for a permanent ban.
 - `/acunban <userId>`: remove a ban. The UserId is in the `[AntiCheatLog] banned ...` line.
 
 ## Check that it works
@@ -193,14 +192,14 @@ Agent: check your scripts against Steps 1–4. The user runs these in Studio. No
 | `humanoid.WalkSpeed = 40` in a LocalScript | `GaxiaServer.Player.SetWalkSpeed(player, 40)` on the server | The server sees a player faster than its WalkSpeed: `Speed` flags. |
 | `character.HumanoidRootPart.CFrame = cframe` / `character:PivotTo(cframe)` | `GaxiaServer.Player.Teleport(player, cframe)` | A big jump is a **hard** `Teleport` flag: kicked in enforce mode. |
 | A launch pad or knockback with `AssemblyLinearVelocity` | First `AntiCheat.Whitelist(player, "Teleport", 3)` and `AntiCheat.Whitelist(player, "Speed", 3)` (also `"Fly"` if the flag says `Fly`) | A launch over ~100 studs/s is a hard `Teleport` flag: kicked in enforce mode. |
-| Drops longer than ~50 studs, or cars/seats faster than 1.5 × WalkSpeed, left as they are | Whitelist `"Teleport"` (falls) or `"Speed"` and `"Teleport"` (while seated) for those players, or turn that detector off (Change it) | Falling or driving fast looks like teleporting or speed hacking. |
+| Whitelisting `"Speed"` / `"Teleport"` for long drops, cars or seats | Nothing to do | `Speed` and `Teleport` skip seated and falling players. Only a sideways jump of over ~50 studs while falling still flags. |
 | `player.leaderstats.Coins.Value = 10` | `Economy.Add` / `GaxiaServer.Player.SetLeaderstat` | A hard `StatTamper` flag ([currency](currency-and-leaderstats.md)). |
 | `Instance.new("Tool")` or `:Clone()` into the Backpack | `GaxiaServer.Tool.Create` ([items](items-and-inventory.md)) | A hard `Backpack` flag. |
 | Writing to `_G` or `shared` in a LocalScript | A ModuleScript in ReplicatedStorage | The client reports `ClientReport:GlobalPollution` every 30 s; after 5 reports it is a hard action (kick in enforce mode). |
 | A `ReplicatedStorage/GaxiaClientFeatures` module without the anti-cheat entry | Only if your place has that module: it returns `{ Client = { ... } }` and must keep `{ Key = "AntiCheat", RequiresServer = "AntiCheat" }` | No client heartbeat: every player gets `Heartbeat` flags. |
 | Testing enforce as the place owner (or an admin) | **Clients and Servers** test players | Owners and admins are never kicked or auto-banned. |
-| `/ac off Stat` to stop `StatTamper` flags | Fix the cause, or `AntiCheat.Whitelist(player, "StatTamper")` | `Stat` is always on (Step 3 table): `/ac off Stat` is accepted but changes nothing. |
-| `/acban Bob speed hacking 3600` | `/acban Bob "speed hacking" 3600` | The reason is one word; `hacking` is read as the seconds and the command fails. |
+| `/ac off Stat` to stop `StatTamper` flags | Fix the cause (`Economy.Add` / `SetLeaderstat`), or `AntiCheat.Whitelist(player, "StatTamper")` | `/ac off Stat` stops the check for every player: real stat tampering is then never flagged. |
+| `/acban Bob 3600` for a 1-hour ban | `/acban Bob <reason> 3600` | With no reason, `3600` is read as the reason and the ban is permanent. |
 | "Permission denied." for `/ac` or `/acban` | Give yourself a role (`STAFF` in [admin-and-chat-commands](admin-and-chat-commands.md)) | These commands need `admin` (`/acflags`: `moderator`). |
 
 ## Change it
@@ -210,8 +209,8 @@ Agent: check your scripts against Steps 1–4. The user runs these in Studio. No
 - To forgive one reason for one player: `AntiCheat.Whitelist(player, "Teleport", 5)` (seconds; no number = this whole session). To clear a player's flags: `/acclear <player>` or `AntiCheat.ClearFlags(player)`.
 - To flag something from your own code (for example an impossible score): `AntiCheat.Flag(player, "ImpossibleScore", "hard")`. It counts like any other flag.
 - To ban from server code: `local Ban = GaxiaServer.Ban`, then `Ban.Ban(player.UserId, "Exploiting", 86400)` (seconds; leave out for permanent; kicks now). `Ban.IsBanned(userId)` and `Ban.Unban(userId)`. `Ban.Ban` returns `false` when the ban could not be saved (Studio without API access). In chat, `/ban <player> [reason]` (permanent; the rest of the line is the reason) and `/unban <userId>` also work.
-- To send flags to Discord or a DataStore: replace the empty function in `Journal.SetSink(...)` with your own ([webhooks](webhooks-and-analytics.md)).
-- Automatic bans (`BanPolicy` in `GaxiaServer.Config.AntiCheat`): in enforce mode the first hard action in a session kicks. Strikes reset when the player leaves, so with the default policy the anti-cheat kicks but never bans. Ban repeat cheaters yourself with `/acban`.
+- To send flags to Discord or a DataStore: `Journal.OnEntry:Connect(function(entry) ... end)` ([webhooks](webhooks-and-analytics.md)). To see every entry in Output: `Journal.SetSink(Journal.WarnSink)`.
+- Automatic bans (`BanPolicy` in `GaxiaServer.Config.AntiCheat`): in enforce mode each hard action is a strike. Strikes last for the whole server: with the default policy strike 1 kicks, strike 2 (after a rejoin to the same server) bans for 1 hour, strike 3 bans forever. A new server starts at 0.
 
 ## See also
 

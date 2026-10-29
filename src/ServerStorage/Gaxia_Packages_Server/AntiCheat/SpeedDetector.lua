@@ -5,6 +5,8 @@
 	Purpose : Flags horizontal speed that exceeds Humanoid.WalkSpeed scaled by
 	          SPEED_TOLERANCE_MULTIPLIER. Requires 2 consecutive over-speed
 	          ticks to avoid false positives from explosions / knockbacks.
+	          Seated players (vehicles, moving seats) and falling players
+	          (Freefall: flings, jump pads, knockback) are skipped.
 ]]
 
 -- ── Dependencies ──
@@ -22,6 +24,10 @@ local SPEED_SEVERITY  : string = SpeedCfg.Severity or "soft"
 local MIN_WALK_SPEED  : number = 8      -- floor when WalkSpeed is artificially low (sliding effects)
 local STREAK_REQUIRED : number = 2      -- consecutive over-speed ticks before flagging
 
+-- Humanoid states whose speed the character's own WalkSpeed does not set.
+local SEATED   = Enum.HumanoidStateType.Seated
+local FREEFALL = Enum.HumanoidStateType.Freefall
+
 -- Per-player streak counter so a single noisy tick (explosion knockback) is forgiven.
 local streaks: { [number]: number } = {}
 
@@ -32,6 +38,13 @@ function SpeedDetector.Sample(player: Player, snapshot: Snapshot): Flag?
 	local hrp = snapshot.hrp
 	local humanoid = snapshot.humanoid
 	if not hrp or not humanoid then
+		streaks[player.UserId] = 0
+		return nil
+	end
+
+	-- A seat (vehicle) or a fall carries the character: WalkSpeed is not the limit.
+	local state = snapshot.state
+	if state == SEATED or state == FREEFALL or humanoid.Sit then
 		streaks[player.UserId] = 0
 		return nil
 	end

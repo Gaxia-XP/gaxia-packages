@@ -258,7 +258,7 @@ No Studio? Run Step 4, report items 2 to 6 as NOT RUN, and tell the user before 
 | `severity = "hard"` for something a normal player can cause | `"soft"` (flags 3 and 4 → soft action, 5 → hard) | One hard flag is a hard action. |
 | A raycast or `FindFirstChild` on every sample | Use the snapshot fields; do slow work only when needed | `Sample` runs for every player twice a second. |
 | Changing the snapshot table | Read it only | All detectors share the same snapshot. |
-| An event-based detector calls `host.Flag(...)` directly | First check `host.IsDetectorEnabled("Hover")` | `Enabled = false` only skips `Sample`, not your own events. |
+| An event-based detector calls `require(script.Parent).Flag(...)` or keeps `GaxiaServer.AntiCheat` | Call `host.Flag(...)` on the `host` passed to `Init` | Only `host.Flag` is ignored while the detector is off (`Enabled = false`, `/ac off Hover`). |
 | Destroying or moving things when cheating is detected | Only when `host.IsEnforcing()` is true | Observe mode must not change the game. |
 | A reason that differs from `Name` | `reason = "Hover"` or `"Hover:<kind>"` | `Whitelist(player, "Hover")` then covers every Hover reason. |
 | Testing kicks as the place creator, or with `Enforce = false` | `Enforce = true` and a **Clients and Servers** player | With Ban installed, the creator is never kicked. Nothing is kicked while `Enforce = false`. |
@@ -266,7 +266,7 @@ No Studio? Run Step 4, report items 2 to 6 as NOT RUN, and tell the user before 
 ## Change it
 
 - A game feature that moves or launches players (jetpack, glider) calls `GaxiaServer.AntiCheat.Whitelist(player, "Hover", seconds)` first. Add that tip to the `Hover` row in [anti-cheat and bans](../game/anticheat-and-bans.md).
-- A detector driven by events instead of samples: leave out `Sample`; in `Init` keep `host` in a local, connect the events, and call `host.Flag(player, "Hover", SEVERITY)` after the `IsDetectorEnabled` check.
+- A detector driven by events instead of samples: leave out `Sample`; in `Init` keep `host` in a local, connect the events, and call `host.Flag(player, "Hover", SEVERITY)`. While the detector is off, `host.Flag` does nothing (skip expensive work first with `host.IsDetectorEnabled("Hover")`).
 - Helper functions for games (like `AntiCheat.Combat.RegisterDamage`): add them to the detector table. The `DetectorAccess` line from Step 2 types them.
 
 ## See also

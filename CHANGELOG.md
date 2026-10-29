@@ -293,6 +293,38 @@ and `AntiCheat.<Detector>` show the cost in a live server.
 - MANUAL told games to `require(... .init)`, which errors under Rojo. Require the package
   ModuleScript itself.
 
+### Fixed — hardening (anticheat-admin)
+- **A disabled detector no longer flags.** The `host` a detector's `Init` receives now has
+  its own `Flag`, which does nothing while that detector is off
+  (`AntiCheat.SetDetectorEnabled`, `/ac off <Detector>`, `Config.AntiCheat.<Name>.Enabled`).
+  Before, only `Sample` was skipped, so the event-driven detectors (`Stat`, `Backpack`,
+  `ToolDupe`, `Combat`, `Animation`, `RemoteRate`, `ExploitSig`) could not be turned off.
+  **Behaviour change:** `/ac off Stat` now really stops `StatTamper` flags. `AntiCheat.Flag`
+  from game code is unchanged (never tied to a detector).
+- **Teleport and Speed skip seated and falling players.** Seated (`Seated` state or
+  `Humanoid.Sit`, now or on the previous sample) skips both; `Freefall` skips `Speed`, and
+  `Teleport` counts only the horizontal part of the move while falling (a long drop is
+  fine, a 50+ stud sideways jump is still a hard flag). Vehicles, moving seats and long
+  drops no longer need `Whitelist` calls.
+- **Admin no longer fails to start when `GetDataStore` errors** (Studio in an unpublished
+  place). The roles store is opened in a `pcall`; without it roles live in memory for the
+  session (one warning), and `SetRole` / the join-time role load skip the store.
+- **`/acban` takes a multi-word reason:** `/acban Bob speed hacking 3600` bans for
+  "speed hacking", 3600 s. With 3+ arguments a number at the end is the seconds; the words
+  between the player and it are the reason (quotes still work).
+- **Ban strikes last for the server's lifetime.** They were reset on leave, so with the
+  default `BanPolicy` (KickAt 1, TempBanAt 2, PermBanAt 3) a cheater was kicked, rejoined
+  and was kicked again, forever. **Behaviour change:** a second hard action after a rejoin
+  to the same server is now a 1-hour ban, a third a permanent ban.
+- **Journal is quiet by default.** The default sink no longer `warn`s every flag (Output
+  spam). `Journal.WarnSink` (new) restores it: `Journal.SetSink(Journal.WarnSink)`. The
+  per-player history keeps each player's last 100 entries and is freed 30 s after they
+  leave (it grew without limit).
+- **`Journal` and `AntiCheatAdmin` boot by default** (`Config/Features` and the `Default`
+  preset), so flags are journaled from boot and `/acflags` `/acban` `/ac` … work without
+  game code touching them.
+- Harness: `harness.join(name, userId)` joins with a given UserId (a rejoin), for probes.
+
 ### Removed / deprecated
 - `Shared/Comm` removed. It required a non-existent `Option` module and nothing used it.
 - `Janitor` and `ComponentLegacy` are deprecated (they warn on first use) in favour of

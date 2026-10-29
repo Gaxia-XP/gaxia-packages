@@ -45,8 +45,8 @@ local Packages: Types.PackageManifest = {
 	Presets = {
 		Default = {
 			"AntiCheat", "Data", "Player", "Item", "Economy", "Pet", "Tool", "Zone", "Chat", "Admin",
-			"Quest", "Achievement", "Level", "Migration", "Leaderboard", "Messages", "Ban", "Webhook",
-			"Friend", "Guild", "Input", "Camera", "Sound",
+			"Quest", "Achievement", "Level", "Migration", "Leaderboard", "Messages", "Ban", "Journal",
+			"AntiCheatAdmin", "Webhook", "Friend", "Guild", "Input", "Camera", "Sound",
 		},
 	},
 
@@ -358,7 +358,7 @@ local Packages: Types.PackageManifest = {
 		},
 		{
 			Name = "Journal", Category = "Moderation & safety", Boot = true,
-			Description = "Records AntiCheat flags and actions (ring buffer, optional DataStore).",
+			Description = "Records AntiCheat flags and actions (ring buffer, optional sink).",
 			Server = { "Lib/AntiCheatJournal" },
 			Requires = { "AntiCheat" },
 		},

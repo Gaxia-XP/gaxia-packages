@@ -2,7 +2,7 @@
 
 # Journal
 
-> Records AntiCheat flags and actions (ring buffer, optional DataStore).
+> Records AntiCheat flags and actions (ring buffer, optional sink).
 
 - Package: `Journal` · Category: Moderation & safety
 - Starts at server boot: **yes, whenever installed** (it has work to do before its first call)
@@ -23,9 +23,13 @@ local Journal = GaxiaServer.Journal
 
 ### Functions
 
+- `Journal.WarnSink(entry: Entry): ()`
+  A sink that warns one Output line per entry (the default sink is silent): Journal.SetSink(Journal.WarnSink).
 - `Journal.SetSink(fn: (entry: Entry) -> ()): ()`
+  Replace the sink every entry is sent to (one sink: the last call wins). Journal.SetSink(Journal.WarnSink) prints each entry to Output.
 - `Journal.GetRecent(n: number?): { Entry }`
 - `Journal.GetForPlayer(player: Player): { Entry }`
+  This player's entries (oldest first, at most the last 100). Kept while they are in the server and for 30 s after they leave.
 - `Journal.Clear(): ()`
 
 ### Signals

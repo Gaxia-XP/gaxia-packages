@@ -68,8 +68,23 @@ local DISABLED : { [string]: boolean } = {}
 -- ban gate delegate to it so the on-disk record shape, in-memory cache,
 -- expiresAt-aware IsBanned, and OnBan/OnUnban signals (Webhook auto-report)
 -- all stay consistent. AdminCommands still owns Roles persistence directly
--- because it's the role registry. Opened in Init.
+-- because it's the role registry. Opened in Init; stays nil when GetDataStore
+-- errors (Studio in an unpublished place / without API access): roles then live
+-- in memory for this server only.
 local ROLES_STORE : DataStore? = nil
+
+local function openRolesStore(): ()
+	local name = AdminConfig.Stores.Roles or "GaxiaRoles"
+	local ok, result = pcall(function(): DataStore
+		return DataStoreService:GetDataStore(name)
+	end)
+	if ok then
+		ROLES_STORE = result
+	else
+		ROLES_STORE = nil
+		warn(`[AdminCommands] roles DataStore unavailable — roles are not saved this session: {tostring(result)}`)
+	end
+end
 
 -- Config.Admin → enable flag, extra tiers, aliases, disabled commands (Init).
 -- (Tiers / Aliases / Disabled are open maps / lists; the casts name that shape.)
@@ -133,10 +148,15 @@ function AdminCommands.SetRole(userId: number, role: string): ()
 		return
 	end
 	roleByUserId[userId] = role
+	local rolesStore = ROLES_STORE
+	if rolesStore == nil then
+		-- No store (see openRolesStore): the role is in memory only.
+		return
+	end
 	-- WHY pcall: DataStore can throw on rate-limit / network; never crash caller.
 	task.spawn(function()
 		local ok, err = pcall(function()
-			(ROLES_STORE :: DataStore):SetAsync(tostring(userId), role)
+			rolesStore:SetAsync(tostring(userId), role)
 		end)
 		if not ok then
 			warn(`[AdminCommands] failed to persist role for {userId}: {tostring(err)}`)
@@ -657,9 +677,13 @@ end
 -- BanService is a Need of this module, so its gate is connected (BanService's
 -- Init) before AdminCommands' Init runs.
 local function loadPersistedRole(p: Player)
+	local rolesStore = ROLES_STORE
+	if rolesStore == nil then
+		return
+	end
 	task.spawn(function()
 		local ok, role = pcall(function()
-			return (ROLES_STORE :: DataStore):GetAsync(tostring(p.UserId))
+			return rolesStore:GetAsync(tostring(p.UserId))
 		end)
 		if ok and typeof(role) == "string" and ROLE_TIER[role] ~= nil then
 			-- Upgrade-only: a persisted role may PROMOTE a player but must never
@@ -908,7 +932,8 @@ Lifecycle.Define(AdminCommands, {
 	Needs = { BanService, ChatCommandSystem },
 	Init = function()
 		readConfig()
-		ROLES_STORE = DataStoreService:GetDataStore(AdminConfig.Stores.Roles or "GaxiaRoles")
+		-- pcall'd: GetDataStore itself errors in an unpublished Studio place.
+		openRolesStore()
 		registerBuiltins()
 		if ADMIN_ENABLED then
 			hookRolePersistence()

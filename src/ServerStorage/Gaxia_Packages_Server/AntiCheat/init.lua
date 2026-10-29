@@ -24,6 +24,11 @@
 		  Sample  : (player, snapshot: Snapshot) -> Flag? -- optional, called each tick
 		}
 	Flag = { reason: string, severity: "soft" | "hard" }
+
+	The host a detector's Init receives is the orchestrator's API with its own
+	Flag: a flag raised through it is dropped while that detector is disabled
+	(SetDetectorEnabled / Config.AntiCheat.<Name>.Enabled), like its Sample is
+	skipped. AntiCheat.Flag itself (game code) is never tied to a detector.
 ]]
 
 -- ── Services ──
@@ -86,9 +91,10 @@ export type Flag = Types.AntiCheatFlag
 export type Snapshot = Types.AntiCheatSnapshot
 export type DetectorHost = Types.DetectorHost
 
--- What a detector's Init actually receives: the orchestrator's public API. The
--- built-in detectors only rely on the DetectorHost subset (Flag, IsEnforcing,
--- IsDetectorEnabled); a game detector may use the rest.
+-- What a detector's Init actually receives: the orchestrator's public API, with a
+-- Flag that is ignored while that detector is disabled. The built-in detectors
+-- only rely on the DetectorHost subset (Flag, IsEnforcing, IsDetectorEnabled); a
+-- game detector may use the rest.
 export type Host = {
 	Flag: (player: Player, reason: string, severity: (Types.Severity | string)?) -> (),
 	IsEnforcing: () -> boolean,
@@ -281,14 +287,33 @@ local function recordFlag(player: Player, reason: string, severity: Types.Severi
 	end
 end
 
+-- The host a detector's Init receives: the orchestrator's API (through __index),
+-- except Flag, which drops the flag while that detector is disabled — the same
+-- switch that skips its Sample. Event-driven detectors (Combat, Backpack, Stat,
+-- ...) only flag through this, so without it /ac off <Detector> and
+-- Config.AntiCheat.<Name>.Enabled = false did not silence them.
+local function hostFor(detector: Detector): Host
+	local name = detector.Name
+	local host = setmetatable({
+		Flag = function(player: Player, reason: string, severity: (Types.Severity | string)?)
+			if not isDetectorEnabled(name) then
+				return
+			end
+			recordFlag(player, reason, severity or "soft")
+		end,
+	}, { __index = AntiCheat })
+	return host :: any
+end
+
 -- Run a registered detector's Init on its own thread (it may yield, e.g.
 -- WaitForChild on a character) so a broken or slow Init never blocks the others.
 local function initDetector(detector: Detector): ()
 	local init = detector.Init
 	if init then
+		local host = hostFor(detector)
 		task.spawn(function()
 			local ok, err = pcall(function(): ...any
-				return init(AntiCheat)
+				return init(host)
 			end)
 			if not ok then
 				warn(`[AntiCheat] {detector.Name}.Init failed: {tostring(err)}`)
@@ -299,7 +324,9 @@ end
 
 -- ── Public API ──
 
--- External entry-point detectors and gameplay code can use to log violations.
+-- Flag a player from game code (or a detector that kept the module instead of its
+-- host). Never tied to a detector's enabled switch: the master switch, the
+-- whitelists and the thresholds apply as for every flag.
 function AntiCheat.Flag(player: Player, reason: string, severity: (Types.Severity | string)?)
 	recordFlag(player, reason, severity or "soft")
 end

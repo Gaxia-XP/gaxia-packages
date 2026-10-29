@@ -8,7 +8,7 @@
 --           inspect and act in-game:
 --             /acflags <player>   — list a player's flags
 --             /acclear <player>   — clear a player's flags
---             /acban <player> <reason> [seconds]
+--             /acban <player> <reason...> [seconds]
 --             /acunban <userId>
 --             /ac <on|off|status|reset> [Detector]  — live AntiCheat kill-switch
 --             /flag <set|get> <key> [value]         — generic runtime flag override
@@ -94,7 +94,7 @@ local function register(): ()
 		return `cleared {target.Name}'s AntiCheat flags`
 	end)
 
-	Admin.Register("acban", { role = "admin", help = "Ban a player: /acban <player> <reason> [seconds]" }, function(caller: Player, args: { string }): (string?, boolean?)
+	Admin.Register("acban", { role = "admin", help = "Ban a player: /acban <player> <reason...> [seconds]" }, function(caller: Player, args: { string }): (string?, boolean?)
 		local target, why = findPlayer(args[1])
 		if not target then
 			return why or "player not found", true
@@ -111,13 +111,26 @@ local function register(): ()
 		if blocked then
 			return blocked, true
 		end
-		local reason = args[2] or "AntiCheat"
+		-- Multi-word reason: chat splits unquoted words into separate args, so
+		-- "/acban Bob speed hacking 3600" is { Bob, speed, hacking, 3600 }. With 3+
+		-- args a numeric LAST arg is the duration; every word between the player
+		-- and it is the reason. ("/acban Bob 3600" keeps "3600" as the reason.)
+		local last = #args
+		local secondsArg: string? = nil
+		if last >= 3 and tonumber(args[last]) ~= nil then
+			secondsArg = args[last]
+			last -= 1
+		end
+		local reason = if last >= 2 then table.concat(args, " ", 2, last) else "AntiCheat"
+		if reason:match("^%s*$") then
+			reason = "AntiCheat"
+		end
 		-- NaN/inf/negative guard (audit convention): tonumber("nan") is NaN,
 		-- NaN expiresAt never compares expired → an accidental PERMANENT ban
 		-- reported as temp; negative seconds = instantly-expired record.
 		local seconds: number? = nil
-		if args[3] ~= nil and args[3] ~= "" then
-			local n = tonumber(args[3])
+		if secondsArg ~= nil then
+			local n = tonumber(secondsArg)
 			if not n or n ~= n or n == math.huge or n < 1 then
 				return "seconds must be a positive number (omit for permanent)", true
 			end

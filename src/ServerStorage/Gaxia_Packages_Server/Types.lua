@@ -85,7 +85,8 @@ export type AntiCheatSnapshot = {
 }
 
 -- What a detector's Init receives: the orchestrator (only these members are part
--- of the contract).
+-- of the contract). Its Flag is the detector's own: ignored while that detector
+-- is disabled (AntiCheat.SetDetectorEnabled / Config.AntiCheat.<Name>.Enabled).
 export type DetectorHost = {
 	Flag: (player: Player, reason: string, severity: (Severity | string)?) -> (),
 	IsEnforcing: () -> boolean,
