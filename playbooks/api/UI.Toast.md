@@ -26,10 +26,10 @@ local Toast = Gaxia.UI.Toast
 - `Toast.Show(opt: ToastOpts): ()`
   Queues a toast: at most MaxVisible (default 3) show at once, the rest wait their turn.
 - `Toast.ShowAction(opt: ToastActionOpts): ()`
-  Queues a toast with Accept / Decline buttons (labels: AcceptText / DeclineText). Clicking one runs OnAccept or OnDecline; when the toast times out (Duration, default 15 s) or Toast.Clear removes it, OnDecline runs. Exactly one callback runs, on its own thread (it may yield).
+  Queues a toast with Accept / Decline buttons (labels: AcceptText / DeclineText). Clicking one runs OnAccept or OnDecline; when the toast times out (Duration, default 15 s) or Toast.Clear removes it, OnDecline runs, unless DeclineOnTimeout = false (then the toast just goes away and neither runs). At most one callback runs, on its own thread (it may yield).
 - `Toast.SetMaxVisible(n: number): ()`
 - `Toast.Clear(): ()`
-  Removes every toast, shown and waiting. Action toasts answer "decline" (OnDecline runs).
+  Removes every toast, shown and waiting. Action toasts answer "decline" (OnDecline runs) unless they set DeclineOnTimeout = false.
 - `Toast.Stats(): ToastStats`
 
 ### Types
@@ -49,5 +49,6 @@ export type ToastActionOpts = {
     DeclineText: string?,
     OnAccept: (() -> ())?,
     OnDecline: (() -> ())?,
+    DeclineOnTimeout: boolean?,
 }
 ```

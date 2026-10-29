@@ -15,13 +15,18 @@ this framework uses a single rolling version until a public release cut.
   `HUDController`, `HealthBarController`, `InventoryController` and the pet panel draw
   without the game making it first. Before, they waited 5 s and showed nothing. A
   `Gaxia_UI` made in StarterGui is still reused (it waits up to 5 s for Roblox's copy) and
-  gets any missing folder. The pets, ui, show-values-on-screen and troubleshooting
+  gets any missing folder. With no character yet (CharacterAutoLoads off, slow spawn) Gaxia
+  draws into a stand-in `Gaxia_UI` and, when Roblox's copy arrives, moves its content into
+  that copy and removes the stand-in, so PlayerGui never holds two. The pets, ui, show-values-on-screen and troubleshooting
   playbooks no longer create `Gaxia_UI` themselves.
 - **`Toast.ShowAction`** (new): a toast with Accept / Decline buttons (`AcceptText`,
-  `DeclineText`, `OnAccept`, `OnDecline`, `Duration` default 15 s). Exactly one callback
-  runs; a timeout or `Toast.Clear` declines.
+  `DeclineText`, `OnAccept`, `OnDecline`, `Duration` default 15 s). At most one callback
+  runs; a timeout or `Toast.Clear` declines, unless `DeclineOnTimeout = false` (then the
+  toast just goes away and neither callback runs).
 - **`UI.InviteToast` works:** friend requests, guild and party invites show an action toast
-  whose buttons answer the service. Behaviour change: requiring it no longer blocks up to
+  whose buttons answer the service. Only a Decline click declines: an ignored toast goes
+  away after 30 s without answering, so the invite stays open on the server and
+  `/accept`, `/partyjoin`, `/guildjoin` keep working until it expires there. Behaviour change: requiring it no longer blocks up to
   ~60 s waiting for the remotes (each service is wired on its own thread), so
   `Gaxia.UI.InviteToast` now loads through the loader too, also when Friend / Guild /
   Party are not installed.

@@ -38,6 +38,7 @@ end
 local Toast = require(script.Parent.Toast)
 
 local REMOTE_WAIT : number = 10
+local INVITE_TOAST_DURATION : number = 30
 
 local function waitRemote(folderName: string, name: string): Instance?
 	local Events = ReplicatedStorage:WaitForChild("Events", REMOTE_WAIT)
@@ -72,6 +73,8 @@ local function show(text: string, action: RemoteFunction, accept: { [string]: an
 		Variant = "info",
 		AcceptText = "Accept",
 		DeclineText = "Decline",
+		Duration = INVITE_TOAST_DURATION,
+		DeclineOnTimeout = false, -- an ignored toast must not cancel the server-side invite
 		OnAccept = function()
 			answer(action, accept)
 		end,

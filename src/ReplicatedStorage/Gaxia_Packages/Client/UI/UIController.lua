@@ -44,6 +44,10 @@ export type TemplateName = Templates.TemplateName
 -- The one PlayerGui.Gaxia_UI this module made or found (re-checked on each call:
 -- a game may destroy it, or a ResetOnSpawn copy from StarterGui may replace it).
 local cachedRoot: ScreenGui? = nil
+-- A stand-in Gaxia_UI made while the game's StarterGui.Gaxia_UI had not been
+-- copied into PlayerGui yet (no character). Replaced by that copy when it comes.
+local standIn: ScreenGui? = nil
+local standInConn: RBXScriptConnection? = nil
 
 -- Finds `name` under `root`, or creates an empty Folder with that name.
 local function ensureFolder(root: ScreenGui, name: string): Instance
@@ -57,6 +61,37 @@ local function ensureFolder(root: ScreenGui, name: string): Instance
 	return folder
 end
 
+-- Moves everything Gaxia drew into the stand-in over to the game's own
+-- Gaxia_UI (the StarterGui copy that just arrived), then removes the stand-in,
+-- so PlayerGui never keeps two Gaxia_UI.
+local function adoptStarterCopy(copy: ScreenGui): ()
+	local temp = standIn
+	if not temp or copy == temp then
+		return
+	end
+	standIn = nil
+	if standInConn then
+		standInConn:Disconnect()
+		standInConn = nil
+	end
+	for _, child in ipairs(temp:GetChildren()) do
+		local target: Instance? = copy:FindFirstChild(child.Name)
+		local isRootFolder: boolean = child.ClassName == "Folder" and (child.Name == HUD_NAME or child.Name == OVERLAYS_NAME)
+		if isRootFolder and target then
+			-- The game's folder (and whatever its designer put in it) wins: move our content in.
+			for _, item in ipairs(child:GetChildren()) do
+				item.Parent = target
+			end
+		else
+			child.Parent = copy
+		end
+	end
+	temp:Destroy()
+	cachedRoot = copy
+	ensureFolder(copy, HUD_NAME)
+	ensureFolder(copy, OVERLAYS_NAME)
+end
+
 -- The single place that finds or creates PlayerGui.Gaxia_UI (with HUD and
 -- Overlays). Every Gaxia UI module reaches the root through the getters below.
 local function ensureRoot(): ScreenGui?
@@ -66,7 +101,8 @@ local function ensureRoot(): ScreenGui?
 	end
 
 	local found = PlayerGui:FindFirstChild(ACTIVE_SCREEN_NAME)
-	if not found and StarterGui:FindFirstChild(ACTIVE_SCREEN_NAME) then
+	local fromStarter = StarterGui:FindFirstChild(ACTIVE_SCREEN_NAME) ~= nil
+	if not found and fromStarter then
 		-- WHY: the game made Gaxia_UI in Studio. Roblox copies it into PlayerGui
 		-- when the character spawns: wait for that copy instead of making a
 		-- second one.
@@ -95,6 +131,17 @@ local function ensureRoot(): ScreenGui?
 		screen.DisplayOrder = 1000
 		screen.Parent = PlayerGui
 		root = screen
+		if fromStarter then
+			-- WHY: no character yet (CharacterAutoLoads off, slow spawn). Draw into
+			-- this stand-in now; when Roblox copies the game's Gaxia_UI in, move
+			-- our content there and drop the stand-in (see adoptStarterCopy).
+			standIn = screen
+			standInConn = PlayerGui.ChildAdded:Connect(function(child: Instance)
+				if child ~= screen and child.Name == ACTIVE_SCREEN_NAME and child:IsA("ScreenGui") then
+					adoptStarterCopy(child)
+				end
+			end)
+		end
 	end
 
 	local screen = root :: ScreenGui
@@ -105,7 +152,7 @@ local function ensureRoot(): ScreenGui?
 end
 
 -- ── GetActiveScreen ──
--- Returns PlayerGui.Gaxia_UI, creating it (ResetOnSpawn off, with the HUD and Overlays folders) the first time any Gaxia UI module asks. A Gaxia_UI made in StarterGui is reused: it waits up to 5 s for Roblox to copy it into PlayerGui. Nil only when something that is not a ScreenGui is named Gaxia_UI.
+-- Returns PlayerGui.Gaxia_UI, creating it (ResetOnSpawn off, with the HUD and Overlays folders) the first time any Gaxia UI module asks. A Gaxia_UI made in StarterGui is reused: it waits up to 5 s for Roblox to copy it into PlayerGui; with no copy yet (no character) it returns a stand-in whose content moves into the copy when it arrives, so call this again rather than keeping the result. Nil only when something that is not a ScreenGui is named Gaxia_UI.
 function UIController.GetActiveScreen(): ScreenGui?
 	return ensureRoot()
 end

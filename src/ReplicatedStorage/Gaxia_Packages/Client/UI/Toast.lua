@@ -23,8 +23,9 @@ local RunService = game:GetService("RunService")
 export type ToastVariant = "info" | "success" | "warn" | "error"
 export type ToastOpts = { Text: string, Title: string?, Duration: number?, Variant: (ToastVariant | string)? }
 export type ToastStats = { visible: number, queued: number }
--- A toast with Accept / Decline buttons. Exactly one of OnAccept / OnDecline runs (on its own thread,
--- so it may yield): OnDecline also runs when the toast times out (Duration, default 15 s) or is cleared.
+-- A toast with Accept / Decline buttons. At most one of OnAccept / OnDecline runs (on its own thread,
+-- so it may yield). OnDecline also runs when the toast times out (Duration, default 15 s) or is cleared,
+-- unless DeclineOnTimeout is false: then a timeout or Toast.Clear only removes the toast and runs neither.
 export type ToastActionOpts = {
 	Text: string,
 	Title: string?,
@@ -34,6 +35,7 @@ export type ToastActionOpts = {
 	DeclineText: string?,
 	OnAccept: (() -> ())?,
 	OnDecline: (() -> ())?,
+	DeclineOnTimeout: boolean?,
 }
 
 local Toast = {}
@@ -205,31 +207,33 @@ local function render(pending: Pending): ()
 
 	local live: Live = { frame = f, height = height }
 	if action then
-		-- Exactly one answer per toast: a click, the timeout or Clear (both "decline").
+		-- At most one answer per toast: a click, or the timeout / Clear ("decline",
+		-- or no answer at all when DeclineOnTimeout is false).
 		local answered = false
-		local function answer(accepted: boolean): ()
+		local function answer(accepted: boolean?): ()
 			if answered then
 				return
 			end
 			answered = true
 			dismiss(live)
-			local callback = if accepted then action.OnAccept else action.OnDecline
+			local callback = if accepted == true then action.OnAccept
+				elseif accepted == false then action.OnDecline
+				else nil
 			if callback then
 				task.spawn(callback) -- its own thread: callbacks may yield (InvokeServer)
 			end
 		end
-		live.cancel = function()
-			answer(false)
+		local function expire(): ()
+			answer(if action.DeclineOnTimeout == false then nil else false)
 		end
+		live.cancel = expire
 		actionButton(f, "Accept", action.AcceptText or "Accept", "Success", 16, function()
 			answer(true)
 		end)
 		actionButton(f, "Decline", action.DeclineText or "Decline", "Danger", 16 + BUTTON_W + 8, function()
 			answer(false)
 		end)
-		task.delay(opt.Duration or DEFAULT_ACTION_DURATION, function()
-			answer(false)
-		end)
+		task.delay(opt.Duration or DEFAULT_ACTION_DURATION, expire)
 	else
 		task.delay(opt.Duration or DEFAULT_DURATION, function()
 			dismiss(live)
@@ -256,7 +260,7 @@ function Toast.Show(opt: ToastOpts): ()
 	pump()
 end
 
--- Queues a toast with Accept / Decline buttons (labels: AcceptText / DeclineText). Clicking one runs OnAccept or OnDecline; when the toast times out (Duration, default 15 s) or Toast.Clear removes it, OnDecline runs. Exactly one callback runs, on its own thread (it may yield).
+-- Queues a toast with Accept / Decline buttons (labels: AcceptText / DeclineText). Clicking one runs OnAccept or OnDecline; when the toast times out (Duration, default 15 s) or Toast.Clear removes it, OnDecline runs, unless DeclineOnTimeout = false (then the toast just goes away and neither runs). At most one callback runs, on its own thread (it may yield).
 function Toast.ShowAction(opt: ToastActionOpts): ()
 	local shown: ToastOpts = { Text = opt.Text, Title = opt.Title, Variant = opt.Variant, Duration = opt.Duration }
 	table.insert(queue, { opt = shown, action = opt })
@@ -268,7 +272,7 @@ function Toast.SetMaxVisible(n: number): ()
 	pump()
 end
 
--- Removes every toast, shown and waiting. Action toasts answer "decline" (OnDecline runs).
+-- Removes every toast, shown and waiting. Action toasts answer "decline" (OnDecline runs) unless they set DeclineOnTimeout = false.
 function Toast.Clear(): ()
 	local waiting = table.clone(queue)
 	table.clear(queue)
@@ -281,7 +285,7 @@ function Toast.Clear(): ()
 	end
 	for _, pending in ipairs(waiting) do
 		local action = pending.action
-		if action and action.OnDecline then
+		if action and action.OnDecline and action.DeclineOnTimeout ~= false then
 			task.spawn(action.OnDecline)
 		end
 	end

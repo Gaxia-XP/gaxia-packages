@@ -24,7 +24,7 @@ local UIController = Gaxia.UI.UIController
 ### Functions
 
 - `UIController.GetActiveScreen(): ScreenGui?`
-  Returns PlayerGui.Gaxia_UI, creating it (ResetOnSpawn off, with the HUD and Overlays folders) the first time any Gaxia UI module asks. A Gaxia_UI made in StarterGui is reused: it waits up to 5 s for Roblox to copy it into PlayerGui. Nil only when something that is not a ScreenGui is named Gaxia_UI.
+  Returns PlayerGui.Gaxia_UI, creating it (ResetOnSpawn off, with the HUD and Overlays folders) the first time any Gaxia UI module asks. A Gaxia_UI made in StarterGui is reused: it waits up to 5 s for Roblox to copy it into PlayerGui; with no copy yet (no character) it returns a stand-in whose content moves into the copy when it arrives, so call this again rather than keeping the result. Nil only when something that is not a ScreenGui is named Gaxia_UI.
 - `UIController.HUD(): Folder?`
   Container for persistent on-screen elements (health bars, text labels): the Folder PlayerGui.Gaxia_UI.HUD, created on demand. Nil only when a non-Folder named HUD is already in Gaxia_UI.
 - `UIController.Overlays(): Folder?`

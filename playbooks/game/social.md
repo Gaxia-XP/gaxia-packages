@@ -207,7 +207,7 @@ print("[SocialNotices] ready")
 
 ## Change it
 
-- Accept / Decline buttons for friend requests, party and guild invites (package `UI.InviteToast`): at the end of `SocialNotices`, add `if Gaxia.IsInstalled("UI.InviteToast") then local _ = Gaxia.UI.InviteToast end`. Each invite then shows a toast with **Accept** and **Decline**; an invite left alone for 15 seconds is declined. The chat commands keep working.
+- Accept / Decline buttons for friend requests, party and guild invites (package `UI.InviteToast`): at the end of `SocialNotices`, add `if Gaxia.IsInstalled("UI.InviteToast") then local _ = Gaxia.UI.InviteToast end`. Each invite then shows a second toast (next to the text toast from Step 4) with **Accept** and **Decline**. Only **Decline** declines: a toast left alone goes away after 30 seconds without answering, so the invite stays open and `/accept`, `/partyjoin` and `/guildjoin` keep working until it expires on the server (party invites: 60 seconds).
 - Friend list and guild panels: from a button in a LocalScript, `Gaxia.UI.FriendListPanel.Toggle()` (Friend package) or `Gaxia.UI.GuildPanel.Toggle()` (Guild package). Check `Gaxia.IsInstalled("UI.GuildPanel")` first.
 - List friends: `Friend.GetList(player)` (online first; `{ userId, name, online, ... }`). Remove or block: `Friend.Remove(player, otherUserId)`, `Friend.Block(...)`, `Friend.Unblock(...)`; each returns `ok, reason`.
 - Leave a party: `Party.Leave(player)`. Party size: `Party.SetMaxSize(6)` once at server start. Private server for a party: `Party.StartMatch(partyId, PLACE_ID)` ([multi-server](multi-server.md); not in Studio).

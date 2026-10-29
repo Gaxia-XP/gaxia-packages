@@ -5,7 +5,10 @@
 -- Purpose : Subscribes to the Friend / Guild / Party Inbound RemoteEvents and
 --           shows each "invite" / "request" as a Toast.ShowAction toast with
 --           Accept and Decline buttons. Accept / Decline call the service's
---           Action RemoteFunction; a toast that times out (15 s) declines.
+--           Action RemoteFunction. Only a Decline click declines: a toast left
+--           alone goes away after INVITE_TOAST_DURATION (30 s) without answering,
+--           so the invite stays open on the server and the chat commands
+--           (/accept, /partyjoin, /guildjoin) still work until it expires there.
 --
 -- Access  : Gaxia.UI.InviteToast  (client) — reach it once from a LocalScript
 --   at game start (`local _ = Gaxia.UI.InviteToast`, or `require` the
@@ -29,6 +32,7 @@ end
 local Toast = require(script.Parent.Toast)
 
 local REMOTE_WAIT : number = 10
+local INVITE_TOAST_DURATION : number = 30
 
 local function waitRemote(folderName: string, name: string): Instance?
 	local Events = ReplicatedStorage:WaitForChild("Events", REMOTE_WAIT)
@@ -63,6 +67,8 @@ local function show(text: string, action: RemoteFunction, accept: { [string]: an
 		Variant = "info",
 		AcceptText = "Accept",
 		DeclineText = "Decline",
+		Duration = INVITE_TOAST_DURATION,
+		DeclineOnTimeout = false, -- an ignored toast must not cancel the server-side invite
 		OnAccept = function()
 			answer(action, accept)
 		end,
