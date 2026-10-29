@@ -28,7 +28,7 @@ local Teleport = GaxiaServer.Teleport
 - `Teleport.IsRetryable(result: Enum.TeleportResult): boolean`
   Flooded (too many teleport requests) and Failure (a transient error) are retried; the rest (GameFull, GameNotFound, Unauthorized, IsTeleporting, ...) are not.
 - `Teleport.To(players: Player | { Player }, placeId: number, opts: TeleportOpts?): (boolean, any)`
-  Teleports one player or a group to placeId, retrying a failed request with exponential backoff (Config.Teleport.Retry / Configure). Returns (true, TeleportAsyncResult) once Roblox accepted it, or (false, err) after the last try (OnTeleportFailed fires). A teleport that fails after it was accepted is retried through TeleportInitFailed. Yields.
+  Teleports one player or a group to placeId, retrying a failed request with exponential backoff (Config.Teleport.Retry / Configure). Returns (true, TeleportAsyncResult) once Roblox accepted it, or (false, err) after the last try (OnTeleportFailed fires). A teleport that fails after it was accepted (TeleportInitFailed: Flooded / Failure) is sent again when it was for one player or had a ReservedAccessCode. A group teleport to a public server is not sent again for one player (they would land in a different server than the group): OnTeleportFailed fires for that player instead. Yields.
 - `Teleport.ReserveServer(placeId: number): (string?, string?, string?)`
 - `Teleport.ToPrivate(players: Player | { Player }, placeId: number, accessCode: string, opts: TeleportOpts?): (boolean, any)`
 - `Teleport.GetArrivingData(player: Player): any`

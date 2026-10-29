@@ -30,7 +30,10 @@ local Memory = {}
 -- every op routes to the local fallback for RETRY_AFTER seconds, then the next
 -- call probes the real store again (Studio without API access, a MemoryStore
 -- outage, a throttled request). Entries written to the fallback stay local: they
--- are not copied to the real store when it comes back.
+-- are not copied to the real store when it comes back, but this server keeps
+-- seeing them until their TTL ends (MapGet / MapRange merge them with the real
+-- store, QueueRead returns them before reading the real queue), and MapSet /
+-- MapRemove on the same key replace or delete the local copy.
 local RETRY_AFTER : number = 60
 
 local probed = false
@@ -88,6 +91,49 @@ local function fbMap(name: string): { [string]: MapEntry }
 	return m
 end
 
+-- Live (not expired) local entry for key, or nil. Drops an expired one.
+local function liveLocal(mapName: string, key: string): MapEntry?
+	local m = localMaps[mapName]
+	local e = m and m[key]
+	if not e then
+		return nil
+	end
+	if e.expireAt < now() then
+		(m :: { [string]: MapEntry })[key] = nil
+		return nil
+	end
+	return e
+end
+
+-- Forget the local copy of key (the real store now holds the current value).
+local function dropLocal(mapName: string, key: string): ()
+	local m = localMaps[mapName]
+	if m then
+		m[key] = nil
+		if next(m) == nil then
+			localMaps[mapName] = nil
+		end
+	end
+end
+
+-- Live entries of the local queue (expired ones are dropped from it).
+local function liveQueue(queueName: string): { QueueEntry }
+	local q = localQueues[queueName]
+	if not q then
+		return {}
+	end
+	local t = now()
+	for i = #q, 1, -1 do
+		if q[i].expireAt < t then
+			table.remove(q, i)
+		end
+	end
+	if #q == 0 then
+		localQueues[queueName] = nil
+	end
+	return table.clone(q)
+end
+
 -- ── Sorted map ──
 
 function Memory.MapSet(mapName: string, key: string, value: any, ttl: number, sortKey: number?): boolean
@@ -98,6 +144,7 @@ function Memory.MapSet(mapName: string, key: string, value: any, ttl: number, so
 			m:SetAsync(key, value, ttl, sortKey)
 		end)
 		if ok then
+			dropLocal(mapName, key)
 			return true
 		end
 		useFallback() -- fall through to local on a live failure
@@ -113,15 +160,17 @@ function Memory.MapGet(mapName: string, key: string): any
 			return MemoryStoreService:GetSortedMap(mapName):GetAsync(key)
 		end)
 		if ok then
-			return v
+			if v ~= nil then
+				return v
+			end
+			-- Not in the real store: a value this server wrote during a fallback.
+			local e = liveLocal(mapName, key)
+			return if e then e.value else nil
 		end
 		useFallback()
 	end
-	local e = fbMap(mapName)[key]
-	if not e or e.expireAt < now() then
-		return nil
-	end
-	return e.value
+	local e = liveLocal(mapName, key)
+	return if e then e.value else nil
 end
 
 function Memory.MapRemove(mapName: string, key: string): boolean
@@ -131,39 +180,59 @@ function Memory.MapRemove(mapName: string, key: string): boolean
 			MemoryStoreService:GetSortedMap(mapName):RemoveAsync(key)
 		end)
 		if ok then
+			dropLocal(mapName, key)
 			return true
 		end
 		useFallback()
 	end
-	fbMap(mapName)[key] = nil
+	dropLocal(mapName, key)
 	return true
 end
 
 -- Return up to `count` entries sorted by sortKey. ascending=false → highest first.
+-- Entries this server wrote during a fallback (still within their TTL) are included.
 function Memory.MapRange(mapName: string, count: number, ascending: boolean?): { MapRangeEntry }
 	ensureProbe()
 	local asc = ascending ~= false
+	local entries: { MapRangeEntry } = {}
+	local seen: { [string]: boolean } = {}
 	if not fallback then
 		local ok, result = pcall(function()
 			local dir = if asc then Enum.SortDirection.Ascending else Enum.SortDirection.Descending
 			return MemoryStoreService:GetSortedMap(mapName):GetRangeAsync(dir, count)
 		end)
 		if ok then
-			return result
+			if localMaps[mapName] == nil then
+				return result
+			end
+			for _, row in result do
+				table.insert(entries, row)
+				seen[row.key] = true
+			end
+		else
+			useFallback()
 		end
-		useFallback()
 	end
-	local entries: { MapRangeEntry } = {}
-	for key, e in pairs(fbMap(mapName)) do
-		if e.expireAt >= now() then
-			table.insert(entries, { key = key, value = e.value, sortKey = e.sortKey })
+	local t = now()
+	local m = localMaps[mapName]
+	if m then
+		for key, e in pairs(m) do
+			if e.expireAt < t then
+				m[key] = nil
+			elseif not seen[key] then
+				table.insert(entries, { key = key, value = e.value, sortKey = e.sortKey })
+			end
+		end
+		if next(m) == nil then
+			localMaps[mapName] = nil
 		end
 	end
 	table.sort(entries, function(a, b)
+		local ka, kb = a.sortKey or 0, b.sortKey or 0
 		if asc then
-			return a.sortKey < b.sortKey
+			return ka < kb
 		end
-		return a.sortKey > b.sortKey
+		return ka > kb
 	end)
 	local out = {}
 	for i = 1, math.min(count, #entries) do
@@ -196,10 +265,13 @@ function Memory.QueueAdd(queueName: string, value: any, ttl: number, priority: n
 end
 
 -- Read up to `count` items (highest priority first). Returns (values, readId);
--- pass readId to QueueRemove to delete the read items.
+-- pass readId to QueueRemove to delete the read items. Items this server added
+-- during a fallback (still within their TTL) are returned first, before the real
+-- queue is read.
 function Memory.QueueRead(queueName: string, count: number): ({ any }, string?)
 	ensureProbe()
-	if not fallback then
+	local live = liveQueue(queueName)
+	if not fallback and #live == 0 then
 		local ok, items, id = pcall(function()
 			return MemoryStoreService:GetQueue(queueName):ReadAsync(count, false, 0)
 		end)
@@ -207,13 +279,6 @@ function Memory.QueueRead(queueName: string, count: number): ({ any }, string?)
 			return items or {}, id
 		end
 		useFallback()
-	end
-	local q = localQueues[queueName] or {}
-	local live: { QueueEntry } = {}
-	for _, e in ipairs(q) do
-		if e.expireAt >= now() then
-			table.insert(live, e)
-		end
 	end
 	table.sort(live, function(a, b)
 		if a.priority ~= b.priority then

@@ -10,8 +10,9 @@
 --           co-op/lobby, and GetArrivingData on the receiving side. Everything is
 --           pcall-guarded so it degrades to (false, err) in Studio instead of
 --           erroring. A teleport that starts but then fails (TeleportInitFailed:
---           Flooded / Failure) is retried with the same backoff; any other
---           failure, or the last retry, fires OnTeleportFailed.
+--           Flooded / Failure) is retried with the same backoff when it was for
+--           one player or a reserved server; any other failure, a failed group
+--           teleport to a public server, or the last retry, fires OnTeleportFailed.
 --           Dependency for PartyService (24.8).
 --
 -- Access  : Gaxia.Teleport  (server)
@@ -37,8 +38,10 @@ local Teleport = {}
 Teleport.OnTeleportFailed = Signal.new() :: Signal.Signal<{ Player }, number, any>
 
 -- Teleports that TeleportAsync accepted, per player, until the player leaves (it
--- worked) or TeleportInitFailed gives up on it.
-type Pending = { placeId: number, options: TeleportOptions, attempt: number }
+-- worked) or TeleportInitFailed gives up on it. canRetry: the teleport can be sent
+-- again for this player alone without splitting a group (one player, or a reserved
+-- server that the rest of the group also joins).
+type Pending = { placeId: number, options: TeleportOptions, attempt: number, canRetry: boolean }
 local pending: { [Player]: Pending } = {}
 
 -- Defaults sourced from Config.Teleport.Retry on first use (Configure/To/ToPrivate),
@@ -104,8 +107,11 @@ end
 -- Teleports one player or a group to placeId, retrying a failed request with
 -- exponential backoff (Config.Teleport.Retry / Configure). Returns (true,
 -- TeleportAsyncResult) once Roblox accepted it, or (false, err) after the last try
--- (OnTeleportFailed fires). A teleport that fails after it was accepted is retried
--- through TeleportInitFailed. Yields.
+-- (OnTeleportFailed fires). A teleport that fails after it was accepted
+-- (TeleportInitFailed: Flooded / Failure) is sent again when it was for one player
+-- or had a ReservedAccessCode. A group teleport to a public server is not sent
+-- again for one player (they would land in a different server than the group):
+-- OnTeleportFailed fires for that player instead. Yields.
 function Teleport.To(players: Player | { Player }, placeId: number, opts: TeleportOpts?): (boolean, any)
 	local list = toList(players)
 	local options = buildOptions(opts)
@@ -116,8 +122,9 @@ function Teleport.To(players: Player | { Player }, placeId: number, opts: Telepo
 			return TeleportService:TeleportAsync(placeId, list, options)
 		end)
 		if ok then
+			local canRetry = #list == 1 or (opts ~= nil and opts.ReservedAccessCode ~= nil and opts.ReservedAccessCode ~= "")
 			for _, player in list do
-				pending[player] = { placeId = placeId, options = options, attempt = attempt }
+				pending[player] = { placeId = placeId, options = options, attempt = attempt, canRetry = canRetry }
 			end
 			return true, result
 		end
@@ -193,7 +200,7 @@ local function onTeleportInitFailed(player: Player, result: Enum.TeleportResult,
 		return -- not a teleport this service started
 	end
 	local cfg = ensureConfig()
-	if Teleport.IsRetryable(result) and entry.attempt < cfg.MaxAttempts and player:IsDescendantOf(Players) then
+	if entry.canRetry and Teleport.IsRetryable(result) and entry.attempt < cfg.MaxAttempts and player:IsDescendantOf(Players) then
 		entry.attempt += 1
 		task.delay(Teleport.ComputeBackoff(entry.attempt - 1, cfg.BaseDelay, cfg.MaxDelay), function()
 			if pending[player] ~= entry or not player:IsDescendantOf(Players) then
@@ -210,7 +217,7 @@ local function onTeleportInitFailed(player: Player, result: Enum.TeleportResult,
 		return
 	end
 	pending[player] = nil
-	Teleport.OnTeleportFailed:Fire({ player }, placeId, `{result.Name}: {errorMessage}`)
+	Teleport.OnTeleportFailed:Fire({ player }, entry.placeId, `{result.Name}: {errorMessage}`)
 end
 
 -- Init listens for teleports that fail after TeleportAsync accepted them, and

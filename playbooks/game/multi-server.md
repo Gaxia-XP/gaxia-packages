@@ -205,12 +205,12 @@ end
 | `Teleport.ToPrivate(players, id, code)` without checking `code` | Stop when `code == nil` (Step 1) | `ReserveServer` returns `nil` in Studio and on errors. |
 | `Messages.Publish` in a loop or every frame | A few messages per minute | After 10 quick messages, more than 2 per second return `false` and warn `Rate limit hit`. |
 | `Messages.Subscribe(...)` without checking the result | `local subscription, err = Messages.Subscribe(...)`, warn when `subscription` is `nil` (Step 2) | Without API access (Studio, an outage) Subscribe returns `nil` and the reason, and no message arrives. |
-| Trusting the total after a MemoryStore error | Watch `shared:` in the `GlobalPlayerCount` line | After a failure Memory counts only this server for 60 seconds, then tries MemoryStore again. Values written meanwhile stay on this server. |
+| Trusting the total after a MemoryStore error | Watch `shared:` in the `GlobalPlayerCount` line | After a failure Memory counts only this server for 60 seconds, then tries MemoryStore again. Values written meanwhile are never sent to MemoryStore: other servers never see them, but this server still reads them (`MapGet`, `MapRange`, `QueueRead`) until their TTL ends. |
 | Memory for things that must be kept | Player data → `GaxiaServer.Data`, global boards → `Leaderboard` | MemoryStore entries expire and are not backed up. |
 
 ## Change it
 
-- Several players: `Teleport.To({ player1, player2 }, placeId, { Data = { mode = "Duel" } })`. A party: `GaxiaServer.Party.StartMatch(partyId, placeId)` ([social](social.md)). Fewer retries: `Teleport.Configure({ MaxAttempts = 2, BaseDelay = 1, MaxDelay = 5 })` at server start.
+- Several players: `Teleport.To({ player1, player2 }, placeId, { Data = { mode = "Duel" } })`. If the teleport fails after Roblox accepted it, a group going to a public server is not retried one player at a time (they would land in different servers): `OnTeleportFailed` fires for that player. To keep a group together and get retries, reserve a server and use `Teleport.ToPrivate`. A party: `GaxiaServer.Party.StartMatch(partyId, placeId)` ([social](social.md)). Fewer retries: `Teleport.Configure({ MaxAttempts = 2, BaseDelay = 1, MaxDelay = 5 })` at server start.
 - Other message types: one topic per kind (`"ShutdownWarning"`). Failed publishes: `Messages.OnError:Connect(function(topic, reason) print(topic, reason) end)`. A cross-server queue: `Memory.QueueAdd(name, value, ttl)`; `Memory.QueueRead(name, count)` returns `values, readId`; then `Memory.QueueRemove(name, readId)`.
 - Online total on screen: read `ReplicatedStorage:GetAttribute("GlobalPlayers")` in a LocalScript ([show-values-on-screen](show-values-on-screen.md)).
 

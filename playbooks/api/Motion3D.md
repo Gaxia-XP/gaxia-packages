@@ -28,4 +28,4 @@ local Motion3D = GaxiaServer.Motion3D
 - `Motion3D.Spin(part: BasePart, axis: Vector3?, degPerSec: number?): () -> ()`
   Turns `part` about its own `axis` (default Y) at degPerSec (default 90) until the returned stop() is called or the part is removed.
 - `Motion3D.Float(part: BasePart, amplitude: number?, period: number?): () -> ()`
-  Bobs `part` up and down by `amplitude` studs (default 1) along its up direction at the start, once every `period` seconds (default 2), until the returned stop() is called (it puts the part back at its resting height) or the part is removed.
+  Bobs `part` up and down by `amplitude` studs (default 1) along its up direction at the start, once every `period` seconds (default 2), until the returned stop() is called (it removes the bob offset, putting the part back at its resting height) or the part is removed. Stop Float before moving the part with other code (To, a script setting CFrame): a move while it floats can shift the rest height by up to `amplitude`.

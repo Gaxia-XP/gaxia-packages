@@ -67,8 +67,10 @@ end
 -- ── Looping idle: Spin ──
 -- Spin and Float each change the part a little every frame (Spin turns it by this
 -- frame's angle, Float moves it by the change in its bob height) instead of setting
--- an absolute CFrame, so both can run on the same part, and the part can still be
--- moved by other code (To, a script) while it spins or floats.
+-- an absolute CFrame, so both can run on the same part. Float assumes it is the only
+-- thing moving the part along its up direction: if other code sets the part's
+-- CFrame (To, a script) while it floats, the bob's rest height can shift by up to
+-- the amplitude, also after stop(). Call stop() first, move the part, then Float again.
 
 -- Turns `part` about its own `axis` (default Y) at degPerSec (default 90) until the
 -- returned stop() is called or the part is removed.
@@ -94,7 +96,9 @@ end
 
 -- Bobs `part` up and down by `amplitude` studs (default 1) along its up direction at
 -- the start, once every `period` seconds (default 2), until the returned stop() is
--- called (it puts the part back at its resting height) or the part is removed.
+-- called (it removes the bob offset, putting the part back at its resting height) or
+-- the part is removed. Stop Float before moving the part with other code (To, a script
+-- setting CFrame): a move while it floats can shift the rest height by up to `amplitude`.
 function Motion3D.Float(part: BasePart, amplitude: number?, period: number?): () -> ()
 	local amp = amplitude or 1
 	local per = period or 2

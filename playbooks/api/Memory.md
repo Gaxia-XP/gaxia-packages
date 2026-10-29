@@ -29,10 +29,10 @@ local Memory = GaxiaServer.Memory
 - `Memory.MapGet(mapName: string, key: string): any`
 - `Memory.MapRemove(mapName: string, key: string): boolean`
 - `Memory.MapRange(mapName: string, count: number, ascending: boolean?): { MapRangeEntry }`
-  Return up to `count` entries sorted by sortKey. ascending=false → highest first.
+  Return up to `count` entries sorted by sortKey. ascending=false → highest first. Entries this server wrote during a fallback (still within their TTL) are included.
 - `Memory.QueueAdd(queueName: string, value: any, ttl: number, priority: number?): boolean`
 - `Memory.QueueRead(queueName: string, count: number): ({ any }, string?)`
-  Read up to `count` items (highest priority first). Returns (values, readId); pass readId to QueueRemove to delete the read items.
+  Read up to `count` items (highest priority first). Returns (values, readId); pass readId to QueueRemove to delete the read items. Items this server added during a fallback (still within their TTL) are returned first, before the real queue is read.
 - `Memory.QueueRemove(queueName: string, readId: string): boolean`
 
 ### Types

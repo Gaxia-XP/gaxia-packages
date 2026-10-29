@@ -260,7 +260,10 @@ this framework uses a single rolling version until a public release cut.
 ### Fixed — hardening (infra-misc)
 - **Teleport:** a teleport that `TeleportAsync` accepted but that then fails
   (`TeleportInitFailed`) is retried with the same backoff when the result is `Flooded` or
-  `Failure` (up to `MaxAttempts` in all); any other result, or the last retry, fires
+  `Failure` (up to `MaxAttempts` in all) when it was for one player or a reserved server
+  (`ToPrivate` / `ReservedAccessCode`). A group teleport to a public server is not retried
+  for one player alone (that player would land in a different server than the group). Any
+  other result, a failed public group teleport, or the last retry, fires
   `OnTeleportFailed({ player }, placeId, "<TeleportResult>: <message>")`. New pure helper
   `Teleport.IsRetryable(result)`.
 - **Teleport.GetPlaceInstance (behaviour change):** returns `(placeId, jobId, err)` of the
@@ -275,7 +278,12 @@ this framework uses a single rolling version until a public release cut.
 - **Memory:** after the real MemoryStore fails (Studio without API access, an outage, one
   failed call), calls use the local fallback for 60 s and then try the real store again;
   before, one failure kept the server on the single-server fallback until it restarted.
-  A queue `readId` from a fallback read is still removed locally.
+  A queue `readId` from a fallback read is still removed locally. Entries written to the
+  fallback are never copied to the real store (other servers never see them), but this
+  server keeps reading them until their TTL ends: `MapGet` returns the local value when the
+  real store has none, `MapRange` merges local entries with the real range, and
+  `QueueRead` returns local items before reading the real queue. `MapSet` / `MapRemove` on
+  a key after recovery replace or delete its local copy.
 - **Messages.Subscribe (behaviour change):** returns `(nil, reason)` (and fires `OnError`)
   when `SubscribeAsync` fails, instead of erroring. Its type is now
   `(RBXScriptConnection?, string?)`; code that wrapped it in `pcall` must check the first
@@ -288,7 +296,9 @@ this framework uses a single rolling version until a public release cut.
 - **Motion3D (behaviour change):** `Spin` and `Float` on the same part compose (Float moved
   the part to an absolute CFrame every frame, undoing Spin and any other move). Float's
   `stop()` now removes only its own offset instead of snapping the part back to the CFrame
-  it had when Float started.
+  it had when Float started. Float still assumes it is the only code moving the part: stop
+  it before moving the part with `To` or a script (a move while it floats can shift the
+  rest height by up to the amplitude).
 - **VFX.PlayAt:** the `EmitCount` burst is emitted on the next frame, after the holder is
   parented and replicated (an `Emit` in the same frame as the parenting can be lost on
   clients), and is skipped when the effect already ended.
