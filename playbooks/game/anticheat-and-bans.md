@@ -199,7 +199,7 @@ Agent: check your scripts against Steps 1–4. The user runs these in Studio. No
 | A `ReplicatedStorage/GaxiaClientFeatures` module without the anti-cheat entry | Only if your place has that module: it returns `{ Client = { ... } }` and must keep `{ Key = "AntiCheat", RequiresServer = "AntiCheat" }` | No client heartbeat: every player gets `Heartbeat` flags. |
 | Testing enforce as the place owner (or an admin) | **Clients and Servers** test players | Owners and admins are never kicked or auto-banned. |
 | `/ac off Stat` to stop `StatTamper` flags | Fix the cause (`Economy.Add` / `SetLeaderstat`), or `AntiCheat.Whitelist(player, "StatTamper")` | `/ac off Stat` stops the check for every player: real stat tampering is then never flagged. |
-| `/acban Bob 3600` for a 1-hour ban | `/acban Bob <reason> 3600` | With no reason, `3600` is read as the reason and the ban is permanent. |
+| `/acban Bob 3600` for a 1-hour ban | `/acban Bob <reason> 3600` or `/acban Bob 1h` | A bare number right after the name is read as the reason and the ban is permanent. A unit (`1h`, `30m`) right after the name is a timed ban. |
 | "Permission denied." for `/ac` or `/acban` | Give yourself a role (`STAFF` in [admin-and-chat-commands](admin-and-chat-commands.md)) | These commands need `admin` (`/acflags`: `moderator`). |
 
 ## Change it
