@@ -113,6 +113,37 @@ this framework uses a single rolling version until a public release cut.
   `Guard.integer` already did. Before, `Guard.number` accepted both and `numberRange`
   accepted NaN.
 
+### Fixed — hardening (liveops-quest-inventory)
+- **DailyReward:** `Claim` returns `nil, "data not loaded"` while the player's data is not
+  loaded (it used to hand out the reward without saving it, so it could be claimed again).
+  `CanClaim` is `false` until the data loads.
+- **Mail:** `Send` now returns `(string?, string?)`: `nil, "data not loaded"` when the
+  recipient's data is not loaded (the mail used to be dropped while `Send` still returned an
+  id), and nothing is stored or fired. **Behaviour change:** check the result before
+  remembering a gift as sent. When the inbox is over `Mail.MaxMail`, claimed or expired mail
+  is trimmed first, then the oldest; the new mail is never trimmed (it could be when several
+  mails were sent in the same second), so `OnReceive`'s mail is never nil.
+- **Inventory:** every per-player call checks the player's data is loaded. `Add` now returns
+  `(string?, string?)`: `nil, "data not loaded"` before the data loads (it used to return an
+  id, fire `OnAdd` and lose the item). `Equip` returns `false, "data not loaded"`;
+  `Remove`/`Unequip` return `false`; reads return nil / empty.
+- **Quest:** `Track` iterates a snapshot of the active quests, so an `OnQuestComplete`
+  handler that starts, restarts or abandons a quest no longer errors (`invalid key to
+  'next'`) or skips/repeats quests; a quest started during a `Track` gets no progress from
+  that event. Finished quests are saved in the player's data (`QuestsCompleted`, times
+  completed per quest id); new `Quest.GetCompletedCount(player, questId)`.
+  **Behaviour change:** `Quest.IsComplete` is `true` only for a quest the player finished
+  (and that is not active again); it used to be `true` for every inactive quest, also one
+  never started. `OnQuestComplete` gets a 4th argument `paid: number`, the currency amount
+  actually added (pet bonus and balance cap included; 0 when none); its type is now
+  `Signal<Player, string, QuestReward, number>` (3-parameter handlers keep working).
+- **Leaderboard:** `Update` stores whole numbers (rounds down; it used to fail on a
+  fraction) and returns `false` with a warning for NaN / infinity; `OnUpdate` carries the
+  stored value. `GetTop`'s count (and `Leaderboard.DefaultTopN`) is clamped to 1..100 (more
+  than 100 used to fail and return an empty list).
+- Playbooks `live-ops`, `progression` and `items-and-inventory` updated (the progression
+  example uses `Quest.IsComplete` instead of its own `QuestsDone` field).
+
 ### Added — pick the packages a game installs
 The framework is split into ~100 packages (`Gaxia_Packages_Server/Packages.lua`). Pick
 the ones a game uses and only those, the packages they need, and Core are installed;

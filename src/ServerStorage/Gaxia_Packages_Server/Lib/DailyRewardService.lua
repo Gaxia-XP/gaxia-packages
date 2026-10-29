@@ -13,7 +13,8 @@
 --
 -- Access  : Gaxia.DailyReward  (server)
 --   Gaxia.DailyReward.DefineLadder({ {Coins=100}, {Coins=250}, {Gems=5} })
---   local res = Gaxia.DailyReward.Claim(player)   -- {day, streak, reward} or nil
+--   local res = Gaxia.DailyReward.Claim(player)   -- {day, streak, reward} or nil, reason
+--   Claim refuses ("data not loaded") until the player's data has loaded.
 -- ─────────────────────────────────────────────────────────────
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -94,15 +95,19 @@ local function loadState(player: Player): { lastClaim: number, streak: number }
 	return { lastClaim = 0, streak = 0 }
 end
 
-local function saveState(player: Player, lastClaim: number, streak: number): ()
-	DataManager.Set(player, DAILY_KEY, { lastClaim = lastClaim, streak = streak })
+local function saveState(player: Player, lastClaim: number, streak: number): boolean
+	return DataManager.Set(player, DAILY_KEY, { lastClaim = lastClaim, streak = streak })
 end
 
 function DailyRewardService.GetStreak(player: Player): number
 	return loadState(player).streak
 end
 
+-- False while the player's data is not loaded (a claim would not be saved).
 function DailyRewardService.CanClaim(player: Player): boolean
+	if not DataManager.IsLoaded(player) then
+		return false
+	end
 	local s = loadState(player)
 	local can = select(1, DailyRewardService.ComputeClaim(s.lastClaim, os.time(), s.streak, daySeconds(), resetWindow()))
 	return can
@@ -119,7 +124,13 @@ end
 
 -- ── Claim ──
 
+-- Claim today's reward: returns the result, or nil and a reason ("data not loaded",
+-- "already claimed today"). Refuses while the player's data is not loaded, so a claim
+-- is never handed out without being saved (it could otherwise be claimed again).
 function DailyRewardService.Claim(player: Player): (ClaimResult?, string?)
+	if not DataManager.IsLoaded(player) then
+		return nil, "data not loaded"
+	end
 	local s = loadState(player)
 	local now = os.time()
 	local can, newStreak = DailyRewardService.ComputeClaim(s.lastClaim, now, s.streak, daySeconds(), resetWindow())
@@ -128,7 +139,9 @@ function DailyRewardService.Claim(player: Player): (ClaimResult?, string?)
 	end
 	local day = DailyRewardService.LadderDay(newStreak)
 	local reward = ladder[day]
-	saveState(player, now, newStreak)
+	if not saveState(player, now, newStreak) then
+		return nil, "data not loaded"
+	end
 	local result: ClaimResult = { day = day, streak = newStreak, reward = reward }
 	DailyRewardService.OnClaim:Fire(player, result)
 	return result, nil

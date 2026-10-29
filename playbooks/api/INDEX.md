@@ -169,7 +169,7 @@ GaxiaServer.ItemDef.GetByCategory(category: string): { ItemDef }   → ItemDef.m
 GaxiaServer.ItemDef.GetByRarity(rarity: string): { ItemDef }   → ItemDef.md
 GaxiaServer.ItemDef.Count(): number   → ItemDef.md
 GaxiaServer.Inventory.DefineItem(itemId: string, def: ItemDef): ()   → Inventory.md
-GaxiaServer.Inventory.Add(player: Player, itemId: string, opts: AddOpts?): string   → Inventory.md
+GaxiaServer.Inventory.Add(player: Player, itemId: string, opts: AddOpts?): (string?, string?)   → Inventory.md
 GaxiaServer.Inventory.Remove(player: Player, instanceId: string, count: number?): boolean   → Inventory.md
 GaxiaServer.Inventory.Get(player: Player, instanceId: string): Instance_?   → Inventory.md
 GaxiaServer.Inventory.List(player: Player): { Instance_ }   → Inventory.md
@@ -259,7 +259,7 @@ GaxiaServer.DailyReward.CanClaim(player: Player): boolean   → DailyReward.md
 GaxiaServer.DailyReward.GetTimeUntilNext(player: Player): number   → DailyReward.md
 GaxiaServer.DailyReward.Claim(player: Player): (ClaimResult?, string?)   → DailyReward.md
 GaxiaServer.DailyReward.OnClaim : Signal<Player, ClaimResult>   → DailyReward.md
-GaxiaServer.Mail.Send(toPlayer: Player, input: MailInput): string   → Mail.md
+GaxiaServer.Mail.Send(toPlayer: Player, input: MailInput): (string?, string?)   → Mail.md
 GaxiaServer.Mail.GetMailbox(player: Player): { Mail }   → Mail.md
 GaxiaServer.Mail.GetUnreadCount(player: Player): number   → Mail.md
 GaxiaServer.Mail.MarkRead(player: Player, mailId: string): boolean   → Mail.md
@@ -280,10 +280,11 @@ GaxiaServer.Quest.Start(player: Player, questId: string): boolean   → Quest.md
 GaxiaServer.Quest.Track(player: Player, eventType: GoalType, target: string, count: number?): ()   → Quest.md
 GaxiaServer.Quest.GetActive(player: Player): { [string]: QuestProgress }   → Quest.md
 GaxiaServer.Quest.IsComplete(player: Player, questId: string): boolean   → Quest.md
+GaxiaServer.Quest.GetCompletedCount(player: Player, questId: string): number   → Quest.md
 GaxiaServer.Quest.Abandon(player: Player, questId: string): ()   → Quest.md
 GaxiaServer.Quest.OnQuestStart : Signal<Player, string>   → Quest.md
 GaxiaServer.Quest.OnGoalProgress : Signal<Player, string, string, number, number>   → Quest.md
-GaxiaServer.Quest.OnQuestComplete : Signal<Player, string, QuestReward>   → Quest.md
+GaxiaServer.Quest.OnQuestComplete : Signal<Player, string, QuestReward, number>   → Quest.md
 GaxiaServer.Achievement.Register(def: AchievementDef): ()   → Achievement.md
 GaxiaServer.Achievement.Award(player: Player, id: string): boolean   → Achievement.md
 GaxiaServer.Achievement.IsUnlocked(player: Player, id: string): boolean   → Achievement.md

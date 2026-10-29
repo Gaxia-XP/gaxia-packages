@@ -6,6 +6,8 @@
 --           Definitions are registered at load; progress persists
 --           in Profile.Quests via DataManager. Rewards are paid
 --           through EconomyService / ItemService on completion.
+--           Finished quests are counted in Profile.QuestsCompleted
+--           ({ [questId] = times completed }), so they survive rejoins.
 -- ─────────────────────────────────────────────────────────────
 
 
@@ -40,6 +42,9 @@ export type QuestProgress = { progress: { [string]: number }, started: number }
 -- The equipped-pet multiplier boosts ONLY this currency (matches PetService.EGG_CURRENCY).
 local COIN_CURRENCY: string = "Coins"
 
+-- Saved-data key of the finished-quest record: { [questId]: number } (times completed).
+local COMPLETED_KEY: string = "QuestsCompleted"
+
 -- The part of the Pet service a reward uses (Pet is a soft dependency).
 type PetApi = { GetCoinMultiplier: (player: Player) -> number }
 
@@ -54,8 +59,11 @@ local Registry: { [string]: QuestDef } = {}
 QuestSystem.OnQuestStart    = Signal.new() :: Signal.Signal<Player, string>
 -- (player, questId, goalKey, current, target) each time Track advances a matching goal
 QuestSystem.OnGoalProgress  = Signal.new() :: Signal.Signal<Player, string, string, number, number>
--- (player, questId, reward) after the quest completes and its reward was paid
-QuestSystem.OnQuestComplete = Signal.new() :: Signal.Signal<Player, string, QuestReward>
+-- (player, questId, reward, paid) after the quest completes and its reward was paid.
+-- reward is the quest's reward definition; paid is the currency amount actually added
+-- (after the pet coin bonus and the balance cap; 0 when there is no currency reward or the
+-- payment failed). Handlers with three parameters keep working.
+QuestSystem.OnQuestComplete = Signal.new() :: Signal.Signal<Player, string, QuestReward, number>
 
 -- ── Helpers ──
 
@@ -118,10 +126,29 @@ local function checkRewardAmount(kind: string, id: string, amount: any): ()
 	end
 end
 
+-- The saved finished-quest record (nil while the profile is not loaded).
+local function getCompleted(player: Player): { [string]: number }?
+	local prof = getProfile(player)
+	if not prof then return nil end
+	local done = prof[COMPLETED_KEY]
+	if type(done) ~= "table" then return {} end
+	return done
+end
+
+-- Count one more completion of questId in the player's saved data.
+local function recordCompleted(player: Player, questId: string): ()
+	local done = getCompleted(player)
+	if not done then return end
+	done[questId] = (tonumber(done[questId]) or 0) + 1
+	DataManager.Set(player, COMPLETED_KEY, done)
+end
+
 -- Pay out reward via Economy + Item services (best-effort: a failing grant is skipped).
-local function grantReward(player: Player, def: QuestDef): ()
+-- Returns the currency amount actually added (0 when none was paid).
+local function grantReward(player: Player, def: QuestDef): number
+	local paid = 0
 	local reward = def.reward
-	if not reward then return end
+	if not reward then return paid end
 	if reward.currency and reward.amount and reward.amount > 0 then
 		local amount = reward.amount
 		-- Coin rewards get the equipped-pet multiplier; other currencies (Gems, …) don't.
@@ -135,7 +162,12 @@ local function grantReward(player: Player, def: QuestDef): ()
 		end
 		amount = payableAmount(amount)
 		if amount >= 1 then
-			pcall(EconomyService.Add, player, reward.currency, amount)
+			local currency = reward.currency
+			local before = EconomyService.Get(player, currency)
+			local ok, added = pcall(EconomyService.Add, player, currency, amount)
+			if ok and added == true then
+				paid = math.max(0, EconomyService.Get(player, currency) - before)
+			end
 		end
 	end
 	if reward.items then
@@ -143,6 +175,7 @@ local function grantReward(player: Player, def: QuestDef): ()
 			pcall(ItemService.Give, player, itemId, qty)
 		end
 	end
+	return paid
 end
 
 -- ── Public API ──
@@ -172,9 +205,24 @@ function QuestSystem.Track(player: Player, eventType: GoalType, target: string, 
 	if not quests then return end -- profile not loaded yet — silent no-op per spec
 	local inc = count or 1
 
-	for questId, state in pairs(quests) do
+	-- Iterate a snapshot: OnQuestComplete handlers run inside this loop and may Start,
+	-- Abandon or restart quests. Changing the live table under pairs() could skip or
+	-- repeat quests (or error "invalid key to 'next'"). A quest started during this
+	-- Track gets no progress from this event.
+	local ids: { string } = {}
+	for questId in pairs(quests) do
+		table.insert(ids, questId)
+	end
+	local snapshot: { [string]: QuestProgress } = {}
+	for _, questId in ipairs(ids) do
+		snapshot[questId] = quests[questId]
+	end
+
+	for _, questId in ipairs(ids) do
 		local def = Registry[questId]
-		if def then
+		local state = quests[questId]
+		-- Skip quests a handler abandoned or restarted since the snapshot was taken.
+		if def and state ~= nil and state == snapshot[questId] then
 			-- Only quests with a matching (type,target) goal accumulate progress.
 			local matches = false
 			for _, g in ipairs(def.goals) do
@@ -193,8 +241,9 @@ function QuestSystem.Track(player: Player, eventType: GoalType, target: string, 
 				if isQuestSatisfied(def, progress) then
 					-- Remove BEFORE granting reward so completion signal sees clean state.
 					quests[questId] = nil
-					grantReward(player, def)
-					QuestSystem.OnQuestComplete:Fire(player, questId, def.reward)
+					recordCompleted(player, questId)
+					local paid = grantReward(player, def)
+					QuestSystem.OnQuestComplete:Fire(player, questId, def.reward, paid)
 				end
 			end
 		end
@@ -214,12 +263,21 @@ function QuestSystem.GetActive(player: Player): { [string]: QuestProgress }
 	return out
 end
 
+-- True when the player finished this quest at least once (saved, survives rejoins)
+-- and it is not active right now. False for a quest that was never finished, and
+-- while the player's data is not loaded.
 function QuestSystem.IsComplete(player: Player, questId: string): boolean
-	-- A quest is "complete" once it has been removed from active list AND the
-	-- definition exists. We approximate by: not active and progress empty.
 	local quests = ensureQuestsTable(player)
 	if not quests then return false end
-	return quests[questId] == nil and Registry[questId] ~= nil
+	return quests[questId] == nil and QuestSystem.GetCompletedCount(player, questId) > 0
+end
+
+-- How many times the player finished this quest (saved in QuestsCompleted; 0 while
+-- the player's data is not loaded).
+function QuestSystem.GetCompletedCount(player: Player, questId: string): number
+	local done = getCompleted(player)
+	if not done then return 0 end
+	return tonumber(done[questId]) or 0
 end
 
 function QuestSystem.Abandon(player: Player, questId: string): ()

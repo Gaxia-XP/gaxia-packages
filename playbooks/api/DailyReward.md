@@ -30,9 +30,11 @@ local DailyReward = GaxiaServer.DailyReward
   Map a streak number to a ladder day index (1-based).
 - `DailyReward.GetStreak(player: Player): number`
 - `DailyReward.CanClaim(player: Player): boolean`
+  False while the player's data is not loaded (a claim would not be saved).
 - `DailyReward.GetTimeUntilNext(player: Player): number`
   Seconds until the next claim opens (0 if claimable now).
 - `DailyReward.Claim(player: Player): (ClaimResult?, string?)`
+  Claim today's reward: returns the result, or nil and a reason ("data not loaded", "already claimed today"). Refuses while the player's data is not loaded, so a claim is never handed out without being saved (it could otherwise be claimed again).
 
 ### Signals
 

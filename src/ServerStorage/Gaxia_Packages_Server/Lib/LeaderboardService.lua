@@ -24,8 +24,19 @@ local function cacheTTL(): number
 	return EConfig.Get("Leaderboard.CacheTTL", Config.Leaderboard.CacheTTL or 60)
 end
 
+-- OrderedDataStore pages hold 1..100 entries (GetSortedAsync errors outside that).
+local MAX_TOP_N: number = 100
+
+-- Clamp a requested entry count to a whole number in 1..MAX_TOP_N.
+local function clampCount(n: number): number
+	if n ~= n then
+		return MAX_TOP_N -- NaN
+	end
+	return math.clamp(math.floor(n), 1, MAX_TOP_N)
+end
+
 local function defaultTopN(): number
-	return EConfig.Get("Leaderboard.DefaultTopN", Config.Leaderboard.DefaultTopN or 100)
+	return clampCount(EConfig.Get("Leaderboard.DefaultTopN", Config.Leaderboard.DefaultTopN or MAX_TOP_N))
 end
 
 -- ── Types ──
@@ -48,7 +59,7 @@ local LeaderboardService = {}
 local stores: { [string]: OrderedDataStore } = {}
 local topCache: { [string]: CachedTop } = {}
 
--- (name, userId, value) after a successful Update write
+-- (name, userId, value) after a successful Update write (value is the stored whole number)
 LeaderboardService.OnUpdate = Signal.new() :: Signal.Signal<string, number, number>
 
 -- ── Helpers ──
@@ -78,22 +89,32 @@ function LeaderboardService.GetStore(name: string): OrderedDataStore
 	return store
 end
 
+-- Write a player's score. OrderedDataStore keeps whole numbers only, so `value` is
+-- rounded down (12.7 -> 12). Returns false (with a warning) for a value that is not a
+-- finite number, or when the write fails.
 function LeaderboardService.Update(name: string, userId: number, value: number): boolean
+	if typeof(value) ~= "number" or value ~= value or value == math.huge or value == -math.huge then
+		warn(`[LeaderboardService] Update ignored for {name}/{userId}: value must be a finite number, got {value}`)
+		return false
+	end
+	local intValue: number = math.floor(value)
 	local store: OrderedDataStore = LeaderboardService.GetStore(name)
 	local ok, err = pcall(function()
-		store:SetAsync(tostring(userId), value)
+		store:SetAsync(tostring(userId), intValue)
 	end)
 	if not ok then
 		warn(`[LeaderboardService] Update failed for {name}/{userId}: {err}`)
 		return false
 	end
 	invalidateCacheForName(name)
-	LeaderboardService.OnUpdate:Fire(name, userId, value)
+	LeaderboardService.OnUpdate:Fire(name, userId, intValue)
 	return true
 end
 
+-- The top `count` entries (default Leaderboard.DefaultTopN), best first. `count` is
+-- clamped to 1..100 (an OrderedDataStore page holds at most 100). Cached CacheTTL seconds.
 function LeaderboardService.GetTop(name: string, count: number?): { LeaderboardEntry }
-	local n: number = count or defaultTopN()
+	local n: number = if typeof(count) == "number" then clampCount(count) else defaultTopN()
 	local cacheKey: string = getCacheKey(name, n)
 	local cached: CachedTop? = topCache[cacheKey]
 	if cached and cached.expiresAt > os.clock() then

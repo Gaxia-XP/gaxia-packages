@@ -25,7 +25,9 @@ local Leaderboard = GaxiaServer.Leaderboard
 
 - `Leaderboard.GetStore(name: string): OrderedDataStore`
 - `Leaderboard.Update(name: string, userId: number, value: number): boolean`
+  Write a player's score. OrderedDataStore keeps whole numbers only, so `value` is rounded down (12.7 -> 12). Returns false (with a warning) for a value that is not a finite number, or when the write fails.
 - `Leaderboard.GetTop(name: string, count: number?): { LeaderboardEntry }`
+  The top `count` entries (default Leaderboard.DefaultTopN), best first. `count` is clamped to 1..100 (an OrderedDataStore page holds at most 100). Cached CacheTTL seconds.
 - `Leaderboard.GetRank(name: string, userId: number): number?`
 
 ### Signals
@@ -33,7 +35,7 @@ local Leaderboard = GaxiaServer.Leaderboard
 Connect with `:Connect(function(...) end)`; the parameters are the payload types, in order.
 
 - `Leaderboard.OnUpdate` — `Signal<string, number, number>`
-  (name, userId, value) after a successful Update write
+  (name, userId, value) after a successful Update write (value is the stored whole number)
 
 ### Types
 

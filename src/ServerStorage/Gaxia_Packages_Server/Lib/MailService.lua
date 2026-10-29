@@ -12,7 +12,7 @@
 --           24.7 global-store layer; online + on-login delivery work here.)
 --
 -- Access  : Gaxia.Mail  (server)
---   Gaxia.Mail.Send(player, { Subject="Welcome", Attachments={Coins=100} })
+--   Gaxia.Mail.Send(player, { Subject="Welcome", Attachments={Coins=100} })  -- id, or nil + reason
 --   local att = Gaxia.Mail.Claim(player, mailId)   -- grant att yourself
 -- ─────────────────────────────────────────────────────────────
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -41,7 +41,7 @@ export type Mail = {
 local MailService = {}
 
 -- (player, mail) after Send stored the mail in the recipient's mailbox
--- (mail is nil when the inbox cap trimmed the new mail straight away)
+-- (mail is never nil: the cap never trims the new mail; the type stays Mail? for old handlers)
 MailService.OnReceive = Signal.new() :: Signal.Signal<Player, Mail?>
 
 local function loadBox(player: Player): { [string]: any }
@@ -49,30 +49,53 @@ local function loadBox(player: Player): { [string]: any }
 	return (typeof(b) == "table") and b or {}
 end
 
-local function saveBox(player: Player, box: { [string]: any }): ()
-	DataManager.Set(player, MAILBOX_KEY, box)
+local function saveBox(player: Player, box: { [string]: any }): boolean
+	return DataManager.Set(player, MAILBOX_KEY, box)
 end
 
 local function isExpired(mail: any, now: number): boolean
 	return typeof(mail.expiresAt) == "number" and mail.expiresAt > 0 and mail.expiresAt < now
 end
 
--- Trim oldest claimed/read mail when the box overflows.
-local function enforceCap(box: { [string]: any }): ()
+-- Sequence number of a mail id ("mail_12" -> 12); breaks sentAt ties (same second).
+local function seqOf(id: string): number
+	return tonumber(string.match(id, "%d+$")) or 0
+end
+
+-- Trim mail when the box holds more than the cap: expired or claimed mail goes
+-- first, then the oldest. `keepId` (the mail just sent) is never trimmed.
+local function enforceCap(box: { [string]: any }, keepId: string): ()
+	local now = os.time()
 	local ids: { string } = {}
-	for id in pairs(box) do
+	local count = 0
+	for id, m in pairs(box) do
 		if id ~= "__seq" then
-			table.insert(ids, id)
+			count += 1
+			if id ~= keepId and typeof(m) == "table" then
+				table.insert(ids, id)
+			end
 		end
 	end
-	local cap = maxMail()
-	if #ids <= cap then
+	local toRemove = count - math.max(1, maxMail())
+	if toRemove <= 0 then
 		return
 	end
-	table.sort(ids, function(a, b)
-		return (box[a].sentAt or 0) < (box[b].sentAt or 0)
+	-- 0 = expired/claimed (trim first), 1 = still claimable or unread
+	local function tier(m: any): number
+		return if (m.claimed == true or isExpired(m, now)) then 0 else 1
+	end
+	table.sort(ids, function(a: string, b: string): boolean
+		local ma, mb = box[a], box[b]
+		local ta, tb = tier(ma), tier(mb)
+		if ta ~= tb then
+			return ta < tb
+		end
+		local sa, sb = tonumber(ma.sentAt) or 0, tonumber(mb.sentAt) or 0
+		if sa ~= sb then
+			return sa < sb
+		end
+		return seqOf(a) < seqOf(b)
 	end)
-	local toRemove = #ids - cap
 	for _, id in ipairs(ids) do
 		if toRemove <= 0 then
 			break
@@ -84,7 +107,14 @@ end
 
 -- ── Public API ──
 
-function MailService.Send(toPlayer: Player, input: MailInput): string
+-- Store a mail in the player's mailbox; returns its id, or nil and "data not loaded"
+-- while the recipient's data is not loaded (nothing is stored, OnReceive does not fire).
+-- When the box is over Mail.MaxMail, expired/claimed mail is trimmed first, then the
+-- oldest; the new mail is always kept.
+function MailService.Send(toPlayer: Player, input: MailInput): (string?, string?)
+	if not DataManager.IsLoaded(toPlayer) then
+		return nil, "data not loaded"
+	end
 	local box = loadBox(toPlayer)
 	local seq = (tonumber(box.__seq) or 0) + 1
 	box.__seq = seq
@@ -101,10 +131,12 @@ function MailService.Send(toPlayer: Player, input: MailInput): string
 		claimed = false,
 	}
 	box[id] = mail
-	enforceCap(box)
-	saveBox(toPlayer, box)
-	MailService.OnReceive:Fire(toPlayer, box[id])
-	return id
+	enforceCap(box, id)
+	if not saveBox(toPlayer, box) then
+		return nil, "data not loaded"
+	end
+	MailService.OnReceive:Fire(toPlayer, mail)
+	return id, nil
 end
 
 function MailService.GetMailbox(player: Player): { Mail }

@@ -24,12 +24,15 @@ local Inventory = GaxiaServer.Inventory
 ### Functions
 
 - `Inventory.DefineItem(itemId: string, def: ItemDef): ()`
-- `Inventory.Add(player: Player, itemId: string, opts: AddOpts?): string`
+- `Inventory.Add(player: Player, itemId: string, opts: AddOpts?): (string?, string?)`
+  Add an item: returns the instance id (a new one, or the stack's), or nil and "data not loaded" while the player's data is not loaded (nothing is added).
 - `Inventory.Remove(player: Player, instanceId: string, count: number?): boolean`
+  Remove a whole instance, or `count` from a stack. False when there is no such instance or the player's data is not loaded.
 - `Inventory.Get(player: Player, instanceId: string): Instance_?`
 - `Inventory.List(player: Player): { Instance_ }`
 - `Inventory.GetByItemId(player: Player, itemId: string): { Instance_ }`
 - `Inventory.Equip(player: Player, instanceId: string, slot: string?): (boolean, string)`
+  Equip an instance into its EquipSlot (or `slot`): (true, slot), or (false, reason) with reason "data not loaded", "no such instance" or "item has no equip slot".
 - `Inventory.Unequip(player: Player, slot: string): boolean`
 - `Inventory.GetEquipped(player: Player, slot: string): Instance_?`
 - `Inventory.IsEquipped(player: Player, instanceId: string): boolean`

@@ -198,8 +198,8 @@ print("[ToolGiver] ready")
   end
   ```
   Read a field with `GaxiaServer.ItemDef.GetField("Apple", "sellPrice", 0)`.
-- For unique items with stats, use `Inventory` instead of `Item`. Its fields are capitalised (`Stackable`, `MaxStack`, `EquipSlot`), unlike ItemDef's. Call it only after `Data.WaitFor` returned data (Inventory does not check):
-  `GaxiaServer.Inventory.DefineItem("Sword", { EquipSlot = "Weapon" })`, `local uid = GaxiaServer.Inventory.Add(player, "Sword", { Props = { damage = 12 } })`, `GaxiaServer.Inventory.Equip(player, uid)`.
+- For unique items with stats, use `Inventory` instead of `Item`. Its fields are capitalised (`Stackable`, `MaxStack`, `EquipSlot`), unlike ItemDef's. Call it after `Data.WaitFor` returned data: before that, `Add` returns `nil, "data not loaded"`, `Equip` returns `false, "data not loaded"` and reads are empty.
+  `GaxiaServer.Inventory.DefineItem("Sword", { EquipSlot = "Weapon" })`, `local uid = GaxiaServer.Inventory.Add(player, "Sword", { Props = { damage = 12 } })`, `if uid then GaxiaServer.Inventory.Equip(player, uid) end`.
 - To use your own sword model: put a Tool named `WoodenSword` (with a part named `Handle`) in **ServerStorage**. In `syncTools`, replace the lines from `local tool = Tool.Create(...)` to `handle.Parent = tool` with:
   ```lua
   -- fragment

@@ -9,8 +9,8 @@
 How it works:
 
 - `GaxiaServer.Level` saves `Level` and `Experience` in the player's data. `Level.AddXP` adds XP and levels up as many times as the XP allows. `Level.OnLevelUp` fires once per level gained. XP needed to leave level L = `floor(CurveBase * L ^ CurveExponent)` from `GaxiaServer.Config.Level` (default `100 * L^1.5`: level 1 → 100 XP, level 2 → 282 XP, level 3 → 519 XP). Leftover XP carries over.
-- `GaxiaServer.Quest` keeps quest definitions (`Quest.Register`) and each player's active quests (saved). `Quest.Track(player, "collect", "Apple", 1)` adds progress to every active quest with that goal. When all goals are done, Quest pays the reward (Coins/items), removes the quest and fires `Quest.OnQuestComplete`. With the `Pet` package, an equipped pet's coin bonus multiplies quest Coins ([pets](pets.md)).
-- Quest does **not** remember finished quests and has no XP reward. The game saves finished quests itself (`QuestsDone` below) and gives XP in `OnQuestComplete`.
+- `GaxiaServer.Quest` keeps quest definitions (`Quest.Register`) and each player's active quests (saved). `Quest.Track(player, "collect", "Apple", 1)` adds progress to every active quest with that goal. When all goals are done, Quest pays the reward (Coins/items), removes the quest, saves it as finished and fires `Quest.OnQuestComplete(player, questId, reward, paid)` (`paid` = the Coins/currency actually added). With the `Pet` package, an equipped pet's coin bonus multiplies quest Coins ([pets](pets.md)).
+- Quest remembers finished quests in the player's saved data: `Quest.IsComplete(player, id)` is `true` once it was finished (and is not active again), `Quest.GetCompletedCount(player, id)` counts how many times. Quest has no XP reward: the game gives XP in `OnQuestComplete`.
 - `GaxiaServer.Achievement` saves unlocked achievements. `Achievement.Award` unlocks one directly (returns `false` for an id that was never registered). `Achievement.Track` checks every achievement's `condition` function. An unlock pays its `reward` once. Read unlocks with `Achievement.IsUnlocked(player, id)` or `Achievement.GetUnlocked(player)` (a list of ids).
 
 ## Step 1 — Create the quest, achievements and level display
@@ -59,26 +59,15 @@ Achievement.Register({
 	end,
 })
 
--- Finished quests, saved in the player's data as { [questId] = true }.
-local function getQuestsDone(player: Player): { [string]: boolean }
-	local done = Data.Get(player, "QuestsDone")
-	if typeof(done) ~= "table" then
-		done = {}
-		Data.Set(player, "QuestsDone", done)
-	end
-	return done
-end
-
 -- 3. React to progress, completion, XP and level-ups. goalKey is the goal's target ("Apple").
 Quest.OnGoalProgress:Connect(function(player: Player, questId: string, goalKey: string, current: number, target: number)
 	print(`[Progression] {player.Name} {questId}: {goalKey} {current}/{target}`)
 end)
 
-Quest.OnQuestComplete:Connect(function(player: Player, questId: string, reward)
-	print(`[Progression] {player.Name} finished {questId}, reward {reward.amount} {reward.currency} (before pet bonus)`)
-	local done = getQuestsDone(player)
-	done[questId] = true
-	Data.Set(player, "QuestsDone", done)
+-- Quest has already saved the quest as finished. reward = the quest's reward table,
+-- paid = the currency amount actually added (with the pet bonus).
+Quest.OnQuestComplete:Connect(function(player: Player, questId: string, reward, paid: number)
+	print(`[Progression] {player.Name} finished {questId}, reward {reward.amount} {reward.currency}, paid {paid}`)
 	Level.AddXP(player, QUEST_XP[questId] or 0)
 	Achievement.Award(player, "FirstQuest")
 end)
@@ -104,7 +93,7 @@ local function onPlayerAdded(player: Player)
 	end
 	-- Adds or updates only the Level column; other columns (Coins) stay.
 	PlayerService.SetupLeaderstats(player, { Level = Level.GetLevel(player) })
-	if not getQuestsDone(player)[QUEST_ID] then
+	if not Quest.IsComplete(player, QUEST_ID) then
 		-- false when the quest is already active (progress from last time is kept)
 		Quest.Start(player, QUEST_ID)
 	end
@@ -190,23 +179,22 @@ Before you press Play: turn on **Enable Studio Access to API Services** (see [pl
 2. Output shows `[Progression] ready` and `[AppleSpawner] ready, 8 apples`, and no red errors.
 3. Within a few seconds Output shows `[Progression] <YourName> is level 1, apple quest active: true`. The player list shows a **Level** column with `1`.
 4. Walk toward +Z (48 studs from the middle of the Baseplate) and into an apple. Output shows `[Progression] <YourName> CollectApples: Apple 1/5`.
-5. Touch 5 apples. Output shows, in this order: `finished CollectApples, reward 50 Coins (before pet bonus)`, `+150 XP`, `level 1 -> 2, 232 XP to next`, `unlocked achievement ReachLevel2 (Growing Up), now <N> Coins`, `unlocked achievement FirstQuest (Quest Starter), now <N> Coins`. The **Level** column shows `2`. On a new save `<N>` is `150` (50 quest + 100 `ReachLevel2`); FirstQuest also gave 5 Gems. With an equipped coin pet, `<N>` is higher.
+5. Touch 5 apples. Output shows, in this order: `finished CollectApples, reward 50 Coins, paid 50` (`paid` is higher with an equipped coin pet), `+150 XP`, `level 1 -> 2, 232 XP to next`, `unlocked achievement ReachLevel2 (Growing Up), now <N> Coins`, `unlocked achievement FirstQuest (Quest Starter), now <N> Coins`. The **Level** column shows `2`. On a new save `<N>` is `150` (50 quest + 100 `ReachLevel2`); FirstQuest also gave 5 Gems. With an equipped coin pet, `<N>` is higher.
 6. Stop and press **Play** again: Output shows `is level 2, apple quest active: false`. The quest does not start again.
 
 ## Common mistakes
 
 | Wrong | Right | Why |
 |---|---|---|
-| `Quest.IsComplete(player, id)` to know if a quest was finished | Save finished quests yourself (`QuestsDone` in Step 1) | `IsComplete` is `true` for every quest that is not active, also one never started. |
+| Your own saved table of finished quests | `Quest.IsComplete(player, id)` / `Quest.GetCompletedCount(player, id)` (Step 1) | Quest saves finished quests itself (in `QuestsCompleted`). Both answer `false` / `0` before the data loads. |
 | `reward = { xp = 150 }` in the quest | Give XP in `Quest.OnQuestComplete` with `Level.AddXP` | Quest only pays `currency`/`amount` and `items`. Other fields are ignored. |
 | `Quest.Start` in `PlayerAdded` right away | `Data.WaitFor(player, 120)` first | Before data loads, `Start` returns `false` and `Track` does nothing. |
 | `Quest.Track` from a LocalScript or after a client remote with no checks | Track on the server, from a server event (Touched, a kill, a purchase) | A cheater would finish quests by sending the remote. |
 | Counting every `Touched` | Check the character is near the apple (Step 2) | Exploiters can fire `Touched` from far away. |
-| `Quest.Start` directly inside `Quest.OnQuestComplete` | `task.defer(Quest.Start, player, id)` | Track is still looping the active quests: the new quest can get progress from the same event. |
 | `Quest.Track(player, "Collect", "apple")` | `Quest.Track(player, "collect", "Apple", 1)` | Type and target must match the goal exactly (case too). Types: `"kill"`, `"collect"`, `"reach"`, `"time_played"`. |
 | Two goals with the same `target` in one quest | One `target` name per goal | Progress is saved per target, so both goals share one counter. |
 | `player.leaderstats.Level.Value = 2` or `Data.Set(player, "Level", 2)` | `Level.AddXP` / `Level.SetLevel`, then `GaxiaServer.Player.SetLeaderstat` | Writing the value yourself fires no `OnLevelUp`, and AntiCheat flags a changed leaderstat. |
-| A field of your own named `Quests` or `Achievements` | `QuestsDone` or another new name | Quest and Achievement save under those names. |
+| A field of your own named `Quests`, `QuestsCompleted` or `Achievements` | Another new name | Quest and Achievement save under those names. |
 
 ## Change it
 
@@ -214,7 +202,7 @@ Before you press Play: turn on **Enable Studio Access to API Services** (see [pl
 - To give XP for anything else (a kill, a sale): call `Level.AddXP(player, amount)` on the server. `OnLevelUp` keeps the leaderboard right. To show level or XP in your own screen UI: [show-values-on-screen](show-values-on-screen.md).
 - Reward amounts: use a whole number from 1 to `Economy.MaxTransaction` (1,000,000 by default) for `reward.amount`, in a quest or an achievement. Quest and Achievement round a fraction down and cut a bigger amount to the limit when they pay (`Economy.Add` itself refuses such amounts), and `Register` prints a yellow `[Quest] "<id>" reward amount … it pays …` warning.
 - To give items as a quest reward: `reward = { currency = "Coins", amount = 50, items = { Sword = 1 } }`. It works on its own: `GaxiaServer.Item` saves any item id, no registration needed ([items-and-inventory](items-and-inventory.md)).
-- To add a quest: one more `Quest.Register({...})` with a new `id`, its XP in `QUEST_XP`, and `Quest.Start(player, "<id>")` when it should begin (on load or from an NPC). After another quest: inside `OnQuestComplete` write `task.defer(Quest.Start, player, "<id>")`, never a direct call. For a repeatable quest, replace `done[questId] = true` with `if questId ~= "<id>" then done[questId] = true end`.
+- To add a quest: one more `Quest.Register({...})` with a new `id`, its XP in `QUEST_XP`, and `Quest.Start(player, "<id>")` when it should begin (on load or from an NPC). After another quest: inside `OnQuestComplete` call `Quest.Start(player, "<id>")` (a quest started there gets no progress from the event that finished the first one). For a repeatable quest, start it again in `OnQuestComplete` and, in `onPlayerAdded`, start it without the `Quest.IsComplete` check.
 
 ## See also
 

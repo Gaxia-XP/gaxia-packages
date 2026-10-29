@@ -32,7 +32,7 @@ DailyReward.DefineLadder({
 }, { Cycle = true })
 
 local function tryClaim(player: Player)
-	-- Claim must never run before the data is loaded (it would "succeed" without saving).
+	-- Claim refuses ("data not loaded") until the data is loaded: check first.
 	if not Data.IsLoaded(player) then
 		return
 	end
@@ -161,8 +161,13 @@ local function onPlayerAdded(player: Player)
 	end
 	if Data.Get(player, "GotWelcomeMail") ~= true then
 		-- Send takes capitalized keys: Subject, Body, From, Attachments.
-		Mail.Send(player, { Subject = "Welcome!", Body = "A gift to start.", From = "The Team", Attachments = { Coins = 250 } })
-		Data.Set(player, "GotWelcomeMail", true)
+		-- It returns the mail id, or nil and a reason (the data is not loaded): remember the gift only when sent.
+		local mailId, reason = Mail.Send(player, { Subject = "Welcome!", Body = "A gift to start.", From = "The Team", Attachments = { Coins = 250 } })
+		if mailId ~= nil then
+			Data.Set(player, "GotWelcomeMail", true)
+		else
+			warn(`[Mailbox] welcome mail not sent to {player.Name}: {reason}`)
+		end
 	end
 	print(`[Mailbox] {player.Name} has {Mail.GetUnreadCount(player)} unread mail`)
 end
@@ -209,7 +214,7 @@ end)
 print("[MailButton] ready")
 ```
 
-What it does: the server sends a welcome mail with 250 Coins (saved in the inbox). A click on the button claims every gift; **your code gives** what `Mail.Claim` returns.
+What it does: the server sends a welcome mail with 250 Coins (saved in the inbox). The inbox keeps at most `Mail.MaxMail` (50) mails: past that, `Send` removes claimed or expired mail first, then the oldest, never the new one. A click on the button claims every gift; **your code gives** what `Mail.Claim` returns.
 
 ## Step 4 — A global top-10 board
 
@@ -250,7 +255,7 @@ while true do
 end
 ```
 
-What it does: once a minute it saves each player's Coins and prints the top 10 of all servers. `GetTop` is cached 60 seconds; `Update` clears this server's cache.
+What it does: once a minute it saves each player's Coins and prints the top 10 of all servers. `GetTop` is cached 60 seconds; `Update` clears this server's cache. `Update` stores whole numbers only (it rounds down: 12.7 is saved as 12) and `GetTop` returns at most 100 entries (the count is clamped to 1–100).
 
 ## Check that it works
 
@@ -266,14 +271,14 @@ Before you press Play: in **Game Settings → Security**, turn on **Enable Studi
 
 | Wrong | Right | Why |
 |---|---|---|
-| `DailyReward.Claim(player)` in `PlayerAdded` right away | `Data.WaitFor(player, 120)`, then check `Data.IsLoaded` | Before data loads, `Claim` returns a reward but saves nothing, so it can be claimed again. |
-| `Mail.Send` to a player whose data is not loaded, or who is in another server | Send after `Data.WaitFor(player, 120)`, to players in this server | `Send` returns an id but the mail is lost. There is no offline delivery. |
+| `DailyReward.Claim(player)` in `PlayerAdded` right away | `Data.WaitFor(player, 120)`, then check `Data.IsLoaded` | Before data loads, `Claim` returns `nil, "data not loaded"`: the player gets nothing. |
+| `Mail.Send` to a player whose data is not loaded, or who is in another server | Send after `Data.WaitFor(player, 120)`, to players in this server; check its result | Before data loads, `Send` returns `nil, "data not loaded"` and stores nothing. There is no offline delivery. |
 | The client sends the reward amount to claim | The client sends nothing; the server gives `Mail.Claim`'s attachments (Step 3) | A cheater can send any amount. |
 | Midnight Dec 24 in Thailand as `DateTime.fromUniversalTime(2026, 12, 24, 0, 0, 0)` | `DateTime.fromUniversalTime(2026, 12, 23, 17, 0, 0).UnixTimestamp` | Event times are UTC. Thailand is UTC+7: subtract 7 hours. |
 | `Leaderboard.Update(...)` on every Coins change | Once per player per minute (Step 4) | OrderedDataStore writes are limited (about 60 + 10 × players per minute per server). Extra writes fail with a warning. |
 | `Leaderboard.Update(BOARD, player.UserId, Economy.Get(player, "Coins"))` in `PlayerRemoving` | Only submit while `Data.IsLoaded(player)` is true (Step 4) | After the player leaves, `Economy.Get` returns 0 and the board score becomes 0. |
-| `Leaderboard.Update(BOARD, player.UserId, 12.5)` | `math.floor(value)` | OrderedDataStore stores whole numbers only; the write fails. |
-| `Leaderboard.GetTop(BOARD, 500)` | 100 or fewer | More than 100 fails and returns an empty list. |
+| `Leaderboard.Update(BOARD, player.UserId, 12.5)` and expecting `12.5` on the board | `math.floor(value)` yourself, or keep scores whole | OrderedDataStore stores whole numbers only: `Update` rounds down and saves `12`. |
+| `Leaderboard.GetTop(BOARD, 500)` | 100 or fewer | The count is clamped to 1–100: you get at most 100 entries. |
 
 ## Change it
 

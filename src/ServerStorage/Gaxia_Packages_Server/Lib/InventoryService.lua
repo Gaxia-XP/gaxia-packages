@@ -16,6 +16,8 @@
 --   Gaxia.Inventory.DefineItem("Sword", { EquipSlot = "Weapon" })
 --   local uid = Gaxia.Inventory.Add(player, "Sword", { Props = { atk = 12 } })
 --   Gaxia.Inventory.Equip(player, uid)
+--   Every per-player call checks the player's data is loaded first: writes fail
+--   (nil / false + "data not loaded") and reads return empty until it is.
 -- ─────────────────────────────────────────────────────────────
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -69,13 +71,22 @@ local function loadInv(player: Player): { [string]: any }
 	return v
 end
 
-local function saveInv(player: Player, inv: { [string]: any }): ()
-	DataManager.Set(player, INV_KEY, inv)
+local function saveInv(player: Player, inv: { [string]: any }): boolean
+	return DataManager.Set(player, INV_KEY, inv)
+end
+
+local function loaded(player: Player): boolean
+	return DataManager.IsLoaded(player)
 end
 
 -- ── Add / Remove ──
 
-function InventoryService.Add(player: Player, itemId: string, opts: AddOpts?): string
+-- Add an item: returns the instance id (a new one, or the stack's), or nil and
+-- "data not loaded" while the player's data is not loaded (nothing is added).
+function InventoryService.Add(player: Player, itemId: string, opts: AddOpts?): (string?, string?)
+	if not loaded(player) then
+		return nil, "data not loaded"
+	end
 	local o: AddOpts = opts or {}
 	local inv = loadInv(player)
 	local def = defOf(itemId)
@@ -95,12 +106,19 @@ function InventoryService.Add(player: Player, itemId: string, opts: AddOpts?): s
 		inv.items[id] = { id = id, itemId = itemId, count = 1, props = o.Props }
 	end
 
-	saveInv(player, inv)
+	if not saveInv(player, inv) then
+		return nil, "data not loaded"
+	end
 	InventoryService.OnAdd:Fire(player, inv.items[id])
-	return id
+	return id, nil
 end
 
+-- Remove a whole instance, or `count` from a stack. False when there is no such
+-- instance or the player's data is not loaded.
 function InventoryService.Remove(player: Player, instanceId: string, count: number?): boolean
+	if not loaded(player) then
+		return false
+	end
 	local inv = loadInv(player)
 	local inst = inv.items[instanceId]
 	if typeof(inst) ~= "table" then
@@ -128,12 +146,18 @@ end
 -- ── Queries ──
 
 function InventoryService.Get(player: Player, instanceId: string): Instance_?
+	if not loaded(player) then
+		return nil
+	end
 	local inst = loadInv(player).items[instanceId]
 	return (typeof(inst) == "table") and inst or nil
 end
 
 function InventoryService.List(player: Player): { Instance_ }
 	local out: { Instance_ } = {}
+	if not loaded(player) then
+		return out
+	end
 	for _, inst in pairs(loadInv(player).items) do
 		if typeof(inst) == "table" then
 			table.insert(out, inst)
@@ -144,6 +168,9 @@ end
 
 function InventoryService.GetByItemId(player: Player, itemId: string): { Instance_ }
 	local out: { Instance_ } = {}
+	if not loaded(player) then
+		return out
+	end
 	for _, inst in pairs(loadInv(player).items) do
 		if typeof(inst) == "table" and inst.itemId == itemId then
 			table.insert(out, inst)
@@ -154,7 +181,12 @@ end
 
 -- ── Equip ──
 
+-- Equip an instance into its EquipSlot (or `slot`): (true, slot), or (false, reason)
+-- with reason "data not loaded", "no such instance" or "item has no equip slot".
 function InventoryService.Equip(player: Player, instanceId: string, slot: string?): (boolean, string)
+	if not loaded(player) then
+		return false, "data not loaded"
+	end
 	local inv = loadInv(player)
 	local inst = inv.items[instanceId]
 	if typeof(inst) ~= "table" then
@@ -165,12 +197,17 @@ function InventoryService.Equip(player: Player, instanceId: string, slot: string
 		return false, "item has no equip slot"
 	end
 	inv.equipped[useSlot] = instanceId
-	saveInv(player, inv)
+	if not saveInv(player, inv) then
+		return false, "data not loaded"
+	end
 	InventoryService.OnEquip:Fire(player, useSlot, instanceId)
 	return true, useSlot
 end
 
 function InventoryService.Unequip(player: Player, slot: string): boolean
+	if not loaded(player) then
+		return false
+	end
 	local inv = loadInv(player)
 	if inv.equipped[slot] == nil then
 		return false
@@ -182,6 +219,9 @@ function InventoryService.Unequip(player: Player, slot: string): boolean
 end
 
 function InventoryService.GetEquipped(player: Player, slot: string): Instance_?
+	if not loaded(player) then
+		return nil
+	end
 	local inv = loadInv(player)
 	local uid = inv.equipped[slot]
 	if not uid then
@@ -192,6 +232,9 @@ function InventoryService.GetEquipped(player: Player, slot: string): Instance_?
 end
 
 function InventoryService.IsEquipped(player: Player, instanceId: string): boolean
+	if not loaded(player) then
+		return false
+	end
 	for _, uid in pairs(loadInv(player).equipped) do
 		if uid == instanceId then
 			return true
@@ -202,6 +245,9 @@ end
 
 function InventoryService.GetEquipment(player: Player): { [string]: string }
 	local out: { [string]: string } = {}
+	if not loaded(player) then
+		return out
+	end
 	for slot, uid in pairs(loadInv(player).equipped) do
 		out[slot] = uid
 	end

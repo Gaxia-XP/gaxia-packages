@@ -23,7 +23,8 @@ local Mail = GaxiaServer.Mail
 
 ### Functions
 
-- `Mail.Send(toPlayer: Player, input: MailInput): string`
+- `Mail.Send(toPlayer: Player, input: MailInput): (string?, string?)`
+  Store a mail in the player's mailbox; returns its id, or nil and "data not loaded" while the recipient's data is not loaded (nothing is stored, OnReceive does not fire). When the box is over Mail.MaxMail, expired/claimed mail is trimmed first, then the oldest; the new mail is always kept.
 - `Mail.GetMailbox(player: Player): { Mail }`
 - `Mail.GetUnreadCount(player: Player): number`
 - `Mail.MarkRead(player: Player, mailId: string): boolean`
@@ -36,7 +37,7 @@ local Mail = GaxiaServer.Mail
 Connect with `:Connect(function(...) end)`; the parameters are the payload types, in order.
 
 - `Mail.OnReceive` — `Signal<Player, Mail?>`
-  (player, mail) after Send stored the mail in the recipient's mailbox (mail is nil when the inbox cap trimmed the new mail straight away)
+  (player, mail) after Send stored the mail in the recipient's mailbox (mail is never nil: the cap never trims the new mail; the type stays Mail? for old handlers)
 
 ### Types
 

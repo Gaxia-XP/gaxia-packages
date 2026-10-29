@@ -28,6 +28,9 @@ local Quest = GaxiaServer.Quest
 - `Quest.Track(player: Player, eventType: GoalType, target: string, count: number?): ()`
 - `Quest.GetActive(player: Player): { [string]: QuestProgress }`
 - `Quest.IsComplete(player: Player, questId: string): boolean`
+  True when the player finished this quest at least once (saved, survives rejoins) and it is not active right now. False for a quest that was never finished, and while the player's data is not loaded.
+- `Quest.GetCompletedCount(player: Player, questId: string): number`
+  How many times the player finished this quest (saved in QuestsCompleted; 0 while the player's data is not loaded).
 - `Quest.Abandon(player: Player, questId: string): ()`
 
 ### Signals
@@ -38,8 +41,8 @@ Connect with `:Connect(function(...) end)`; the parameters are the payload types
   Signals — orchestrator-style fan-out so other systems can react. (player, questId) after Start adds the quest to the player's active list
 - `Quest.OnGoalProgress` — `Signal<Player, string, string, number, number>`
   (player, questId, goalKey, current, target) each time Track advances a matching goal
-- `Quest.OnQuestComplete` — `Signal<Player, string, QuestReward>`
-  (player, questId, reward) after the quest completes and its reward was paid
+- `Quest.OnQuestComplete` — `Signal<Player, string, QuestReward, number>`
+  (player, questId, reward, paid) after the quest completes and its reward was paid. reward is the quest's reward definition; paid is the currency amount actually added (after the pet coin bonus and the balance cap; 0 when there is no currency reward or the payment failed). Handlers with three parameters keep working.
 
 ### Types
 
