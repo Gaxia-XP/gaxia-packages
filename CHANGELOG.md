@@ -379,18 +379,26 @@ this framework uses a single rolling version until a public release cut.
   `ToolDupe`, `Combat`, `Animation`, `RemoteRate`, `ExploitSig`) could not be turned off.
   **Behaviour change:** `/ac off Stat` now really stops `StatTamper` flags. `AntiCheat.Flag`
   from game code is unchanged (never tied to a detector).
-- **Teleport and Speed skip seated players and allow for falls.** Seated means
-  `Humanoid.SeatPart` is set (now or on the previous sample): the server makes the seat
-  weld, so a client cannot fake it. The `Seated` state and `Humanoid.Sit` are NOT trusted
-  (the owning client sets them; an exploiter could switch to `Seated` and teleport).
+- **Teleport and Speed allow for seats and falls.** Seated means `Humanoid.SeatPart` is
+  set: the server makes the seat weld, so a client cannot fake that the player sits, but
+  that does not prove the seat moved the player. So only a seat the SERVER simulates
+  (unanchored, `GetNetworkOwner()` is nil) is skipped. An anchored seat is checked like
+  walking. A client-owned seat (an unanchored `Seat` / `VehicleSeat` gives its occupant
+  network ownership, so that client can move it) is checked with the limit raised by the
+  seat's own speed (`Teleport`: `MaxDelta` + speed x time x 2; `Speed`: the seat's speed x
+  `ToleranceMultiplier`). The sample after leaving a seat is compared with the last
+  seated position, so sit / jump off / teleport is a hard flag. Limit: a client that owns
+  its seat also sets that seat's velocity. The `Seated` state and `Humanoid.Sit` are NOT
+  trusted (the owning client sets them; an exploiter could switch to `Seated` and teleport).
   While falling (`Freefall`), `Teleport` ignores only the downward part of the move (a long
   drop is fine; a 50+ stud sideways or upward jump is still a hard flag), and `Speed`
   keeps checking with its limit multiplied by the new optional
   `Config.AntiCheat.Speed.FreefallMultiplier` (default 2): the client also sets
   `Freefall`, so skipping it would let an airborne speed hacker go any speed. Trade-off: a
   sideways launch faster than 2x the limit for 2+ samples is a soft `Speed` flag; raise
-  `FreefallMultiplier` for games with big launchers. Vehicles, moving seats and long
-  drops no longer need `Whitelist` calls.
+  `FreefallMultiplier` for games with big launchers. Server-simulated vehicles and seats,
+  client-owned seats moving at their own speed, and long drops no longer need `Whitelist`
+  calls.
 - **Admin no longer fails to start when `GetDataStore` errors** (Studio in an unpublished
   place). The roles store is opened in a `pcall`; without it roles live in memory for the
   session (one warning), and `SetRole` / the join-time role load skip the store.
@@ -398,9 +406,12 @@ this framework uses a single rolling version until a public release cut.
   "speed hacking", 3600 s. With 3+ arguments a number at the end is the seconds; the words
   between the player and it are the reason (quotes still work). **Parsing change:** a last
   argument with a unit is now a duration: `30m`, `1h`, `2d`, `90s`, `1w`
-  (`/acban Bob cheating 1h` = 1 hour). Before, `1h` was refused ("seconds must be a
-  positive number"). An unknown unit (`5x`) is refused; a duration-shaped word is never
-  folded into the reason (that made a permanent ban).
+  (`/acban Bob cheating 1h` = 1 hour), also right after the player: `/acban Bob 1h` is a
+  1-hour ban with reason "AntiCheat" (it was a PERMANENT ban with reason "1h"). Before,
+  `1h` was refused ("seconds must be a positive number"). An unknown unit (`5x`) is
+  refused; a duration-shaped word is never folded into the reason (that made a permanent
+  ban). A bare number right after the player is still the reason (`/acban Bob 3600` =
+  permanent, reason "3600"): write `/acban Bob <reason> 3600`.
 - **Ban strikes last for the server's lifetime.** They were reset on leave, so with the
   default `BanPolicy` (KickAt 1, TempBanAt 2, PermBanAt 3) a cheater was kicked, rejoined
   and was kicked again, forever. **Behaviour change:** a second hard action after a rejoin

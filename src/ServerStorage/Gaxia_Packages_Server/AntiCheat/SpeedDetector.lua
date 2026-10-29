@@ -5,8 +5,13 @@
 	Purpose : Flags horizontal speed that exceeds Humanoid.WalkSpeed scaled by
 	          SPEED_TOLERANCE_MULTIPLIER. Requires 2 consecutive over-speed
 	          ticks to avoid false positives from explosions / knockbacks.
-	          Seated players (vehicles, moving seats) are skipped; "seated" means
-	          Humanoid.SeatPart is set (server-made seat weld, not spoofable).
+	          Seats ("seated" = Humanoid.SeatPart is set; the server makes the
+	          seat weld, but that does not prove the seat moved the player): a
+	          seat the SERVER simulates (unanchored, GetNetworkOwner() == nil) is
+	          skipped; an anchored seat is checked like walking; a client-owned
+	          seat (an unanchored Seat/VehicleSeat gives its occupant network
+	          ownership) raises the limit to the seat's own speed x tolerance.
+	          Limit: a client that owns its seat also sets that seat's velocity.
 	          While falling (Freefall: flings, jump pads, knockback) the limit is
 	          multiplied by Config.AntiCheat.Speed.FreefallMultiplier (default 2)
 	          instead of skipping the check: the client sets Freefall, so a full
@@ -47,11 +52,23 @@ function SpeedDetector.Sample(player: Player, snapshot: Snapshot): Flag?
 		return nil
 	end
 
-	-- A seat (vehicle) carries the character: WalkSpeed is not the limit. Only a
-	-- server-confirmed seat (SeatPart) counts; the Seated state / Sit are client-set.
-	if humanoid.SeatPart ~= nil then
-		streaks[player.UserId] = 0
-		return nil
+	-- A seat may carry the character faster than WalkSpeed. SeatPart is
+	-- server-confirmed (the Seated state / Sit are client-set), but only a seat the
+	-- server simulates is trusted outright; see the header.
+	local seatSpeed = 0
+	local seat = humanoid.SeatPart
+	if seat then
+		local root = seat.AssemblyRootPart or seat
+		if not root.Anchored then
+			-- GetNetworkOwner errors outside Workspace; that seat is not trusted.
+			local ok, owner = pcall(seat.GetNetworkOwner, seat)
+			if ok and owner == nil then
+				streaks[player.UserId] = 0
+				return nil
+			end
+			local v = seat.AssemblyLinearVelocity
+			seatSpeed = Vector3.new(v.X, 0, v.Z).Magnitude
+		end
 	end
 
 	-- Project velocity onto the horizontal plane — vertical movement is the
@@ -63,7 +80,7 @@ function SpeedDetector.Sample(player: Player, snapshot: Snapshot): Flag?
 	-- Use the higher of (current WalkSpeed, MIN_WALK_SPEED) so games that
 	-- temporarily lower WalkSpeed (slow-zones) don't widen the cheat window.
 	local baseline = math.max(humanoid.WalkSpeed, MIN_WALK_SPEED)
-	local limit    = baseline * SPEED_TOLERANCE
+	local limit    = math.max(baseline, seatSpeed) * SPEED_TOLERANCE
 	if snapshot.state == FREEFALL then
 		-- Knockback / jump pads add sideways speed in the air: allow more, but
 		-- keep checking (the client sets Freefall itself).

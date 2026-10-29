@@ -121,25 +121,24 @@ local function register(): ()
 		-- args a numeric LAST arg is the duration; every word between the player
 		-- and it is the reason. ("/acban Bob 3600" keeps "3600" as the reason.)
 		-- A LAST arg shaped like a duration with a unit (1h, 30m, 2d, 90s, 1w) is
-		-- parsed; an unknown unit (5x) is refused. It must never fall into the
-		-- reason: that would turn a short ban into a PERMANENT one.
+		-- parsed with ANY argument count ("/acban Bob 1h" = 1 hour, reason
+		-- "AntiCheat"); an unknown unit (5x) is refused. It must never fall into
+		-- the reason: that would turn a short ban into a PERMANENT one.
 		local last = #args
 		local secondsArg: string? = nil
-		if last >= 3 then
+		if last >= 2 then
 			local tail = args[last]
-			if tonumber(tail) ~= nil then
+			local amount, unit = string.match(tail, "^(%d+%.?%d*)(%a+)$")
+			if amount and unit then
+				local mult = DURATION_UNITS[string.lower(unit)]
+				if not mult then
+					return `unknown duration "{tail}": use seconds or s/m/h/d/w (e.g. 3600, 1h, 2d)`, true
+				end
+				secondsArg = tostring((tonumber(amount) :: number) * mult)
+				last -= 1
+			elseif last >= 3 and tonumber(tail) ~= nil then
 				secondsArg = tail
 				last -= 1
-			else
-				local amount, unit = string.match(tail, "^(%d+%.?%d*)(%a+)$")
-				if amount and unit then
-					local mult = DURATION_UNITS[string.lower(unit)]
-					if not mult then
-						return `unknown duration "{tail}": use seconds or s/m/h/d/w (e.g. 3600, 1h, 2d)`, true
-					end
-					secondsArg = tostring((tonumber(amount) :: number) * mult)
-					last -= 1
-				end
 			end
 		end
 		local reason = if last >= 2 then table.concat(args, " ", 2, last) else "AntiCheat"
