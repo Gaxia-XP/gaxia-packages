@@ -432,6 +432,195 @@ function harness.clickAll(p, gap)
 	end
 	return clicked, skipped
 end
+-- ── touches and tools ────────────────────────────────────────────────────────
+-- The harness has no physics, so parts never touch by themselves. A scenario
+-- makes them touch: harness.touch(part, hitPart) fires part.Touched(hitPart)
+-- and hitPart.Touched(part), like Roblox when two parts meet.
+local function scenarioError(text, level)
+	error(text, (level or 1) + 1)
+end
+-- a part given as a path ("Workspace.Lava") or an Instance (from runServer)
+local function partArg(fnName, v, argN)
+	local raw = nil
+	if type(v) == "string" then
+		raw = findPath(v, server)
+		if raw == nil then
+			scenarioError(string.format("harness.%s: argument %d: no instance at %s", fnName, argN, v), 3)
+		end
+	else
+		raw = I.import(v)
+		if type(raw) ~= "table" or not I.isRaw[raw] then
+			scenarioError(string.format("harness.%s: argument %d must be a part path (\"Workspace.Lava\") or a part, got %s", fnName, argN, typeof(v)), 3)
+		end
+	end
+	if not raw.class.isA.BasePart then
+		scenarioError(string.format("harness.%s: argument %d (%s) is a %s, not a BasePart: only parts touch", fnName, argN, I.fullName(raw), raw.ClassName), 3)
+	end
+	return raw
+end
+local function inWorkspace(raw)
+	local n = raw.Parent
+	while n do
+		if n.ClassName == "Workspace" then
+			return true
+		end
+		n = n.Parent
+	end
+	return false
+end
+-- Can these two parts touch? Roblox fires Touched only for parts in the
+-- Workspace whose CanTouch is true (on both).
+local function canTouch(a, b)
+	for _, r in { a, b } do
+		if not inWorkspace(r) then
+			return false, I.fullName(r) .. " is not in the Workspace"
+		end
+		if readable(r, server, "CanTouch") == false then
+			return false, I.fullName(r) .. ".CanTouch = false"
+		end
+	end
+	return true, nil
+end
+local function fireTouch(event, a, b, worlds)
+	for _, world in worlds do
+		local sa = a.sigs and a.sigs[event]
+		local sb = b.sigs and b.sigs[event]
+		if I.visible(a, world) and I.visible(b, world) then
+			H.sig.fireWorld(sa, world, b)
+			H.sig.fireWorld(sb, world, a)
+		end
+	end
+	S.flush()
+end
+local function touchParts(fnName, a, b, endAfter, worlds)
+	local ok, why = canTouch(a, b)
+	if not ok then
+		H.emit({ t = "scenario", text = string.format("note: harness.%s did nothing: %s (Roblox would not fire Touched)", fnName, why), time = S.clock })
+		return false
+	end
+	fireTouch("Touched", a, b, worlds)
+	if endAfter ~= nil then
+		if type(endAfter) ~= "number" then
+			scenarioError(string.format("harness.%s: endAfter must be a number of seconds, got %s", fnName, typeof(endAfter)), 3)
+		end
+		S.advance(endAfter)
+		fireTouch("TouchEnded", a, b, worlds)
+	end
+	return true
+end
+-- harness.touch(part, hitPart, endAfter?): part.Touched(hitPart) and
+-- hitPart.Touched(part) fire on the server. With endAfter (seconds), that much
+-- time passes and TouchEnded fires the same way. Returns false (and logs why)
+-- when Roblox would not fire it (a part outside the Workspace, CanTouch false).
+function harness.touch(part, hitPart, endAfter)
+	return touchParts("touch", partArg("touch", part, 1), partArg("touch", hitPart, 2), endAfter, { server })
+end
+function harness.touchEnded(part, hitPart)
+	local a, b = partArg("touchEnded", part, 1), partArg("touchEnded", hitPart, 2)
+	fireTouch("TouchEnded", a, b, { server })
+end
+-- harness.touchWith(player, part, endAfter?, limb?): the player's character
+-- touches `part` with its HumanoidRootPart (or `limb`, e.g. "LeftFoot"; a
+-- character without that part uses its first part). Fires on the server and on
+-- that player's client (Roblox's client sees its own character's touches).
+function harness.touchWith(p, part, endAfter, limb)
+	local plr = playerByName(p)
+	local char = plr.props.Character
+	if char == nil then
+		scenarioError("harness.touchWith: " .. plr.Name .. " has no character yet (it spawns 0.1 s after join: harness.advance(1) first)", 2)
+	end
+	local hit = I.findChild(char, limb or "HumanoidRootPart", nil)
+	if hit == nil or not hit.class.isA.BasePart then
+		if limb then
+			scenarioError("harness.touchWith: " .. plr.Name .. "'s character has no part named " .. limb, 2)
+		end
+		hit = nil
+		for _, c in char.children do
+			if c.class.isA.BasePart then
+				hit = c
+				break
+			end
+		end
+		if hit == nil then
+			scenarioError("harness.touchWith: " .. plr.Name .. "'s character has no part", 2)
+		end
+	end
+	local target = partArg("touchWith", part, 2)
+	local worlds = { server }
+	if plr.clientWorld then
+		table.insert(worlds, plr.clientWorld)
+	end
+	return touchParts("touchWith", target, hit, endAfter, worlds)
+end
+
+local function findTool(container, name, world)
+	local c = I.findChild(container, name, world)
+	if c and c.class.isA.Tool then
+		return c
+	end
+	return nil
+end
+local function mouseFor(world)
+	if not world.mouse then
+		world.mouse = I.new("PlayerMouse", world.id)
+		world.mouse.Name = "Instance"
+	end
+	return world.mouse
+end
+-- harness.activateTool(player, toolName): the player clicks with a Tool. If the
+-- tool is in their Backpack it is equipped first (any other equipped tool goes
+-- back to the Backpack; Unequipped / Equipped fire). Then, like a mouse click,
+-- Activated fires on the player's client and on the server (Roblox sends the
+-- click to the server), and Deactivated when the button is released. A tool
+-- that is not Enabled, or has ManualActivationOnly, is not activated by a click.
+function harness.activateTool(p, toolName)
+	local plr = playerByName(p)
+	local cw = plr.clientWorld
+	local char = plr.props.Character
+	if char == nil then
+		scenarioError("harness.activateTool: " .. plr.Name .. " has no character yet (it spawns 0.1 s after join: harness.advance(1) first)", 2)
+	end
+	local tool = findTool(char, toolName, cw)
+	if tool == nil then
+		local backpack = I.findChild(plr, "Backpack", nil)
+		tool = backpack and findTool(backpack, toolName, cw)
+		if tool == nil then
+			scenarioError("harness.activateTool: " .. plr.Name .. " has no Tool named " .. tostring(toolName) .. " in Backpack or in the character", 2)
+		end
+		for _, c in table.clone(char.children) do
+			if c.class.isA.Tool then
+				I.setParent(c, backpack)
+				H.sig.fireWorld(c.sigs and c.sigs.Unequipped, server)
+				H.sig.fireWorld(c.sigs and c.sigs.Unequipped, cw)
+			end
+		end
+		I.setParent(tool, char)
+		H.sig.fireWorld(tool.sigs and tool.sigs.Equipped, server)
+		H.sig.fireWorld(tool.sigs and tool.sigs.Equipped, cw, mouseFor(cw))
+		S.flush()
+	end
+	if readable(tool, cw, "Enabled") == false or readable(tool, cw, "ManualActivationOnly") == true then
+		H.emit({
+			t = "scenario",
+			text = "note: harness.activateTool(" .. tostring(toolName) .. ") did not fire Activated: the tool has "
+				.. (if readable(tool, cw, "Enabled") == false then "Enabled = false" else "ManualActivationOnly = true"),
+			time = S.clock,
+		})
+		return false
+	end
+	local worlds = { cw }
+	if I.visible(tool, server) then
+		table.insert(worlds, 1, server)
+	end
+	for _, ev in { "Activated", "Deactivated" } do
+		for _, world in worlds do
+			H.sig.fireWorld(tool.sigs and tool.sigs[ev], world)
+		end
+		S.flush()
+	end
+	return true
+end
+
 local scenarioRun = 0
 local function runSource(world, source)
 	scenarioRun += 1

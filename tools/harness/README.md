@@ -52,6 +52,9 @@ game/ReplicatedStorage/..., game/Workspace/..., game/StarterGui/...
 
 Also like Rojo: `X.model.json` → that instance (`className`, `properties`, `children`), `X.json` → a ModuleScript returning the data, `X.txt` → StringValue.
 
+Other files at the top of the folder (`PACKAGES.txt`, `README.md`, `*.json`, …) are ignored; a `.lua` / `.luau`
+file there is a `GAME LAYOUT` failure (it is code that would never run).
+
 It is merged over the framework tree. A folder with `init.meta.json` (`{ "className": "ScreenGui" }`) becomes that class.
 
 ## What happens in a run
@@ -83,6 +86,9 @@ print(harness.runClient(p, [[return #game.Players.LocalPlayer.PlayerGui:GetChild
 -- harness.clickButton(p, "Buy 100 Gems")                       -- your button: by text or path ("ShopGui.Frame.Buy")
 -- harness.fireServer(p, "ReplicatedStorage.Events.MyRemote", "arg")  -- your remote
 -- print(harness.invokeServer(p, "ReplicatedStorage.MyFunction", 1))  -- your RemoteFunction
+-- harness.touchWith(p, "Workspace.Lava")                       -- your part: the player's character touches it
+-- harness.touch("Workspace.Button", "Workspace.Crate", 0.5)    -- two parts touch, the touch ends 0.5 s later
+-- harness.activateTool(p, "Sword")                             -- your tool: equip it (from the Backpack) and click
 harness.leave(p)
 ```
 
@@ -91,6 +97,25 @@ harness.leave(p)
 `Enabled`, the button `Interactable`), rebuilds the list after each click (so a confirm dialog opened by one
 click is clicked next), and fires `Activated` with a mouse `InputObject` and click count 1, like Roblox.
 `--players` / `--seconds` do not apply to a scenario: it decides who joins and for how long.
+
+**Touches** (the harness has no physics, so parts touch only when a scenario says so). A part is a path
+(`"Workspace.Lava"`) or an Instance returned by `runServer`.
+
+| Helper | What fires |
+|---|---|
+| `harness.touch(part, hitPart, endAfter?)` | on the server: `part.Touched(hitPart)` and `hitPart.Touched(part)`; with `endAfter` (seconds) that time passes, then `TouchEnded` fires the same way |
+| `harness.touchEnded(part, hitPart)` | `TouchEnded` both ways on the server (for a touch that should end later) |
+| `harness.touchWith(player, part, endAfter?, limb?)` | the player's character touches `part` with its `HumanoidRootPart` (or `limb`, e.g. `"LeftFoot"`), on the server and on that player's client (Roblox's client sees its own character's touches) |
+
+Both return `true`, or `false` (with a note in the SCENARIO LOG) when Roblox would not fire `Touched`: a part
+outside the Workspace or with `CanTouch = false`.
+
+**Tools.** `harness.activateTool(player, toolName)` clicks with a Tool: if it is in the Backpack it is equipped
+first (another equipped tool goes back to the Backpack; `Unequipped` / `Equipped` fire), then `Activated` and
+`Deactivated` fire on the player's client and on the server, like a mouse click. It returns `false` (with a note)
+for a tool with `Enabled = false` or `ManualActivationOnly = true`, which a click does not activate. In game code,
+`Tool:Activate()` / `Tool:Deactivate()` fire `Activated` / `Deactivated` only in the world that called them, and
+only while the tool is equipped (parented to a character), like Roblox.
 
 ## How faithful is it?
 
@@ -115,7 +140,8 @@ It tries hard to give **only errors the game would also get in Roblox**:
   `Instance.new` class or service name errors like Roblox.
 
 What it does **not** simulate — a quiet stub, and an `UNMODELED` line in the report when it matters:
-physics and collisions (parts never move or touch, `Raycast` returns nil, `Touched` never fires),
+physics and collisions (parts never move or touch by themselves, `Raycast` returns nil, `Touched` fires only
+from `harness.touch` / `harness.touchWith`),
 rendering and real input, animations (tracks play but never end), sounds, pathfinding, HTTP (no network),
 real Roblox web APIs (thumbnails, groups, badges, friends return defaults), MessagingService across servers
 (messages come back to the same server), teleports (only recorded), and a client re-parenting or destroying a server instance (the harness
@@ -139,4 +165,4 @@ fix the harness (`tools/harness/runtime/*.luau`), not the game.
 | `runtime/services.luau`, `runtime/data.luau`, `runtime/net.luau`, `runtime/players.luau` | services, remotes, players, chat |
 | `runtime/datatypes.luau` | TweenInfo, Random, DateTime, Raycast/OverlapParams, Enum (errors on an unknown item of a known Enum) (the rest comes from `@lune/roblox`) |
 | `scenarios/click-all.lua` | default run plus one click on every button (used by `check-playbooks --run`) |
-| `tests/<case>/` | self-test fixtures: `game/` + `expect.json` (+ optional `scenario.lua`); (l)–(o) are real agent mistakes: data read before it loaded, a package that was not picked, a wrong argument to a Gaxia function, an erroring remote handler |
+| `tests/<case>/` | self-test fixtures: `game/` + `expect.json` (+ optional `scenario.lua`); (l)–(o) are real agent mistakes: data read before it loaded, a package that was not picked, a wrong argument to a Gaxia function, an erroring remote handler; (x)–(z) cover the touch and tool helpers and notes at the top of `--game` |

@@ -1,0 +1,8 @@
+{
+  "description": "(z) notes at the top of --game (PACKAGES.txt, README.md, *.json) are not game code: ignored silently, the run passes",
+  "framework": false,
+  "exit": 0,
+  "errorCount": 0,
+  "prints": [{ "contains": "[Hello] server up" }],
+  "summaryNot": ["GAME LAYOUT", "PACKAGES.txt", "README.md", "settings.json"]
+}

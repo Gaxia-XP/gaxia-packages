@@ -789,6 +789,39 @@ I.define("Humanoid", {
 })
 -- deprecated members the luau-lsp definitions leave out but Roblox still has
 I.define("Humanoid", { events = { "AnimationPlayed" } })
+
+-- Tool:Activate() / Tool:Deactivate() "simulate a click": Activated /
+-- Deactivated fire in the world that called it, and only while the tool is
+-- equipped (parented to a model with a Humanoid), like Roblox.
+local function toolEquipped(raw): boolean
+	local model = raw.Parent
+	if model == nil then
+		return false
+	end
+	for _, c in model.children do
+		if c.class.isA.Humanoid then
+			return true
+		end
+	end
+	return false
+end
+H.toolEquipped = toolEquipped
+I.define("Tool", {
+	methods = {
+		Activate = function(self)
+			local raw, world = self_(self, "Activate")
+			if toolEquipped(raw) then
+				H.sig.fireWorld(raw.sigs and raw.sigs.Activated, world)
+			end
+		end,
+		Deactivate = function(self)
+			local raw, world = self_(self, "Deactivate")
+			if toolEquipped(raw) then
+				H.sig.fireWorld(raw.sigs and raw.sigs.Deactivated, world)
+			end
+		end,
+	},
+})
 I.define("Animator", { methods = animMethods })
 I.define("AnimationController", { methods = animMethods })
 

@@ -1,7 +1,17 @@
 {
-  "description": "(v) game code that never runs (a .lua script in ServerScriptService, a file at the top of --game) fails the run with GAME LAYOUT instead of passing green",
+  "description": "(v) game code that never runs (a .lua script in ServerScriptService, a .lua file at the top of --game) fails the run with GAME LAYOUT instead of passing green; notes at the top (PACKAGES.txt, README.md, *.json) are ignored silently",
   "framework": false,
   "exit": 1,
   "errorCount": 0,
-  "summary": ["GAME LAYOUT", "CoinShop.lua is a ModuleScript", "file Loose.server.lua at the top of --game was ignored"]
+  "summary": [
+    "GAME LAYOUT",
+    "CoinShop.lua is a ModuleScript",
+    "file Loose.server.lua at the top of --game was ignored",
+    "GAME LAYOUT (3)"
+  ],
+  "summaryNot": [
+    "PACKAGES.txt",
+    "README.md",
+    "notes.json"
+  ]
 }

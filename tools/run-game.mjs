@@ -214,7 +214,9 @@ export function overlayGame(tree, gameDir, notes = [], layout = []) {
     layout.push(`--game points at the service folder "${base}" itself: pass its parent folder (--game ${path.dirname(gameDir)}), which holds one folder per service`)
   for (const e of fs.readdirSync(gameDir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
     if (!e.isDirectory()) {
-      if (/\.(lua|luau|json|txt)$/.test(e.name) && !e.name.endsWith('.project.json'))
+      // Only stray code fails the run; notes next to it (PACKAGES.txt, README.md,
+      // *.json, ...) are not game code and are ignored silently.
+      if (/\.luau?$/.test(e.name))
         layout.push(`file ${e.name} at the top of --game was ignored: put it in a service folder, e.g. ServerScriptService/${e.name.replace(/(\.server|\.client)?\.luau?$/, '.server.lua')} (server) or StarterPlayer/StarterPlayerScripts/${e.name.replace(/(\.server|\.client)?\.luau?$/, '.client.lua')} (client)`)
       continue
     }
@@ -653,6 +655,8 @@ async function selfTest() {
     for (const want of expect.kickMessages ?? []) if (!report.kicks.some((k) => k.message.includes(want))) problems.push(`no kick with message "${want}"`)
     const text = summarize(report, { quiet: true })
     for (const want of expect.summary ?? []) if (!text.includes(want)) problems.push(`summary has no "${want}"`)
+    for (const bad of expect.summaryNot ?? []) if (text.includes(bad)) problems.push(`summary has "${bad}" (it should not)`)
+    for (const bad of expect.notPrints ?? []) if (report.prints.some((x) => String(x.text ?? '').includes(bad))) problems.push(`a print contains "${bad}" (it should not)`)
     if (report.harness.length) problems.push(`HARNESS ERROR: ${report.harness.map((h) => h.message).join(' | ').slice(0, 500)}`)
     if (problems.length) {
       failed++
