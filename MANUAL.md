@@ -1662,7 +1662,7 @@ Ban.OnUnban:Connect(function(userId) end)
 **กลไก:**
 - บันทึกลง DataStore (`Config.Admin.Stores.Bans`, fallback `"GaxiaBans"`) + session cache — Studio ไม่มี real DataStore ก็ทำงานได้ (in-memory)
 - `PlayerAdded` gate — kick อัตโนมัติทันทีที่ player เข้า ถ้ายังแบนอยู่
-- Auto-escalation: subscribe `AntiCheat.OnAction` (hard) → นับ strikes → kick → temp-ban → perm-ban ตาม `Config.AntiCheat.BanPolicy` — strikes นับตลอดอายุ server (ไม่ reset ตอน rejoin server เดิม)
+- Auto-escalation: subscribe `AntiCheat.OnAction` (hard) → นับ strikes → kick → temp-ban → perm-ban ตาม `Config.AntiCheat.BanPolicy` — strikes นับตลอดอายุ server (ไม่ reset ตอน rejoin server เดิม; `Ban.Unban` / `/acunban` / `/acclear` / `Ban.ResetStrikes(userId)` reset ให้)
 
 **Role ระดับสูงโดน auto-ban / auto-kick ไม่ได้:**
 - Escalation **ข้าม** place creator (เช็ค `game.CreatorId` แบบ sync — ไม่รอ role โหลด) และทุกคนที่ role ≥ `Config.AntiCheat.BanPolicy.ExemptRole` (default `"admin"`) — ได้แค่ warn ลง console ว่า "would have acted on: …" ตั้ง `ExemptRole = false` ถ้าจะเหลือแค่ creator; ตั้ง `"moderator"` ได้แต่จะเสีย auto-ban deterrent กับ staff tier ล่างสุด
@@ -1729,7 +1729,7 @@ GaxiaServer.AntiCheatAdmin.Register()   -- หรือ explicit (idempotent)
 |---|---|---|
 | `/acflags <player>` | moderator | ดู flags ของ player |
 | `/acclear <player>` | admin | ล้าง flags |
-| `/acban <player> <reason...> [secs]` | admin | แบน (temp หรือ perm) — reason หลายคำได้, ตัวเลขท้ายสุด = วินาที |
+| `/acban <player> <reason...> [secs\|30m\|1h\|2d]` | admin | แบน (temp หรือ perm) — reason หลายคำได้, ตัวเลขท้ายสุด = วินาที หรือมีหน่วย s/m/h/d/w (หน่วยที่ไม่รู้จักถูกปฏิเสธ) |
 | `/acunban <userId>` | admin | ยกแบน |
 | `/ac <on\|off\|status\|reset> [Detector]` | admin | toggle AntiCheat / detector |
 | `/flag <set\|get\|clear> <key> [value]` | admin | runtime flag override (EConfig) |

@@ -112,6 +112,25 @@ local function loadBan(userId: number): Ban?
 	return nil
 end
 
+-- Removes the ban record (cache + store) and fires OnUnban. Used directly when a
+-- temp ban EXPIRES: that is not a moderator decision, so strikes are kept.
+local function removeBan(userId: number): boolean
+	cache[userId] = false
+	local persisted = false
+	local s = store()
+	if s then
+		local ok, err = pcall(function()
+			s:RemoveAsync(tostring(userId))
+		end)
+		persisted = ok
+		if not ok then
+			warn(`[BanService] failed to remove persisted ban for {userId}: {tostring(err)}`)
+		end
+	end
+	BanService.OnUnban:Fire(userId)
+	return persisted
+end
+
 -- ── Public API ──
 
 function BanService.IsBanned(userId: number): (boolean, string?, number?)
@@ -120,7 +139,7 @@ function BanService.IsBanned(userId: number): (boolean, string?, number?)
 		return false
 	end
 	if isExpired(ban) then
-		BanService.Unban(userId)
+		removeBan(userId)
 		return false
 	end
 	return true, ban.reason, ban.expiresAt
@@ -158,22 +177,13 @@ end
 
 -- Returns whether the persisted record was removed. A false return means the
 -- on-disk ban survives (re-applied at the next cold read) despite the local
--- cache being cleared.
+-- cache being cleared. Also resets the user's auto-escalation strikes in this
+-- server (BanService.ResetStrikes): the moderator's decision overrides them, so
+-- an unbanned false positive does not go straight to a permanent ban on the
+-- next hard flag.
 function BanService.Unban(userId: number): boolean
-	cache[userId] = false
-	local persisted = false
-	local s = store()
-	if s then
-		local ok, err = pcall(function()
-			s:RemoveAsync(tostring(userId))
-		end)
-		persisted = ok
-		if not ok then
-			warn(`[BanService] failed to remove persisted ban for {userId}: {tostring(err)}`)
-		end
-	end
-	BanService.OnUnban:Fire(userId)
-	return persisted
+	BanService.ResetStrikes(userId)
+	return removeBan(userId)
 end
 
 -- Active (non-expired) ban records, newest first, capped at maxCount.
@@ -307,6 +317,12 @@ end
 -- action, then perm-banned. Clearing on leave meant kick → rejoin → kick forever.
 -- One small number per flagged user, so it stays bounded by the server's lifetime.
 local strikes: { [number]: number } = {}
+
+-- Forget a user's auto-escalation strikes in this server (the next hard action
+-- starts again at KickAt). Unban calls it; /acclear calls it with ClearFlags.
+function BanService.ResetStrikes(userId: number): ()
+	strikes[userId] = nil
+end
 -- Players already kicked/banned by escalate() whose disconnect is still pending.
 -- Kick is asynchronous, so several hard actions arriving in the same frame used to
 -- add several strikes (KickAt=1 → TempBanAt=2 → PermBanAt=3 inside one frame):

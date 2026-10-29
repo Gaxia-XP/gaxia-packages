@@ -301,21 +301,35 @@ and `AntiCheat.<Detector>` show the cost in a live server.
   `ToolDupe`, `Combat`, `Animation`, `RemoteRate`, `ExploitSig`) could not be turned off.
   **Behaviour change:** `/ac off Stat` now really stops `StatTamper` flags. `AntiCheat.Flag`
   from game code is unchanged (never tied to a detector).
-- **Teleport and Speed skip seated and falling players.** Seated (`Seated` state or
-  `Humanoid.Sit`, now or on the previous sample) skips both; `Freefall` skips `Speed`, and
-  `Teleport` counts only the horizontal part of the move while falling (a long drop is
-  fine, a 50+ stud sideways jump is still a hard flag). Vehicles, moving seats and long
+- **Teleport and Speed skip seated players and allow for falls.** Seated means
+  `Humanoid.SeatPart` is set (now or on the previous sample): the server makes the seat
+  weld, so a client cannot fake it. The `Seated` state and `Humanoid.Sit` are NOT trusted
+  (the owning client sets them; an exploiter could switch to `Seated` and teleport).
+  While falling (`Freefall`), `Teleport` ignores only the downward part of the move (a long
+  drop is fine; a 50+ stud sideways or upward jump is still a hard flag), and `Speed`
+  keeps checking with its limit multiplied by the new optional
+  `Config.AntiCheat.Speed.FreefallMultiplier` (default 2): the client also sets
+  `Freefall`, so skipping it would let an airborne speed hacker go any speed. Trade-off: a
+  sideways launch faster than 2x the limit for 2+ samples is a soft `Speed` flag; raise
+  `FreefallMultiplier` for games with big launchers. Vehicles, moving seats and long
   drops no longer need `Whitelist` calls.
 - **Admin no longer fails to start when `GetDataStore` errors** (Studio in an unpublished
   place). The roles store is opened in a `pcall`; without it roles live in memory for the
   session (one warning), and `SetRole` / the join-time role load skip the store.
 - **`/acban` takes a multi-word reason:** `/acban Bob speed hacking 3600` bans for
   "speed hacking", 3600 s. With 3+ arguments a number at the end is the seconds; the words
-  between the player and it are the reason (quotes still work).
+  between the player and it are the reason (quotes still work). **Parsing change:** a last
+  argument with a unit is now a duration: `30m`, `1h`, `2d`, `90s`, `1w`
+  (`/acban Bob cheating 1h` = 1 hour). Before, `1h` was refused ("seconds must be a
+  positive number"). An unknown unit (`5x`) is refused; a duration-shaped word is never
+  folded into the reason (that made a permanent ban).
 - **Ban strikes last for the server's lifetime.** They were reset on leave, so with the
   default `BanPolicy` (KickAt 1, TempBanAt 2, PermBanAt 3) a cheater was kicked, rejoined
   and was kicked again, forever. **Behaviour change:** a second hard action after a rejoin
-  to the same server is now a 1-hour ban, a third a permanent ban.
+  to the same server is now a 1-hour ban, a third a permanent ban. A moderator resets them:
+  `Ban.Unban` / `/acunban` and `/acclear` forget the player's strikes (new additive
+  `Ban.ResetStrikes(userId)`), so an unbanned false positive starts again at a kick. A temp
+  ban that simply expires keeps the strikes.
 - **Journal is quiet by default.** The default sink no longer `warn`s every flag (Output
   spam). `Journal.WarnSink` (new) restores it: `Journal.SetSink(Journal.WarnSink)`. The
   per-player history keeps each player's last 100 entries and is freed 30 s after they

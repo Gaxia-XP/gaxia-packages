@@ -172,7 +172,7 @@ What it does: a hard action now kicks the player. Admins and the owner are still
 
 No code. Staff with the `admin` role type these in chat (or use the F2 panel). You are `owner` in a published place you own; otherwise add your UserId to `STAFF` ([admin-and-chat-commands](admin-and-chat-commands.md) Step 1).
 
-- `/acban <player> <reason> 3600`: ban for 3600 seconds, for example `/acban Bob speed hacking 3600`. The reason can be several words; a number at the end is the seconds. Leave out the number for a permanent ban.
+- `/acban <player> <reason> 3600`: ban for 3600 seconds, for example `/acban Bob speed hacking 3600`. The reason can be several words; a number at the end is the seconds, or use a unit: `30m`, `1h`, `2d`, `1w` (`/acban Bob speed hacking 1h`). Leave out the duration for a permanent ban.
 - `/acunban <userId>`: remove a ban. The UserId is in the `[AntiCheatLog] banned ...` line.
 
 ## Check that it works
@@ -192,7 +192,7 @@ Agent: check your scripts against Steps 1–4. The user runs these in Studio. No
 | `humanoid.WalkSpeed = 40` in a LocalScript | `GaxiaServer.Player.SetWalkSpeed(player, 40)` on the server | The server sees a player faster than its WalkSpeed: `Speed` flags. |
 | `character.HumanoidRootPart.CFrame = cframe` / `character:PivotTo(cframe)` | `GaxiaServer.Player.Teleport(player, cframe)` | A big jump is a **hard** `Teleport` flag: kicked in enforce mode. |
 | A launch pad or knockback with `AssemblyLinearVelocity` | First `AntiCheat.Whitelist(player, "Teleport", 3)` and `AntiCheat.Whitelist(player, "Speed", 3)` (also `"Fly"` if the flag says `Fly`) | A launch over ~100 studs/s is a hard `Teleport` flag: kicked in enforce mode. |
-| Whitelisting `"Speed"` / `"Teleport"` for long drops, cars or seats | Nothing to do | `Speed` and `Teleport` skip seated and falling players. Only a sideways jump of over ~50 studs while falling still flags. |
+| Whitelisting `"Speed"` / `"Teleport"` for long drops, cars or seats | Nothing to do | `Speed` and `Teleport` skip players sitting on a `Seat`/`VehicleSeat` (`Humanoid.SeatPart`). While falling, `Teleport` ignores the drop and `Speed` allows 2x its limit (`Config.AntiCheat.Speed.FreefallMultiplier`). |
 | `player.leaderstats.Coins.Value = 10` | `Economy.Add` / `GaxiaServer.Player.SetLeaderstat` | A hard `StatTamper` flag ([currency](currency-and-leaderstats.md)). |
 | `Instance.new("Tool")` or `:Clone()` into the Backpack | `GaxiaServer.Tool.Create` ([items](items-and-inventory.md)) | A hard `Backpack` flag. |
 | Writing to `_G` or `shared` in a LocalScript | A ModuleScript in ReplicatedStorage | The client reports `ClientReport:GlobalPollution` every 30 s; after 5 reports it is a hard action (kick in enforce mode). |
@@ -210,7 +210,7 @@ Agent: check your scripts against Steps 1–4. The user runs these in Studio. No
 - To flag something from your own code (for example an impossible score): `AntiCheat.Flag(player, "ImpossibleScore", "hard")`. It counts like any other flag.
 - To ban from server code: `local Ban = GaxiaServer.Ban`, then `Ban.Ban(player.UserId, "Exploiting", 86400)` (seconds; leave out for permanent; kicks now). `Ban.IsBanned(userId)` and `Ban.Unban(userId)`. `Ban.Ban` returns `false` when the ban could not be saved (Studio without API access). In chat, `/ban <player> [reason]` (permanent; the rest of the line is the reason) and `/unban <userId>` also work.
 - To send flags to Discord or a DataStore: `Journal.OnEntry:Connect(function(entry) ... end)` ([webhooks](webhooks-and-analytics.md)). To see every entry in Output: `Journal.SetSink(Journal.WarnSink)`.
-- Automatic bans (`BanPolicy` in `GaxiaServer.Config.AntiCheat`): in enforce mode each hard action is a strike. Strikes last for the whole server: with the default policy strike 1 kicks, strike 2 (after a rejoin to the same server) bans for 1 hour, strike 3 bans forever. A new server starts at 0.
+- Automatic bans (`BanPolicy` in `GaxiaServer.Config.AntiCheat`): in enforce mode each hard action is a strike. Strikes last for the whole server: with the default policy strike 1 kicks, strike 2 (after a rejoin to the same server) bans for 1 hour, strike 3 bans forever. A new server starts at 0. `/acunban`, `Ban.Unban` and `/acclear` reset the player's strikes (`Ban.ResetStrikes(userId)` from code).
 
 ## See also
 

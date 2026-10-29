@@ -8,7 +8,7 @@
 --           inspect and act in-game:
 --             /acflags <player>   — list a player's flags
 --             /acclear <player>   — clear a player's flags
---             /acban <player> <reason...> [seconds]
+--             /acban <player> <reason...> [seconds|30m|1h|2d]
 --             /acunban <userId>
 --             /ac <on|off|status|reset> [Detector]  — live AntiCheat kill-switch
 --             /flag <set|get> <key> [value]         — generic runtime flag override
@@ -91,10 +91,15 @@ local function register(): ()
 	Admin.Register("acclear", { role = "admin", help = "Clear a player's AntiCheat flags" }, function(caller: Player, args: { string }): (string?, boolean?)
 		local target = findPlayer(args[1]) or caller
 		AntiCheat.ClearFlags(target)
+		-- A moderator clearing flags forgives the ban-escalation strikes too.
+		BanService.ResetStrikes(target.UserId)
 		return `cleared {target.Name}'s AntiCheat flags`
 	end)
 
-	Admin.Register("acban", { role = "admin", help = "Ban a player: /acban <player> <reason...> [seconds]" }, function(caller: Player, args: { string }): (string?, boolean?)
+	-- /acban duration suffixes → seconds.
+	local DURATION_UNITS: { [string]: number } = { s = 1, m = 60, h = 3600, d = 86400, w = 604800 }
+
+	Admin.Register("acban", { role = "admin", help = "Ban a player: /acban <player> <reason...> [seconds|30m|1h|2d]" }, function(caller: Player, args: { string }): (string?, boolean?)
 		local target, why = findPlayer(args[1])
 		if not target then
 			return why or "player not found", true
@@ -115,11 +120,27 @@ local function register(): ()
 		-- "/acban Bob speed hacking 3600" is { Bob, speed, hacking, 3600 }. With 3+
 		-- args a numeric LAST arg is the duration; every word between the player
 		-- and it is the reason. ("/acban Bob 3600" keeps "3600" as the reason.)
+		-- A LAST arg shaped like a duration with a unit (1h, 30m, 2d, 90s, 1w) is
+		-- parsed; an unknown unit (5x) is refused. It must never fall into the
+		-- reason: that would turn a short ban into a PERMANENT one.
 		local last = #args
 		local secondsArg: string? = nil
-		if last >= 3 and tonumber(args[last]) ~= nil then
-			secondsArg = args[last]
-			last -= 1
+		if last >= 3 then
+			local tail = args[last]
+			if tonumber(tail) ~= nil then
+				secondsArg = tail
+				last -= 1
+			else
+				local amount, unit = string.match(tail, "^(%d+%.?%d*)(%a+)$")
+				if amount and unit then
+					local mult = DURATION_UNITS[string.lower(unit)]
+					if not mult then
+						return `unknown duration "{tail}": use seconds or s/m/h/d/w (e.g. 3600, 1h, 2d)`, true
+					end
+					secondsArg = tostring((tonumber(amount) :: number) * mult)
+					last -= 1
+				end
+			end
 		end
 		local reason = if last >= 2 then table.concat(args, " ", 2, last) else "AntiCheat"
 		if reason:match("^%s*$") then

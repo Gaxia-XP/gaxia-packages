@@ -27,13 +27,15 @@ local Ban = GaxiaServer.Ban
 - `Ban.Ban(userId: number, reason: string, durationSec: number?): boolean`
   Returns whether the ban was PERSISTED. The session ban (cache + kick) always happens; a false return means the DataStore write failed (or no store — e.g. Studio without API access) and the ban will not survive this server. Callers presenting "persistent ban" feedback to a human must surface that.
 - `Ban.Unban(userId: number): boolean`
-  Returns whether the persisted record was removed. A false return means the on-disk ban survives (re-applied at the next cold read) despite the local cache being cleared.
+  Returns whether the persisted record was removed. A false return means the on-disk ban survives (re-applied at the next cold read) despite the local cache being cleared. Also resets the user's auto-escalation strikes in this server (BanService.ResetStrikes): the moderator's decision overrides them, so an unbanned false positive does not go straight to a permanent ban on the next hard flag.
 - `Ban.ListBans(maxCount: number?): { BanListEntry }`
   Active (non-expired) ban records, newest first, capped at maxCount. Combines the session cache (Studio in-memory bans, warm entries) with persisted keys via ListKeysAsync — pcall-guarded, so without DataStore API access this degrades to the session cache. Feeds the Admin Panel's /unban list. Each entry: { userId, reason, expiresAt?, time }.
 - `Ban.SetRoleResolver(fn: Types.UserRoleResolver): ()`
   Install the (userId, role) -> boolean lookup the escalation exemption uses. AdminCommands does this in its Init; game code does not need to call it.
 - `Ban.IsEscalationExempt(userId: number): boolean`
   Public: AntiCheat.OnAction has TWO enforcing consumers — escalate() here and the bootstrap's default hard-action kick. Both must answer "is this user machine-punishable?" identically, or the exemption only stops the ban while the other consumer still kicks the creator out of their own game.
+- `Ban.ResetStrikes(userId: number): ()`
+  Forget a user's auto-escalation strikes in this server (the next hard action starts again at KickAt). Unban calls it; /acclear calls it with ClearFlags.
 
 ### Signals
 

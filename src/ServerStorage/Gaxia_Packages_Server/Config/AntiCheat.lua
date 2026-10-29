@@ -28,7 +28,7 @@ export type AntiCheatConfig = {
 	SoftFlagThreshold: number,
 	HardFlagThreshold: number,
 
-	Speed: { ToleranceMultiplier: number, Enabled: boolean?, Severity: Severity },
+	Speed: { ToleranceMultiplier: number, FreefallMultiplier: number?, Enabled: boolean?, Severity: Severity },
 	Fly: { VelocityThreshold: number, Enabled: boolean?, Severity: Severity },
 	NoClip: { RaycastInterval: number, Enabled: boolean?, Severity: Severity },
 	Teleport: { MaxDelta: number, WhitelistGraceSeconds: number, Enabled: boolean?, Severity: Severity },

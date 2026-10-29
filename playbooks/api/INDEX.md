@@ -536,6 +536,7 @@ GaxiaServer.Ban.Unban(userId: number): boolean   → Ban.md
 GaxiaServer.Ban.ListBans(maxCount: number?): { BanListEntry }   → Ban.md
 GaxiaServer.Ban.SetRoleResolver(fn: Types.UserRoleResolver): ()   → Ban.md
 GaxiaServer.Ban.IsEscalationExempt(userId: number): boolean   → Ban.md
+GaxiaServer.Ban.ResetStrikes(userId: number): ()   → Ban.md
 GaxiaServer.Ban.OnBan : Signal<number, Ban>   → Ban.md
 GaxiaServer.Ban.OnUnban : Signal<number>   → Ban.md
 GaxiaServer.Chat.ParseArgs(typeList: { string }, argList: { string }): { any }?   → Chat.md

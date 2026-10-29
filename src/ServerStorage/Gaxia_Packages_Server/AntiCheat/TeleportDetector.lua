@@ -5,9 +5,13 @@
 	Purpose : Flags HRP position deltas larger than TELEPORT_MAX_DELTA between
 	          consecutive samples. Ignores ticks where the character re-spawned.
 	          Seated players (now or on the previous sample: a vehicle or a moving
-	          seat carries them) are skipped. While falling (Freefall now or on the
-	          previous sample) only the horizontal part of the move counts: a long
-	          drop is legitimate, a sideways jump while "falling" is not.
+	          seat carries them) are skipped. "Seated" means Humanoid.SeatPart is
+	          set: the server creates the seat weld, so a client cannot fake it.
+	          The Seated state and Humanoid.Sit are NOT trusted (the owning client
+	          sets them, so an exploiter could switch to Seated and teleport).
+	          While falling (Freefall now or on the previous sample) downward
+	          movement is ignored: a long drop is legitimate. The sideways and
+	          upward parts still count, because the client also sets Freefall.
 ]]
 
 -- ── Dependencies ──
@@ -23,7 +27,6 @@ local TeleportCfg = Config.AntiCheat.Teleport
 local TELEPORT_MAX_DELTA : number = TeleportCfg.MaxDelta or 50
 local TELEPORT_SEVERITY  : string = TeleportCfg.Severity or "hard"
 
-local SEATED   = Enum.HumanoidStateType.Seated
 local FREEFALL = Enum.HumanoidStateType.Freefall
 
 -- (userId) → last sample — clears on respawn so a legitimate Teleport-on-spawn
@@ -34,9 +37,11 @@ local lastSnapshot: { [number]: Last } = {}
 local TeleportDetector = {}
 TeleportDetector.Name = "Teleport"
 
+-- Server-confirmed seat only: SeatPart is set by the seat weld the server makes.
+-- The Seated state and Humanoid.Sit come from the owning client and are spoofable.
 local function isSeated(snapshot: Snapshot): boolean
 	local humanoid = snapshot.humanoid
-	return snapshot.state == SEATED or (humanoid ~= nil and humanoid.Sit)
+	return humanoid ~= nil and humanoid.SeatPart ~= nil
 end
 
 function TeleportDetector.Sample(player: Player, snapshot: Snapshot): Flag?
@@ -62,9 +67,10 @@ function TeleportDetector.Sample(player: Player, snapshot: Snapshot): Flag?
 
 	local move = pos - prev.pos
 	if falling or prev.falling then
-		-- A fall (or its landing) moves the character down fast: count only the
-		-- horizontal part of the move.
-		move = Vector3.new(move.X, 0, move.Z)
+		-- A fall (or its landing) moves the character down fast: ignore the
+		-- downward part. Freefall is client-set, so sideways and upward moves
+		-- still count.
+		move = Vector3.new(move.X, math.max(move.Y, 0), move.Z)
 	end
 	if move.Magnitude > TELEPORT_MAX_DELTA then
 		-- Teleport is "hard" right away — there is no benign reason for a
