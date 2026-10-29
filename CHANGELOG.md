@@ -156,7 +156,9 @@ this framework uses a single rolling version until a public release cut.
   fields once, at the top of a Script. They are deep-merged into the template and reconciled
   into every profile on load (after `DEFAULT_PROFILE`, before migrations), so `Data.WaitFor`
   and `Data.OnLoaded` already see them; each player gets their own copy of the tables. Values
-  must be saveable; built-in fields (`Coins`, `Level`, …) and `__` names are refused with a
+  must be saveable (string keys only, or a list 1..n; mixed tables are refused); a list
+  default is copied only when the field is missing and never merged into a saved list;
+  built-in fields (`Coins`, `Level`, `Settings.Music`, …) and `__` names are refused with a
   warning. A call after a profile loaded warns and fills the players already loaded.
   `playbooks/game/player-data.md` uses it instead of the per-player `addMissingFields` helper.
 - **`Data.WaitFor(player)` default timeout is now 120 s** (was 30 s;

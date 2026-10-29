@@ -32,7 +32,7 @@ local Data = GaxiaServer.Data
 -- Your game's own saved fields and their starting values.
 -- Every player who does not have a field yet gets it when their data loads
 -- (new players, and fields you add in an update). Each player gets their own copy of the tables.
--- Save only numbers, strings, booleans and tables of them, with string keys.
+-- Save only numbers, strings, booleans and tables of them, with string keys (or a list).
 -- Call it here, at the top of the script, before any player's data loads.
 Data.SetDefaults({
 	Wins = 0,
@@ -145,7 +145,7 @@ What it does: registered steps run when a save loads, before `Data.Get` returns 
 Keep `DataMigrations` free of any `task.wait` or other wait, so it registers before the first player loads.
 Keep every old step forever. The next change is `Migration.Register(2, 3, ...)` and `Migration.SetCurrentVersion(3)`.
 
-If a step is missing or errors, Output shows one of these warnings, and the player joins with the data as it was before that step:
+If a step is missing or errors, Output shows one of these warnings, and the player joins with their data unchanged (no step is applied):
 
 - `[DataMigration] No migration registered from v1 -> target v2. Chain incomplete; data left at v1.`: add the missing `Migration.Register(1, 2, ...)`.
 - `[DataMigration] Migration v1 -> v2 failed: <error> (data left at v1)`: fix the error in that function.
@@ -183,7 +183,7 @@ Nothing is reset or deleted. Steps are all or nothing: they run on a copy of the
 - To run code exactly when data loads, instead of `Data.WaitFor`: `Data.OnLoaded:Connect(function(player, data) ... end)` at the top level of a Script. It fires once per player, so it misses players loaded before your script connected. Your `Data.SetDefaults` fields are already in `data`.
 - To react to every change: `Data.OnDataChanged:Connect(function(player, key, value) ... end)`. It fires after each `Data.Set`.
 - To clean up when a player's data is released (leave or shutdown): `Data.OnReleased:Connect(function(player) ... end)`.
-- To add a field **inside** an existing table later (for example `Settings.Volume`), list it with the table: `Data.SetDefaults({ Settings = { Volume = 1 } })`. Nested tables are merged, so the built-in `Settings.Music` and `Settings.SFX` stay. Use a migration step (Step 3) only when an existing value changes its meaning or shape.
+- To add a field **inside** an existing table later (for example `Settings.Volume`), list it with the table: `Data.SetDefaults({ Settings = { Volume = 1 } })`. Nested tables are merged, so the built-in `Settings.Music` and `Settings.SFX` stay. A list default (for example `Loadout = { "Sword" }`) is different: a player gets it only when they have no `Loadout` yet, and a saved list is never changed. Use a migration step (Step 3) only when an existing value changes its meaning or shape.
 - Data settings in `GaxiaServer.Config.Data` (`StoreName` `"GaxiaPlayerData"`, `WaitForDefaultTimeout` 120 seconds, `Backup.Enabled` off, the 30-second auto-save) cannot be changed from game code. To wait a different time, pass a timeout: `Data.WaitFor(player, 60)`. To save at once, use `Data.Save(player)`.
 
 ## See also

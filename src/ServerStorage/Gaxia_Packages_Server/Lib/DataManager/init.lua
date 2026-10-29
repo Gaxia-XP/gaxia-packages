@@ -258,7 +258,7 @@ end
 -- ── Game defaults (SetDefaults) ──
 
 -- Checks that `value` can be saved in a DataStore (numbers, strings, booleans and
--- tables of them, string keys or a 1..n list). Returns an error text, or nil when fine.
+-- tables of them: string keys only, or a list 1..n). Returns an error text, or nil when fine.
 local function checkSaveable(value: any, path: string, depth: number): string?
 	local kind = typeof(value)
 	if kind == "number" then
@@ -276,11 +276,18 @@ local function checkSaveable(value: any, path: string, depth: number): string?
 	end
 	local count = 0
 	local hasStringKey = false
+	local hasNumberKey = false
+	local listKeysOk = true
 	for k, v in pairs(value) do
 		count += 1
 		if type(k) == "string" then
 			hasStringKey = true
-		elseif type(k) ~= "number" then
+		elseif type(k) == "number" then
+			hasNumberKey = true
+			if k ~= math.floor(k) or k < 1 then
+				listKeysOk = false
+			end
+		else
 			return `{path} has a {typeof(k)} key: use string keys`
 		end
 		local problem = checkSaveable(v, `{path}.{tostring(k)}`, depth + 1)
@@ -288,19 +295,48 @@ local function checkSaveable(value: any, path: string, depth: number): string?
 			return problem
 		end
 	end
-	if not hasStringKey and count ~= #value then
-		return `{path} has number keys that are not a list 1, 2, 3...: use string keys`
+	-- WHY: a DataStore save fails for a table that mixes string and number keys, and
+	-- for number keys that are not exactly 1..n (every save of every player fails).
+	if hasStringKey and hasNumberKey then
+		return `{path} mixes number and string keys: use string keys only, or a list`
 	end
-	if hasStringKey and #value > 0 then
-		return `{path} mixes a list and string keys`
+	if hasNumberKey then
+		if not listKeysOk then
+			return `{path} has number keys that are not a list 1, 2, 3...: use string keys`
+		end
+		for i = 1, count do
+			if value[i] == nil then
+				return `{path} has number keys that are not a list 1, 2, 3...: use string keys`
+			end
+		end
 	end
 	return nil
 end
 
--- Deep-merges `source` into `target`: nested tables merge key by key, other values replace.
+-- True for a list default (a table with number keys 1..n). Lists are one value:
+-- they are copied when the field is missing and never merged element by element.
+local function isList(value: any): boolean
+	return type(value) == "table" and value[1] ~= nil
+end
+
+-- Fills fields of `target` that are nil from `template`. Dictionaries merge key by key;
+-- lists and other values are copied only when the field is nil (a saved list is kept as is).
+local function reconcileDefaults(target: { [any]: any }, template: { [any]: any }): ()
+	for k, v in pairs(template) do
+		local current = target[k]
+		if current == nil then
+			target[k] = if type(v) == "table" then Table.DeepCopy(v) else v
+		elseif type(current) == "table" and type(v) == "table" and not isList(v) and not isList(current) then
+			reconcileDefaults(current, v)
+		end
+	end
+end
+
+-- Deep-merges `source` into `target`: nested dictionaries merge key by key, lists and
+-- other values replace.
 local function deepMerge(target: { [any]: any }, source: { [any]: any }): ()
 	for k, v in pairs(source) do
-		if type(v) == "table" and type(target[k]) == "table" then
+		if type(v) == "table" and type(target[k]) == "table" and not isList(v) and not isList(target[k]) then
 			deepMerge(target[k], v)
 		else
 			target[k] = if type(v) == "table" then Table.DeepCopy(v) else v
@@ -308,12 +344,37 @@ local function deepMerge(target: { [any]: any }, source: { [any]: any }): ()
 	end
 end
 
+-- Returns the path of the first leaf in `value` that is already a built-in field of
+-- `builtIn` (a DEFAULT_PROFILE table), or nil. Built-in leaves are filled first, so a
+-- game default for them would never apply.
+local function findBuiltInLeaf(value: { [any]: any }, builtIn: { [any]: any }, path: string): string?
+	for k, v in pairs(value) do
+		local b = builtIn[k]
+		if b ~= nil then
+			local childPath = `{path}.{tostring(k)}`
+			if type(b) == "table" and type(v) == "table" and not isList(b) and not isList(v) then
+				local found = findBuiltInLeaf(v, b, childPath)
+				if found then
+					return found
+				end
+			else
+				return childPath
+			end
+		end
+	end
+	return nil
+end
+
 -- Adds default values for the game's own saved fields. Every player who does not have a
 -- field yet gets it when their data loads (new players, and fields added in an update),
 -- before Data.WaitFor / Data.OnLoaded return the data. Nested tables are deep-merged:
 -- `{ Settings = { Volume = 1 } }` adds `Settings.Volume` and keeps the built-in settings.
--- Values must be saveable (numbers, strings, booleans, tables of them with string keys or a list).
--- Built-in fields (Coins, Level, ...) and names starting with "__" are refused (warned).
+-- A list (`{ "Sword", "Bow" }`) is one value: a player gets it only when the field is
+-- missing, and a saved list is never merged with it.
+-- Values must be saveable: numbers, strings, booleans, and tables of them that use string
+-- keys only or are a list 1, 2, 3... (a table that mixes the two is refused).
+-- Built-in fields (Coins, Level, Settings.Music, ...) and names starting with "__" are
+-- refused (warned).
 -- Call it at the top of a Script, before players load. A late call warns and fills the
 -- players already loaded too. Calling it again merges into the earlier defaults.
 -- Returns false when any field was refused.
@@ -336,6 +397,12 @@ function DataManager.SetDefaults(defaults: { [string]: any }): boolean
 				refused = `"{key}" is a built-in field: its default cannot change`
 			else
 				refused = checkSaveable(value, key, 1)
+				if not refused and type(builtIn) == "table" then
+					local leaf = findBuiltInLeaf(value, builtIn, key)
+					if leaf then
+						refused = `"{leaf}" is a built-in field: its default cannot change`
+					end
+				end
 			end
 		end
 		if refused then
@@ -358,7 +425,7 @@ function DataManager.SetDefaults(defaults: { [string]: any }): boolean
 						table.insert(missing, key)
 					end
 				end
-				Table.Reconcile(data, accepted)
+				reconcileDefaults(data, accepted)
 				local player = Players:GetPlayerByUserId(userId)
 				if player then
 					for _, key in ipairs(missing) do
@@ -396,7 +463,7 @@ local function onPlayerAdded(player: Player)
 	profile:Reconcile()
 	Table.Reconcile(profile.Data, DataManager.DEFAULT_PROFILE :: any)
 	-- Game fields from SetDefaults, right after the built-in template (before migration).
-	Table.Reconcile(profile.Data, gameDefaults)
+	reconcileDefaults(profile.Data, gameDefaults)
 	anyProfileLoaded = true
 
 	-- ── Schema migration (Phase 17.4) ──
@@ -536,7 +603,7 @@ function DataManager._SeedForTest(player: any, data: { [string]: any }?): ()
 		Save = function(_self) end,
 	}
 	Table.Reconcile(synthetic.Data, DataManager.DEFAULT_PROFILE :: any)
-	Table.Reconcile(synthetic.Data, gameDefaults)
+	reconcileDefaults(synthetic.Data, gameDefaults)
 	loadedProfiles[player.UserId] = synthetic
 end
 
