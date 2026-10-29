@@ -7,7 +7,10 @@
 --           equip/unequip up to N pets, and displays the live Coins
 --           multiplier. State is server-authoritative: every action fires a
 --           remote and the panel rebuilds from the server's PetSync snapshot
---           (the client never decides ownership or the multiplier itself).
+--           (the client never decides ownership or the multiplier itself). The
+--           server also pushes PetSync / PetHatch when game code changes pets
+--           (GrantPet, BuyEgg, RemovePet, ...); a PetHatch carries the snapshot
+--           after the hatch, and the toast uses its names.
 --           Toggle with the P key, or call PetController.Open() from game code.
 -- ─────────────────────────────────────────────────────────────
 
@@ -42,6 +45,8 @@ local SLOT_SIZE        : UDim2 = UDim2.fromOffset(78, 92)
 local EQUIPPED_COLOR   : Color3 = Color3.fromRGB(80, 200, 120)
 local NEUTRAL_TEXT     : Color3 = Color3.fromRGB(235, 238, 245)
 local MUTED_TEXT       : Color3 = Color3.fromRGB(190, 195, 205)
+local DEFAULT_EGG      : string = "BasicEgg"
+local HATCH_DEDUPE_SECONDS : number = 0.2 -- an identical PetHatch this soon after another is a duplicate
 
 local RARITY_COLOR: { [string]: Color3 } = {
 	common    = Color3.fromRGB(150, 155, 165),
@@ -58,8 +63,36 @@ local multLabel  : TextLabel? = nil
 local equipLabel : TextLabel? = nil
 local buyButton  : TextButton? = nil
 local grid       : Frame? = nil
+local lastHatchKey  : string? = nil
+local lastHatchTime : number = -math.huge
 
 -- ── Helpers ──
+
+-- The egg the Buy button buys: BasicEgg when the server sells it in the panel,
+-- else the first egg id (sorted) in snapshot.eggs. Older servers send no `eggs`.
+local function panelEgg(): (string?, number?, string?)
+	if not snapshot then
+		return nil, nil, nil
+	end
+	local eggs = snapshot.eggs
+	if typeof(eggs) ~= "table" then
+		return DEFAULT_EGG, tonumber(snapshot.eggCost), "Coins"
+	end
+	local id: string? = if eggs[DEFAULT_EGG] then DEFAULT_EGG else nil
+	if not id then
+		local ids: { string } = {}
+		for k in pairs(eggs) do
+			table.insert(ids, tostring(k))
+		end
+		table.sort(ids)
+		id = ids[1]
+	end
+	if not id then
+		return nil, nil, nil
+	end
+	local info = eggs[id]
+	return id, tonumber(info.cost), tostring(info.currency or "Coins")
+end
 
 local function rarityColor(rarity: string?): Color3
 	return RARITY_COLOR[rarity or "common"] or RARITY_COLOR.common
@@ -164,7 +197,11 @@ local function rebuild(): ()
 		equipLabel.Text = `Equipped {#snapshot.equipped}/{snapshot.slots or 0}`
 	end
 	if buyButton then
-		buyButton.Text = `Buy Egg ({snapshot.eggCost or 0} Coins)`
+		local eggId, cost, currency = panelEgg()
+		buyButton.Visible = eggId ~= nil
+		buyButton.Text = if eggId == DEFAULT_EGG
+			then `Buy Egg ({cost or 0} {currency})`
+			else `Buy {eggId} ({cost or 0} {currency})`
 	end
 
 	if not grid then
@@ -314,7 +351,8 @@ function PetController.Open(): ()
 	bb.Parent = info
 	buyButton = bb
 	bb.Activated:Connect(function()
-		Net.FireServer("PetBuyEgg", { egg = "BasicEgg" })
+		local eggId = panelEgg()
+		Net.FireServer("PetBuyEgg", { egg = eggId or DEFAULT_EGG })
 	end)
 
 	-- Grid of owned pets.
@@ -332,7 +370,9 @@ function PetController.Open(): ()
 	g.Parent = content
 	grid = g
 
-	-- Pull fresh state (also covers the case where no PetSync has fired yet).
+	-- Show the last pushed state at once, then pull fresh state (also covers the
+	-- case where no PetSync has fired yet).
+	rebuild()
 	requestState()
 end
 
@@ -360,10 +400,25 @@ pcall(function()
 		if typeof(res) ~= "table" then
 			return
 		end
+		-- The server's state after this hatch (newer servers send it): use it, not
+		-- the older snapshot, so the grid and names match what was really granted.
+		if typeof(res.snapshot) == "table" then
+			snapshot = res.snapshot
+			rebuild()
+		end
+		-- Games that followed the old pets playbook also fire PetHatch themselves
+		-- right after BuyEgg (which now sends it too): show one toast, not two.
+		local key = `{res.ok}|{res.petId}|{res.reason}`
+		local now = os.clock()
+		if key == lastHatchKey and now - lastHatchTime < HATCH_DEDUPE_SECONDS then
+			return
+		end
+		lastHatchKey, lastHatchTime = key, now
 		if res.ok then
 			local defs = (snapshot and snapshot.defs) or {}
 			local def = defs[res.petId]
-			local nm: string = (def and def.displayName) or res.petId or "a pet"
+			local nm: string = (typeof(res.displayName) == "string" and res.displayName)
+				or (def and def.displayName) or res.petId or "a pet"
 			Toast.Show({ Title = "Egg Hatched!", Text = `You got {nm}!`, Variant = "success" })
 		else
 			Toast.Show({ Title = "Hatch Failed", Text = tostring(res.reason or "try again"), Variant = "error" })

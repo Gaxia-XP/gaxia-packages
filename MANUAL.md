@@ -1586,7 +1586,7 @@ conn:Disconnect()
 
 ส่ง webhook ออกนอก (Discord เป็นหลัก แต่ส่ง JSON ไป URL ไหนก็ได้). มี queue ต่อ channel + retry เมื่อโดน rate-limit (HTTP 429) — report ไม่หาย ไม่บล็อกเกม. **Server-only**: URL เป็น secret อยู่ใน `Config.Webhook.Channels` (ไม่ replicate) — **ห้ามเรียกผ่าน RemoteEvent จาก client** (client ยิง webhook มั่ว = abuse).
 
-> ต้องเปิด **Game Settings → Security → Allow HTTP Requests** ก่อน ไม่งั้น webhook ปิดเงียบ (warn ครั้งเดียว).
+> ต้องเปิด **Game Settings → Security → Allow HTTP Requests** ก่อน ถ้าปิดอยู่ ข้อความจะรอใน queue (≤ `MaxQueue`) แล้ว retry ทุก `RateLimit.HttpOffRetry` วินาที (warn ครั้งเดียว) ไม่ drop ทิ้ง.
 
 **Config** (`Config.Webhook` — server-private):
 ```lua
@@ -1597,13 +1597,16 @@ Webhook = {
         ShopStock  = "https://discord.com/api/webhooks/...",
     },
     AutoReport = { Bans = "BanReports", AntiCheat = "BanReports" }, -- channel name หรือ nil
-    RateLimit  = { MinInterval = 2, MaxQueue = 100, MaxRetries = 3 },
+    RateLimit  = { MinInterval = 2, MaxQueue = 100, MaxRetries = 3, HttpOffRetry = 30 },
     Username   = "Gaxia",
 }
 ```
 
 ```lua
 local WH = GaxiaServer.Webhook
+
+-- ตั้ง channel จาก server Script (ชนะค่าใน Config, ไม่ replicate; nil/"" = ลบ)
+WH.SetChannel("BanReports", "https://discord.com/api/webhooks/...")
 
 -- Discord embed (สร้าง JSON ให้อัตโนมัติ)
 WH.Discord("BanReports", {
@@ -1625,7 +1628,7 @@ WH.OnSend:Connect(function(channel, ok) end)                  -- observability
 WH.OnError:Connect(function(channel, reason) warn(reason) end)
 ```
 
-**Auto-report (zero-wiring):** ตั้ง `AutoReport.Bans` / `AutoReport.AntiCheat` ให้ชี้ channel ที่มี URL → ส่ง report อัตโนมัติเมื่อ `Ban.OnBan`/`Ban.OnUnban` ยิง และเมื่อ AntiCheat ทำ **hard action**. ถ้า channel ที่ชี้ไม่มี URL → เงียบ (ไม่ subscribe). WebhookService ถูก eager-load ตอน boot เพื่อให้ auto-report ทำงานทันที.
+**Auto-report (zero-wiring):** ตั้ง `AutoReport.Bans` / `AutoReport.AntiCheat` ให้ชี้ channel ที่มี URL → ส่ง report อัตโนมัติเมื่อ `Ban.OnBan`/`Ban.OnUnban` ยิง และเมื่อ AntiCheat ทำ **hard action**. channel + URL ถูกอ่านตอน event ยิง (ไม่ cache ตอน boot) → ตั้ง URL ทีหลังด้วย `SetChannel` ก็ได้ report; ถ้าตอนนั้นไม่มี URL → เงียบ. WebhookService ถูก eager-load ตอน boot เพื่อให้ auto-report ทำงานทันที.
 
 **Use case — shop stock (manual):**
 ```lua
@@ -1642,7 +1645,8 @@ GaxiaServer.Webhook.Discord("ShopStock", {
 **กลไก:**
 - Queue ต่อ channel (FIFO) + drain coroutine เดียว, เว้น `MinInterval` วินาทีระหว่างส่ง
 - 429 → รอ `Retry-After` แล้ว retry (≤ `MaxRetries`); transient → backoff; เกิน → drop + OnError + warn
-- Queue เต็ม (`MaxQueue`) → drop เก่าสุด · async ทั้งหมด (task.spawn) ไม่บล็อกเกม
+- Queue เต็ม (`MaxQueue`) → drop เก่าสุด (OnError `"queue_full"`) · async ทั้งหมด (task.spawn) ไม่บล็อกเกม
+- Server ปิด → `game:BindToClose` ส่งที่ค้างใน queue ให้หมด (เร็วกว่า `MinInterval`, ไม่เกิน 25 วินาที)
 - ค่าใน `RateLimit`/`Enabled`/`Username` override runtime ได้ผ่าน `/flag set Webhook.<Key>` (EConfig)
 - เทส: `WH.SetTransport(fn)` แทนตัวส่ง HTTP จริง (จับ payload โดยไม่ยิงเน็ต)
 
@@ -2704,10 +2708,18 @@ local mult = Pet.GetCoinMultiplier(player)     -- 1 + Σ coinBonus ของ pet
 -- queries / snapshot
 local owned    = Pet.GetOwned(player)          -- { {petId, uid}, … }
 local equipped = Pet.GetEquipped(player)       -- { uid, … }
-local snap     = Pet.Snapshot(player)          -- {owned, equipped, multiplier, slots, eggCost, defs, order}
+local snap     = Pet.Snapshot(player)          -- {owned, equipped, multiplier, slots, eggCost, defs, order, eggs}
+
+-- เพิ่ม pet / ไข่ของเกมเอง (ใน server Script — ห้ามแก้ PetService)
+Pet.RegisterPet({ id = "pet_Unicorn", displayName = "Unicorn", rarity = "legendary", coinBonus = 0.5 })
+Pet.RegisterEgg({ id = "GoldenEgg", cost = 250, currency = "Coins", panel = false,
+    pets = { { petId = "pet_Fox", weight = 60 }, { petId = "pet_Unicorn", weight = 10, pity = 20 } } })
+Pet.BuyEgg(player, "GoldenEgg")                -- ส่ง PetHatch + PetSync ให้ client เอง
+Pet.RemovePet(player, uidOrPetId)              -- (true, uid) | (false, "not owned")
 
 Pet.OnPetGranted:Connect(function(p, petId, uid) end)
 Pet.OnEquipChanged:Connect(function(p, equipped) end)
+Pet.OnPetRemoved:Connect(function(p, petId, uid) end)
 ```
 
 **Roster** (8 ตัว, `coinBonus` บวกกัน):
@@ -2720,7 +2732,8 @@ Pet.OnEquipChanged:Connect(function(p, equipped) end)
 | Dragon | legendary | +1.00 | 0.5 | **50** |
 
 **กลไก:**
-- **Server-authoritative ทั้งหมด** — client ไม่เคยส่ง bonus/cost; `PET_DEFS` คือ source of truth ฝั่ง server. ทุก remote ผ่าน `Net` rate-limit + `Guard.strictInterface`
+- **Server-authoritative ทั้งหมด** — client ไม่เคยส่ง bonus/cost; `PET_DEFS` (+ `RegisterPet`/`RegisterEgg`) คือ source of truth ฝั่ง server. ทุก remote ผ่าน `Net` rate-limit + `Guard.strictInterface`
+- ทุกฟังก์ชันฝั่ง server (`GrantPet`, `BuyEgg`, `Equip`, `Unequip`, `RemovePet`, `Register*`) push `PetSync` ให้ client เอง (รวมเป็นครั้งเดียวต่อ frame); `BuyEgg` ส่ง `PetHatch` (มี `snapshot`) ด้วย — ไม่ต้อง `Net.FireClient` เอง
 - ฟักผ่าน `Loot.Roll` (pity ของ Dragon = 50) → auto-log เข้า `Codex` (set `"Pets"`) ฟรี
 - owned (map `uid → {petId}`) + equipped (list uid) + `__seq` เซฟเป็น blob เดียวใต้ profile key `"Pets"` (นอก `DEFAULT_PROFILE` แบบเดียวกับ Inventory)
 - `GetCoinMultiplier` คืน `1.0` ถ้า profile ยังไม่โหลด (กัน error ช่วง join); uid ที่ equip ไว้แต่ไม่ owned แล้วถูกข้าม — equipped list ที่ corrupt เพิ่ม multiplier ไม่ได้

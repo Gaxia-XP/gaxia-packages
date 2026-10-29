@@ -388,12 +388,16 @@ GaxiaServer.Pet.GetCoinMultiplier(player: Player): number   → Pet.md
 GaxiaServer.Pet.GetOwned(player: Player): { PetInstance }   → Pet.md
 GaxiaServer.Pet.GetEquipped(player: Player): { string }   → Pet.md
 GaxiaServer.Pet.GrantPet(player: Player, petId: string): string?   → Pet.md
+GaxiaServer.Pet.RemovePet(player: Player, id: string): (boolean, RemoveResult)   → Pet.md
 GaxiaServer.Pet.BuyEgg(player: Player, eggId: string?): (boolean, string)   → Pet.md
 GaxiaServer.Pet.Equip(player: Player, uid: string): (boolean, EquipResult)   → Pet.md
 GaxiaServer.Pet.Unequip(player: Player, uid: string): (boolean, UnequipResult)   → Pet.md
 GaxiaServer.Pet.Snapshot(player: Player): PetSnapshot   → Pet.md
+GaxiaServer.Pet.RegisterPet(def: PetRegistration): (boolean, string?)   → Pet.md
+GaxiaServer.Pet.RegisterEgg(def: EggRegistration): (boolean, string?)   → Pet.md
 GaxiaServer.Pet.OnPetGranted : Signal<Player, string, string>   → Pet.md
 GaxiaServer.Pet.OnEquipChanged : Signal<Player, { string }>   → Pet.md
+GaxiaServer.Pet.OnPetRemoved : Signal<Player, string, string>   → Pet.md
 Gaxia.UI.PetController.Close(): ()   → Pet.md
 Gaxia.UI.PetController.Open(): ()   → Pet.md
 Gaxia.UI.PetController.Toggle(): ()   → Pet.md
@@ -562,6 +566,7 @@ Gaxia.UI.AdminPanel.Toggle(): ()   → Admin.md
 Gaxia.UI.AdminPanel.SetRole(roleHint: RoleHint?): ()   → Admin.md
 GaxiaServer.AntiCheatAdmin.Register(): ()   → AntiCheatAdmin.md
 GaxiaServer.Webhook.SetTransport(fn: (url: string, body: string) -> (boolean, number?, number?, string?)): ()   → Webhook.md
+GaxiaServer.Webhook.SetChannel(channel: string, url: string?): boolean   → Webhook.md
 GaxiaServer.Webhook.SendUrl(url: string, payload: any): boolean   → Webhook.md
 GaxiaServer.Webhook.Send(channel: string, payload: any): boolean   → Webhook.md
 GaxiaServer.Webhook.IsConfigured(channel: string): boolean   → Webhook.md

@@ -1,6 +1,6 @@
 # Pets: hatch from an egg, equip, and boost Coins
 
-> Players buy an egg for 100 Coins (in the pet panel or at an egg in the world), get a random pet, equip up to 3 pets, and every equipped pet makes them earn more Coins. New players get a free Cat.
+> Players buy an egg for 100 Coins in the pet panel, or a Golden Egg with your own Unicorn pet for 250 Coins at an egg in the world. They get a random pet, equip up to 3 pets, and every equipped pet makes them earn more Coins. New players get a free Cat.
 
 **Use this when** the user asks for: "pets", "eggs", "hatch an egg", "pet simulator", "equip pets", "pet boost", "pet multiplier", "pet inventory" (ไทย: "สัตว์เลี้ยง", "เพ็ท", "ไข่", "เปิดไข่", "ฟักไข่", "สุ่มเพ็ท", "ใส่เพ็ท", "เพ็ทเพิ่มเงิน", "ตัวคูณเงิน").
 **Packages:** `Pet` and, for the egg in Step 3, `Interaction`. Picking `Pet` also installs the pet panel `UI.PetController` (and `Economy`, `Data`, `Loot`, `ItemDef`, `Codex`): nothing else to pick, and no `GaxiaClientFeatures` module is needed. The scripts stop with a clear message if a package is missing.
@@ -8,8 +8,9 @@
 
 How it works:
 
-- The Pet package has **one egg**, `BasicEgg`, and **8 pets** (table below). You cannot add your own pets or eggs from game code. Do not edit `PetService` (Update replaces it). Pets are **stats only**: no 3D pet follows the player. Owned and equipped pets are saved in the player's data.
-- The pet panel is built in. Press **P** to open it (after Step 2). It shows the pets, the Coin multiplier and a **Buy Egg** button. Clicking a pet equips or unequips it. The server checks every click.
+- The Pet package has **8 built-in pets** and **one built-in egg**, `BasicEgg` (table below). Add your own pets with `Pet.RegisterPet` and your own eggs with `Pet.RegisterEgg` in a server Script (Step 1). Do not edit `PetService` (Update replaces it). Pets are **stats only**: no 3D pet follows the player. Owned and equipped pets are saved in the player's data.
+- The pet panel is built in. Press **P** to open it (after Step 2). It shows the pets, the Coin multiplier and a **Buy Egg** button (it buys `BasicEgg`). Clicking a pet equips or unequips it. The server checks every click.
+- Every Pet function you call on the server (`GrantPet`, `BuyEgg`, `Equip`, `Unequip`, `RemovePet`) refreshes the panel by itself, and `BuyEgg` also shows the player the hatch toast.
 - Multiplier = 1 + the bonus of every equipped pet. One Cat equipped → x1.05. It boosts only the currency `Coins`, which every player's data has.
 - The Pet package never gives Coins. **Quest** rewards and **Idle** payouts in `Coins` use the multiplier by themselves (see `QuestSystem` and `IdleService` in the source). Your own Coin rewards must multiply by `Pet.GetCoinMultiplier(player)` (Step 1).
 
@@ -20,7 +21,9 @@ How it works:
 | rare | `pet_Panda` +0.20, `pet_Penguin` +0.25 | 4.0%, 3.0% |
 | epic, legendary | `pet_Tiger` +0.40, `pet_Dragon` +1.00 | 1.5%, 0.5% (a Dragon is sure within 50 eggs) |
 
-## Step 1 — Set the egg price, give new players a Cat, pay boosted Coins
+Step 1 adds one pet, `pet_Unicorn` (legendary, +0.50), and one egg, `GoldenEgg` (250 Coins: Fox 60%, Panda 30%, Unicorn 10%). It is sold only at the egg in the world (Step 3), not in the panel.
+
+## Step 1 — Add a pet and an egg, set the price, give new players a Cat, pay boosted Coins
 
 Create a **Script** in **ServerScriptService** named **PetSetup**. Paste this whole block into it:
 
@@ -38,9 +41,24 @@ local Economy = GaxiaServer.Economy
 local EConfig = GaxiaServer.EConfig
 local BASE_COINS = 20 -- Coins every PAYOUT_SECONDS, before the pet multiplier
 local PAYOUT_SECONDS = 10
--- Coins per egg, and how many pets can be equipped at once. Runs when every server starts.
+-- Coins per BasicEgg, and how many pets can be equipped at once. Runs when every server starts.
 EConfig.Set("Pets.EggCost", 100)
 EConfig.Set("Pets.MaxEquipSlots", 3)
+
+-- Your own pet and egg. Register a pet before an egg lists it. Each returns false (and warns) if a value is wrong.
+local petOk = Pet.RegisterPet({ id = "pet_Unicorn", displayName = "Unicorn", rarity = "legendary", coinBonus = 0.5 })
+assert(petOk, "PetSetup: RegisterPet failed (the warning above says why)")
+local eggOk = Pet.RegisterEgg({
+	id = "GoldenEgg",
+	cost = 250, -- Coins (currency = "Gems" would charge Gems)
+	panel = false, -- sold only by server code (the egg in Step 3), not by the panel's Buy Egg button
+	pets = {
+		{ petId = "pet_Fox", weight = 60 },
+		{ petId = "pet_Panda", weight = 30 },
+		{ petId = "pet_Unicorn", weight = 10, pity = 20 }, -- a Unicorn is sure within 20 Golden Eggs
+	},
+})
+assert(eggOk, "PetSetup: RegisterEgg failed (the warning above says why)")
 -- One Output line for every new pet and every equip change.
 Pet.OnPetGranted:Connect(function(player: Player, petId: string, uid: string)
 	print(`[PetSetup] {player.Name} got {petId} ({uid})`)
@@ -129,19 +147,18 @@ Create a **Script** in **ServerScriptService** named **EggStand**:
 -- Script: ServerScriptService/EggStand
 local Workspace = game:GetService("Workspace")
 local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
-local Gaxia = require(game:GetService("ReplicatedStorage").Gaxia_Packages)
 
 assert(GaxiaServer.IsInstalled("Pet"), "EggStand needs the Pet package: install it (playbooks/start/01-install-packages.md)")
 assert(GaxiaServer.IsInstalled("Interaction"), "EggStand needs the Interaction package: install it (playbooks/start/01-install-packages.md)")
 
-local Net = Gaxia.Net
 local Data = GaxiaServer.Data
 local Pet = GaxiaServer.Pet
 local Interaction = GaxiaServer.Interaction
 local egg = Instance.new("Part")
-egg.Name = "BasicEgg"
+egg.Name = "GoldenEgg"
 egg.Shape = Enum.PartType.Ball
 egg.Size = Vector3.new(4, 5, 4)
+egg.Color = Color3.fromRGB(255, 200, 80)
 egg.Position = Vector3.new(-24, 2.5, 0) -- 24 studs from the middle of the Baseplate, toward -X
 egg.Anchored = true
 egg.Parent = Workspace
@@ -150,23 +167,20 @@ local function onEggUsed(player: Player)
 		return
 	end
 	-- BuyEgg takes the Coins, rolls a pet and saves it. It takes nothing when it fails.
-	-- result = the new pet's id (like "pet_Cat") when ok, or the reason when not.
-	local ok, result = Pet.BuyEgg(player, "BasicEgg")
+	-- result = the new pet's id (like "pet_Unicorn") when ok, or the reason when not.
+	-- It also shows the player the hatch toast and refreshes the pet panel.
+	local ok, result = Pet.BuyEgg(player, "GoldenEgg")
 	print(`[EggStand] {player.Name}: {if ok then "hatched " .. result else "failed: " .. result}`)
-	-- The Pet package creates the remotes PetHatch and PetSync. The panel reads exactly
-	-- these fields (ok, petId, reason) for its toast, and refreshes from the snapshot.
-	Net.FireClient(player, "PetHatch", { ok = ok, petId = if ok then result else nil, reason = if ok then nil else result })
-	Net.FireClient(player, "PetSync", Pet.Snapshot(player))
 end
 
 -- No price in the text: the price is set only in PetSetup, so the two never disagree.
-local handle = Interaction.Register(egg, { ActionText = "Hatch Egg", ObjectText = "Egg", HoldDuration = 0.5, MaxDistance = 10, OnTrigger = onEggUsed })
+local handle = Interaction.Register(egg, { ActionText = "Hatch Golden Egg", ObjectText = "Golden Egg", HoldDuration = 0.5, MaxDistance = 10, OnTrigger = onEggUsed })
 assert(handle, "EggStand: could not put a prompt on the egg")
 
 print("[EggStand] ready")
 ```
 
-What it does: holding **E** at the egg buys one egg at the `Pets.EggCost` price. The player sees the same toast as the panel's **Buy Egg** button.
+What it does: holding **E** at the golden egg buys one `GoldenEgg` for 250 Coins. The player sees the same toast as the panel's **Buy Egg** button.
 
 ## Check that it works
 
@@ -175,22 +189,25 @@ What it does: holding **E** at the egg buys one egg at the `Pets.EggCost` price.
 3. After 10 seconds Output shows `[PetSetup] <YourName> +21 Coins, now 21`.
 4. Press **P** (or click **Pets**). The panel shows `Coin Multiplier: x1.05`, `Equipped 1/3` and the Cat with `✓ Equipped`. Wait until a `[PetSetup] ... Coins` line says `now 100` or more (about 50 seconds the first time): enough for one egg.
 5. Open the panel and click **Buy Egg (100 Coins)**. A toast says `Egg Hatched! You got <Pet>!` and Output shows `[PetSetup] <YourName> got pet_<Name> (u_2)`. Click the new pet: Output shows `[PetSetup] <YourName> has 2 pet(s) equipped, Coins x...`.
-6. Walk to the white egg (24 studs from the middle of the Baseplate, toward -X) and hold **E**. Output shows `[EggStand] <YourName>: failed: not enough Coins` (you spent them in 5), or `hatched pet_<Name>` once you have 100 Coins again.
+6. Walk to the golden egg (24 studs from the middle of the Baseplate, toward -X) and hold **E**. Output shows `[EggStand] <YourName>: failed: not enough Coins` and a `Hatch Failed` toast (you spent them in 5), or `hatched pet_Fox`, `pet_Panda` or `pet_Unicorn` once you have 250 Coins. The open panel shows the new pet at once.
 
 ## Common mistakes
 
 | Wrong | Right | Why |
 |---|---|---|
 | Skipping Step 2 | Keep the `PetPanel` LocalScript | Phones and tablets have no **P** key: without the **Pets** button they cannot open the panel. |
-| A new pet or egg: `Pet.GrantPet(player, "pet_Unicorn")`, `Pet.BuyEgg(player, "GoldenEgg")` | Only the 8 pet ids above and `"BasicEgg"` | An unknown pet warns `GrantPet: unknown petId` and returns `nil`. An unknown egg returns `false, "unknown egg"`. |
+| A new pet or egg used before it is registered, or only in the script that uses it | `Pet.RegisterPet` / `Pet.RegisterEgg` once, at the top of `PetSetup` (Step 1) | An unknown pet warns `GrantPet: unknown petId` and returns `nil`. An unknown egg returns `false, "unknown egg"`. |
+| A new pet or egg added by editing `PetService` | `Pet.RegisterPet` / `Pet.RegisterEgg` in your Script | Install / Update replaces `PetService`, and your pets are lost. |
 | `Economy.Add(player, "Coins", 20)` and expecting pets to help | `math.floor(20 * Pet.GetCoinMultiplier(player))` | Pets only boost Quest and Idle Coins by themselves. Your rewards must multiply. |
-| Calling `Pet.BuyEgg` from server code without the two `Net.FireClient` lines | Send `PetHatch` and `PetSync` like Step 3 | Only the panel's own button refreshes the panel. Otherwise an open panel shows old pets. |
+| `Net.FireClient(player, "PetHatch", ...)` / `"PetSync"` after `Pet.BuyEgg` | Only `Pet.BuyEgg` (Step 3) | `BuyEgg`, `GrantPet`, `Equip`, `Unequip` and `RemovePet` refresh the panel and send the toast themselves. |
 | Equipping a 4th pet | Unequip one first, or raise `Pets.MaxEquipSlots` | `Pet.Equip` returns `false, "all slots full"`. |
 
 ## Change it
 
 - Egg price or equip slots: change `EConfig.Set("Pets.EggCost", 100)` (minimum 1) or `EConfig.Set("Pets.MaxEquipSlots", 3)` in `PetSetup`. The panel shows the new numbers.
 - Give a pet as a reward (quest, code, Robux): `Pet.GrantPet(player, "pet_Dragon")` on the server. It returns the new pet's uid, or `nil`.
+- Take a pet away (sell, trade): `Pet.RemovePet(player, uid)` removes that pet; `Pet.RemovePet(player, "pet_Cat")` removes one Cat (an unequipped one first). It returns `true, uid` or `false` and the reason (`"not owned"`).
+- More pets and eggs: more `Pet.RegisterPet({ id, displayName, rarity, coinBonus })` and `Pet.RegisterEgg({ id, cost, currency, panel, pets })` lines in `PetSetup`. An egg with `panel = true` (the default) can also be bought with the panel's remote; the panel's button buys `BasicEgg`.
 - Equip from server code: `Pet.Equip(player, uid)` returns `true, "equipped"` or `false` and the reason (`"not owned"`, `"already equipped"`, `"all slots full"`). Undo: `Pet.Unequip(player, uid)`. List pets: `Pet.GetOwned(player)` (`{ petId, uid }` rows), `Pet.GetEquipped(player)` (uids).
 - Open the panel from a LocalScript: `Gaxia.UI.PetController.Open()` / `Close()` / `Toggle()`.
 - Boost Idle and quests ([progression](progression.md)): Idle with `Currency = "Coins"` and a quest with `reward = { currency = "Coins", amount = 100 }` pay `× multiplier` by themselves.

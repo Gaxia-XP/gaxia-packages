@@ -326,6 +326,36 @@ this framework uses a single rolling version until a public release cut.
   (it kept every effect until `ClearAll`).
 - **Camera:** `Shake`'s `intensity` is documented as degrees of camera turn (it said studs).
 
+### Fixed — hardening (webhook-pets)
+- **Webhook:** new `Webhook.SetChannel(name, url)` sets (or, with `nil` / `""`, removes) a
+  channel's URL from a server Script; it wins over `Config.Webhook.Channels` and is never
+  replicated. Writing `GaxiaServer.Config.Webhook.Channels.X` still works.
+- **Webhook:** the built-in auto-reports (Bans, AntiCheat, Guild) now look their channel
+  up when the event fires. Before, they were wired only if the channel had a URL at boot,
+  so a URL set by a game Script never got reports. A game that already posts bans itself
+  to a channel named `BanReports` now gets each ban twice: drop one of the two.
+- **Webhook:** messages still queued when the server shuts down are delivered from
+  `game:BindToClose` (faster than `MinInterval`, for up to 25 s). Before, they were lost.
+- **Webhook (behaviour change):** with HTTP requests disabled, messages are no longer
+  dropped and later sends no longer refused: they stay queued (up to `MaxQueue`) and are
+  retried every `Config.Webhook.RateLimit.HttpOffRetry` seconds (new, default 30; flag
+  `Webhook.RateLimit.HttpOffRetry`), with one warning. `OnError` no longer fires for
+  "not enabled"; it now also fires `"queue_full"` when `MaxQueue` drops the oldest message.
+- **Pet:** new `Pet.RegisterPet(def)` and `Pet.RegisterEgg(def)` add pets and eggs from a
+  server Script (no more editing `PetService`); eggs can cost another currency and can be
+  kept out of the panel (`panel = false`). New `Pet.RemovePet(player, uidOrPetId)` and
+  signal `Pet.OnPetRemoved(player, petId, uid)`. `Snapshot` gains `eggs`.
+- **Pet (behaviour change):** `GrantPet`, `BuyEgg`, `Equip`, `Unequip` and `RemovePet`
+  called from server code now push `PetSync` to the player, and `BuyEgg` also sends
+  `PetHatch` (with `displayName`, `egg` and the new `snapshot`). Before, only the panel's
+  own remotes refreshed the panel. Remove any `Net.FireClient(player, "PetHatch"/"PetSync", …)`
+  lines after `Pet.BuyEgg` (the old pets playbook had them); the panel ignores an identical
+  duplicate hatch so no toast shows twice meanwhile. `BuyEgg`'s failure reason is now
+  `"not enough <Currency>"` (still `"not enough Coins"` for Coins eggs).
+- **PetController:** applies the snapshot inside `PetHatch` before its toast (names of
+  newly registered pets), shows the last pushed state at once on Open, and the Buy
+  button shows the egg's real price and currency from the server.
+
 ### Added — pick the packages a game installs
 The framework is split into ~100 packages (`Gaxia_Packages_Server/Packages.lua`). Pick
 the ones a game uses and only those, the packages they need, and Core are installed;

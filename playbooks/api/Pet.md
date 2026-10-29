@@ -28,10 +28,17 @@ local Pet = GaxiaServer.Pet
 - `Pet.GetOwned(player: Player): { PetInstance }`
 - `Pet.GetEquipped(player: Player): { string }`
 - `Pet.GrantPet(player: Player, petId: string): string?`
+- `Pet.RemovePet(player: Player, id: string): (boolean, RemoveResult)`
+  `id` is a uid ("u_3": that pet) or a pet id ("pet_Cat": one pet of that kind, an unequipped one first). An equipped pet is unequipped first. Returns (true, removedUid) or (false, "bad id" | "not owned" | "data not loaded").
 - `Pet.BuyEgg(player: Player, eggId: string?): (boolean, string)`
+  Spends the egg's price, rolls a pet and grants it (refunds on failure). `eggId` nil = "BasicEgg". Returns (true, petId) or (false, reason): "unknown egg", "not enough <Currency>", "egg unavailable", "bad drop". Also sends PetHatch (toast) and PetSync (panel) to the player, success or not.
 - `Pet.Equip(player: Player, uid: string): (boolean, EquipResult)`
 - `Pet.Unequip(player: Player, uid: string): (boolean, UnequipResult)`
 - `Pet.Snapshot(player: Player): PetSnapshot`
+- `Pet.RegisterPet(def: PetRegistration): (boolean, string?)`
+  Add a pet (or replace one with the same id) from a server Script. Call it before RegisterEgg lists the pet. Returns true, or false and the reason (also warned). Ids that look like a uid ("u_<number>") are refused.
+- `Pet.RegisterEgg(def: EggRegistration): (boolean, string?)`
+  Add an egg (or replace one with the same id, "BasicEgg" too) from a server Script. Every petId must already be registered. Returns true, or false and the reason (also warned).
 
 ### Signals
 
@@ -40,7 +47,9 @@ Connect with `:Connect(function(...) end)`; the parameters are the payload types
 - `Pet.OnPetGranted` — `Signal<Player, string, string>`
   (player, petId, uid) after GrantPet added a pet to the profile
 - `Pet.OnEquipChanged` — `Signal<Player, { string }>`
-  (player, equipped) after Equip / Unequip; equipped = a copy of the equipped uid list
+  (player, equipped) after Equip / Unequip / RemovePet of an equipped pet; equipped = a copy of the equipped uid list
+- `Pet.OnPetRemoved` — `Signal<Player, string, string>`
+  (player, petId, uid) after RemovePet took a pet out of the profile
 
 ### Types
 
@@ -56,6 +65,22 @@ export type PetDef = {
     pity: number?,
     icon: string,
 }
+export type PetRegistration = {
+    id: string,
+    displayName: string?,
+    rarity: PetRarity?,
+    coinBonus: number?,
+    icon: string?,
+}
+export type EggPet = { petId: string, weight: number, pity: number? }
+export type EggRegistration = {
+    id: string,
+    pets: { EggPet },
+    cost: number?,
+    currency: string?,
+    panel: boolean?,
+}
+export type EggInfo = { cost: number, currency: string }
 export type PetInstance = { petId: string, uid: string }
 export type PetPublicDef = { displayName: string, rarity: PetRarity, coinBonus: number, icon: string }
 export type PetSnapshot = {
@@ -66,9 +91,19 @@ export type PetSnapshot = {
     eggCost: number,           -- Coins per BasicEgg
     defs: { [string]: PetPublicDef },
     order: { string },         -- stable display order of pet ids
+    eggs: { [string]: EggInfo }, -- every egg the panel can buy, and its price
+}
+export type PetHatchPayload = {
+    ok: boolean,
+    petId: string?,
+    displayName: string?,
+    reason: string?,
+    egg: string,
+    snapshot: PetSnapshot,
 }
 export type EquipResult = "equipped" | "bad uid" | "not owned" | "already equipped" | "all slots full"
 export type UnequipResult = "unequipped" | "bad uid" | "not equipped"
+export type RemoveResult = string -- the removed uid, or "bad id" / "not owned" / "data not loaded"
 ```
 
 ## `Gaxia.UI.PetController`
