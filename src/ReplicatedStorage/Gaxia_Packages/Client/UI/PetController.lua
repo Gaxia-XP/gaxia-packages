@@ -400,20 +400,24 @@ pcall(function()
 		if typeof(res) ~= "table" then
 			return
 		end
-		-- The server's state after this hatch (newer servers send it): use it, not
+		-- The server's state after this hatch (Pet.BuyEgg sends it): use it, not
 		-- the older snapshot, so the grid and names match what was really granted.
-		if typeof(res.snapshot) == "table" then
+		local fromBuyEgg = typeof(res.snapshot) == "table"
+		if fromBuyEgg then
 			snapshot = res.snapshot
 			rebuild()
 		end
 		-- Games that followed the old pets playbook also fire PetHatch themselves
-		-- right after BuyEgg (which now sends it too): show one toast, not two.
+		-- (without a snapshot) right after BuyEgg, which now sends it too: skip that
+		-- copy of the hatch BuyEgg just reported. Every BuyEgg hatch gets its own toast.
 		local key = `{res.ok}|{res.petId}|{res.reason}`
 		local now = os.clock()
-		if key == lastHatchKey and now - lastHatchTime < HATCH_DEDUPE_SECONDS then
+		if fromBuyEgg then
+			lastHatchKey, lastHatchTime = key, now
+		elseif key == lastHatchKey and now - lastHatchTime < HATCH_DEDUPE_SECONDS then
+			lastHatchKey = nil -- one manual copy per BuyEgg hatch
 			return
 		end
-		lastHatchKey, lastHatchTime = key, now
 		if res.ok then
 			local defs = (snapshot and snapshot.defs) or {}
 			local def = defs[res.petId]

@@ -344,15 +344,18 @@ this framework uses a single rolling version until a public release cut.
   `Webhook.RateLimit.HttpOffRetry`), with one warning. `OnError` no longer fires for
   "not enabled"; it now also fires `"queue_full"` when `MaxQueue` drops the oldest message.
 - **Pet:** new `Pet.RegisterPet(def)` and `Pet.RegisterEgg(def)` add pets and eggs from a
-  server Script (no more editing `PetService`); eggs can cost another currency and can be
-  kept out of the panel (`panel = false`). New `Pet.RemovePet(player, uidOrPetId)` and
-  signal `Pet.OnPetRemoved(player, petId, uid)`. `Snapshot` gains `eggs`.
+  server Script (no more editing `PetService`); eggs can cost another currency. A
+  registered egg is sold only by server code (`Pet.BuyEgg`) unless it says `panel = true`:
+  only then may the client's panel remote (`PetBuyEgg`) buy it (security: a client can
+  fire that remote for any egg id, so the default is closed; `BasicEgg` stays `true`).
+  New `Pet.RemovePet(player, uidOrPetId)` and signal `Pet.OnPetRemoved(player, petId, uid)`. `Snapshot` gains `eggs`.
 - **Pet (behaviour change):** `GrantPet`, `BuyEgg`, `Equip`, `Unequip` and `RemovePet`
   called from server code now push `PetSync` to the player, and `BuyEgg` also sends
   `PetHatch` (with `displayName`, `egg` and the new `snapshot`). Before, only the panel's
   own remotes refreshed the panel. Remove any `Net.FireClient(player, "PetHatch"/"PetSync", …)`
-  lines after `Pet.BuyEgg` (the old pets playbook had them); the panel ignores an identical
-  duplicate hatch so no toast shows twice meanwhile. `BuyEgg`'s failure reason is now
+  lines after `Pet.BuyEgg` (the old pets playbook had them); the panel skips such a manual
+  copy (no snapshot) of the hatch `BuyEgg` just sent, so no toast shows twice meanwhile;
+  every `BuyEgg` hatch still gets its own toast. `BuyEgg`'s failure reason is now
   `"not enough <Currency>"` (still `"not enough Coins"` for Coins eggs).
 - **PetController:** applies the snapshot inside `PetHatch` before its toast (names of
   newly registered pets), shows the last pushed state at once on Open, and the Buy

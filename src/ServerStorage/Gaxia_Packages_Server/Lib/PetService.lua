@@ -117,8 +117,10 @@ export type EggPet = { petId: string, weight: number, pity: number? }
 
 -- What RegisterEgg takes. `cost` defaults to Config.Pets.EggCost (flag Pets.EggCost),
 -- `currency` to "Coins". Every petId must be registered first (RegisterPet or built in).
--- `panel` = false: only server code (BuyEgg) can buy it; the panel's PetBuyEgg
--- remote refuses it (an egg that is sold only at a place in the world).
+-- `panel` = true: the client's panel remote (PetBuyEgg) may buy it too. Leave it out
+-- (or false) and only server code (Pet.BuyEgg) can: an egg sold only at a stand, after a
+-- level or in a zone. Re-registering an egg without `panel` keeps its old setting
+-- (the built-in BasicEgg is true).
 export type EggRegistration = {
 	id: string,
 	pets: { EggPet },
@@ -614,7 +616,14 @@ function PetService.RegisterPet(def: PetRegistration): (boolean, string?)
 		icon = def.icon or "",
 	}
 	PET_DEFS[id] = d
-	if not old then
+	if old and old.rarity ~= rarity then
+		-- The rarity changed: take the id out and put it back where its new rarity goes.
+		local i = table.find(PET_ORDER, id)
+		if i then
+			table.remove(PET_ORDER, i)
+		end
+	end
+	if not table.find(PET_ORDER, id) then
 		-- Insert after the last pet whose rarity is the same or lower.
 		local at = 1
 		for i, other in ipairs(PET_ORDER) do
@@ -661,7 +670,13 @@ function PetService.RegisterEgg(def: EggRegistration): (boolean, string?)
 	if def.panel ~= nil and typeof(def.panel) ~= "boolean" then
 		return reject("RegisterEgg", `'{id}': panel must be true or false`)
 	end
-	EGGS[id] = { entries = entries, cost = def.cost, currency = def.currency or EGG_CURRENCY, panel = def.panel ~= false }
+	-- The panel's remote may buy it only when the game says so (panel = true), so an
+	-- egg meant for a stand or a level cannot be bought from anywhere by a client.
+	-- Re-registering an egg without `panel` keeps its old setting (BasicEgg: true).
+	local panel: boolean = if def.panel ~= nil then def.panel
+		elseif EGGS[id] then EGGS[id].panel
+		else id == EGG_TABLE_ID
+	EGGS[id] = { entries = entries, cost = def.cost, currency = def.currency or EGG_CURRENCY, panel = panel }
 	LootService.DefineTable(id, entries)
 	schedulePushAll()
 	return true, nil
