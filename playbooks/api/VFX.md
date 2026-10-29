@@ -27,7 +27,7 @@ local VFX = GaxiaServer.VFX
 - `VFX.PreWarm(name: string, n: number): ()`
 - `VFX.GetPoolSize(name: string): number`
 - `VFX.PlayAt(name: string, where: Vector3 | CFrame, opts: PlayOpts?): boolean`
-  `where` is a world position (Vector3) or a full CFrame.
+  Plays effect `name` once at `where` (a world position (Vector3) or a full CFrame) for opts.Duration seconds (default 2): every ParticleEmitter bursts opts.EmitCount particles (default 20) and keeps emitting, Beams / Trails / Highlights turn on. The burst is emitted on the next frame, after the holder has been parented and has reached the clients (an Emit in the same frame as the parenting can be lost on clients). Returns false (with a warning) for an unknown name.
 - `VFX.Attach(name: string, host: BasePart, opts: PlayOpts?): () -> ()`
   Pins effect `name` onto `host`; returns a stop function.
 

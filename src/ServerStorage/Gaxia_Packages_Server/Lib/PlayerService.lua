@@ -96,6 +96,7 @@ function PlayerService.SetupLeaderstats(player: Player, dict: { [string]: any })
 	end
 end
 
+-- The value of leaderstat `name`, or nil when the player has no such stat.
 function PlayerService.GetLeaderstat(player: Player, name: string): any
 	local folder = player:FindFirstChild(LEADERSTATS_NAME)
 	if not folder then return nil end
@@ -103,12 +104,26 @@ function PlayerService.GetLeaderstat(player: Player, name: string): any
 	return stat and (stat :: any).Value or nil
 end
 
+-- Sets leaderstat `name` to `value`. A missing leaderstats Folder or stat is created
+-- (IntValue for a whole number, NumberValue, StringValue or BoolValue), like
+-- SetupLeaderstats. A nil value, or a value of another type than the existing stat
+-- (a string into an IntValue), is not written and warns.
 function PlayerService.SetLeaderstat(player: Player, name: string, value: any): ()
-	local folder = player:FindFirstChild(LEADERSTATS_NAME)
-	if not folder then return end
+	if value == nil then
+		warn(`[PlayerService] SetLeaderstat("{name}"): value is nil, nothing written`)
+		return
+	end
+	local folder = getOrCreateLeaderstats(player)
 	local stat = folder:FindFirstChild(name)
-	if stat then
+	if not stat then
+		PlayerService.SetupLeaderstats(player, { [name] = value })
+		return
+	end
+	local ok, err = pcall(function()
 		writeStat(stat, value)
+	end)
+	if not ok then
+		warn(`[PlayerService] SetLeaderstat("{name}"): cannot write {typeof(value)} to {stat.ClassName}: {err}`)
 	end
 end
 

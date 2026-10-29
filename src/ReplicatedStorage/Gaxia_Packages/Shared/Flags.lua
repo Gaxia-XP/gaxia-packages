@@ -12,10 +12,13 @@
 --   -- server: Gaxia.Flags.Set("Detector.Teleport", false)   -- disable at runtime
 --   -- anywhere: if Gaxia.Flags.IsEnabled("DoubleXP") then ... end
 -- ─────────────────────────────────────────────────────────────
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local IS_SERVER : boolean = RunService:IsServer()
 
 local FLAGS_STATE : string = "GaxiaFlags"
+-- ReplicatedState's container folder (ReplicatedStorage.GaxiaState).
+local STATE_CONTAINER : string = "GaxiaState"
 
 -- Types only: `typeof(require(...))` in a type position is erased at compile time,
 -- so it does NOT load ReplicatedState here.
@@ -64,6 +67,17 @@ local function attributeName(name: string): string
 end
 
 local stateObj: StateObject? = nil
+-- Client: true once State.Get gave up waiting for the server's flag state (the
+-- server has set no flag yet). Later calls then only look for it without waiting,
+-- so a missing flag state costs one wait (up to ~10 s), not one per call.
+local missed = false
+
+-- Client, after a miss: whether the server has created the flag state since.
+local function flagStateExists(): boolean
+	local root = ReplicatedStorage:FindFirstChild(STATE_CONTAINER)
+	return root ~= nil and root:FindFirstChild(FLAGS_STATE) ~= nil
+end
+
 local function getState(): StateObject?
 	if stateObj then
 		return stateObj
@@ -71,14 +85,17 @@ local function getState(): StateObject?
 	local State = stateModule()
 	if IS_SERVER then
 		stateObj = State.Create(FLAGS_STATE, {})
-	else
+	elseif not missed or flagStateExists() then
 		stateObj = State.Get(FLAGS_STATE)
+		missed = stateObj == nil
 	end
 	return stateObj
 end
 
 -- ── Public API ──
 
+-- Server only: sets flag `name` (dotted, like "AntiCheat.Enforce") to `value` (a
+-- boolean, number or string); it replicates to every client.
 function Flags.Set(name: string, value: any): ()
 	assert(IS_SERVER, "Flags.Set is server-only")
 	-- Server: getState() always returns the object State.Create made.
@@ -86,6 +103,9 @@ function Flags.Set(name: string, value: any): ()
 	s:Set(attributeName(name), value)
 end
 
+-- The value of flag `name`, or `default` when it is not set. On the client the first
+-- call can wait up to ~10 s for the server's flag state; when the server has set no
+-- flag yet, later calls return `default` at once (no new wait) until it does.
 function Flags.Get(name: string, default: any?): any
 	local s = getState()
 	if not s then
@@ -98,10 +118,13 @@ function Flags.Get(name: string, default: any?): any
 	return v
 end
 
+-- True when flag `name` is exactly true.
 function Flags.IsEnabled(name: string): boolean
 	return Flags.Get(name, false) == true
 end
 
+-- Calls fn(new, old) when flag `name` changes. Returns the connection, or nil on the
+-- client when the server has no flag state yet.
 function Flags.OnChanged(name: string, fn: (new: any, old: any) -> ()): RBXScriptConnection?
 	local s = getState()
 	if not s then

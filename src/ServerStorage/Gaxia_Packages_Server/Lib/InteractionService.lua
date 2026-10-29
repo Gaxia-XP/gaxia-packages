@@ -13,6 +13,7 @@
 --     OnTrigger = function(player) refine(player) end,
 --   })
 -- ─────────────────────────────────────────────────────────────
+local Players = game:GetService("Players")
 
 -- ── Dependencies ──
 local Lifecycle = require(script.Parent.ServiceLifecycle)
@@ -48,6 +49,10 @@ local function resolveMount(target: Instance): Instance?
 	return nil
 end
 
+-- Mounts a ProximityPrompt on target (a BasePart, an Attachment, or a Model's
+-- PrimaryPart / first part) and calls config.OnTrigger(player) when a player uses it,
+-- at most once per config.Cooldown seconds per player. Returns a handle (Destroy()
+-- removes the prompt), or nil with a warning when target has nothing to mount on.
 function InteractionService.Register(target: Instance, config: InteractionConfig): Handle?
 	local mount = resolveMount(target)
 	if not mount then
@@ -86,10 +91,28 @@ function InteractionService.Register(target: Instance, config: InteractionConfig
 		end
 	end)
 
+	-- Forget a leaving player's last use, so the cooldown table does not keep every
+	-- player who ever used this prompt.
+	local leaveConn = if cooldown
+		then Players.PlayerRemoving:Connect(function(player: Player)
+			lastUse[player] = nil
+		end)
+		else nil
+	if leaveConn then
+		-- The prompt can also go away with its part (no Destroy call).
+		prompt.Destroying:Once(function()
+			leaveConn:Disconnect()
+		end)
+	end
+
 	local handle = {}
 	handle.Prompt = prompt
 	function handle.Destroy(): ()
 		conn:Disconnect()
+		if leaveConn then
+			leaveConn:Disconnect()
+		end
+		table.clear(lastUse)
 		prompt:Destroy()
 	end
 	return handle :: Handle

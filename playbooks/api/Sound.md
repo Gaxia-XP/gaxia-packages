@@ -28,7 +28,7 @@ local Sound = Gaxia.Sound
 - `Sound.Play(soundId: string, props: SoundProps?): Sound`
   Pool-backed playback; returns the Sound so callers can stop / inspect it. Caller is responsible for calling :Stop or letting it finish (PlayOnce handles auto-release).
 - `Sound.PlayOnce(soundId: string, props: SoundProps?): ()`
-  Fire-and-forget convenience. Sound auto-releases back to pool on Ended. WHY a separate API: callers that don't need the Sound handle shouldn't have to manage release themselves — easy to leak otherwise.
+  Fire-and-forget convenience. Sound auto-releases back to pool on Ended. WHY a separate API: callers that don't need the Sound handle shouldn't have to manage release themselves — easy to leak otherwise. Ended never fires for a sound that fails to load (a wrong or moderated id), so the Sound is also released after its own length once loaded, or after LOAD_TIMEOUT seconds when it has not loaded (TimeLength is 0 until then). A Looped sound is released only by StopAll.
 - `Sound.SetCategoryVolume(category: Category, volume: number): ()`
 - `Sound.GetCategoryVolume(category: Category): number`
 - `Sound.StopAll(category: Category?): ()`

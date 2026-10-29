@@ -20,6 +20,10 @@ local Flags = Gaxia.Flags
 ### Functions
 
 - `Flags.Set(name: string, value: any): ()`
+  Server only: sets flag `name` (dotted, like "AntiCheat.Enforce") to `value` (a boolean, number or string); it replicates to every client.
 - `Flags.Get(name: string, default: any?): any`
+  The value of flag `name`, or `default` when it is not set. On the client the first call can wait up to ~10 s for the server's flag state; when the server has set no flag yet, later calls return `default` at once (no new wait) until it does.
 - `Flags.IsEnabled(name: string): boolean`
+  True when flag `name` is exactly true.
 - `Flags.OnChanged(name: string, fn: (new: any, old: any) -> ()): RBXScriptConnection?`
+  Calls fn(new, old) when flag `name` changes. Returns the connection, or nil on the client when the server has no flag state yet.

@@ -16,6 +16,7 @@
 --   Gaxia.Trade.AddCurrency(a, id, "Coins", 100) ; Gaxia.Trade.AddItem(b, id, "Sword", 1)
 --   Gaxia.Trade.Confirm(a, id) ; Gaxia.Trade.Confirm(b, id)  -- executes on 2nd
 -- ─────────────────────────────────────────────────────────────
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- ── Dependencies ──
@@ -34,7 +35,9 @@ local TradeService = {}
 
 -- (tradeId) on Request, every offer change and every Confirm
 TradeService.OnUpdate = Signal.new() :: Signal.Signal<string>
--- (tradeId, success) after the swap ran (Confirm) or the trade was cancelled (success = false)
+-- (tradeId, success) after the swap ran (Confirm: items and currency have already
+-- moved) or the trade was cancelled (Cancel, or a player left: success = false). The
+-- trade is closed by then: GetTrade(tradeId) is nil and both players can trade again.
 TradeService.OnComplete = Signal.new() :: Signal.Signal<string, boolean>
 
 local trades: { [string]: Trade } = {}
@@ -271,9 +274,12 @@ function TradeService.Confirm(player: Player, tradeId: string): (boolean, boolea
 	return ok, ok, msg
 end
 
+-- Closes the trade without moving anything (OnComplete fires with false). Only one of
+-- the two players in the trade can cancel it: returns false for anyone else, or when
+-- the trade is already closed. A trade is also cancelled when either player leaves.
 function TradeService.Cancel(player: Player, tradeId: string): boolean
 	local trade = trades[tradeId]
-	if not trade then
+	if not trade or trade.offers[player.UserId] == nil then
 		return false
 	end
 	teardown(trade)
@@ -281,11 +287,21 @@ function TradeService.Cancel(player: Player, tradeId: string): boolean
 	return true
 end
 
--- Pure API (session state only): nothing to set up. Registered so Features /
--- IsEnabled know it.
+-- A player who leaves cancels their open trade, so the partner is free to trade again.
+local function onPlayerRemoving(player: Player): ()
+	local tradeId = playerTrade[player.UserId]
+	if tradeId then
+		TradeService.Cancel(player, tradeId)
+	end
+end
+
+-- Session state only; Init cancels the open trade of a player who leaves.
 Lifecycle.Define(TradeService, {
 	Name = "Trade",
 	Needs = {},
+	Init = function()
+		Players.PlayerRemoving:Connect(onPlayerRemoving)
+	end,
 })
 
 return TradeService

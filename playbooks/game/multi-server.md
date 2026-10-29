@@ -12,7 +12,7 @@ How it works:
 
 - **Teleport** sends players to **another place of the same game** (to move on the map, use `GaxiaServer.Player.Teleport(player, cframe)`). `Teleport.To` tries 4 times (waits 1, 2, 4 seconds), so it can take 7 seconds. It returns `true` (Roblox accepted it) or `false, error`. A **reserved server** is a new server only teleported players can join.
 - **Messages** sends a small table (under 1 KB) to **every server**, the sender too: show it only in the `Subscribe` handler. Up to 10 messages at once, then 2 per second per server; more return `false`.
-- **Memory** is short-lived storage shared by all servers (MemoryStore). When MemoryStore fails (no API access, or one error in a live game), it uses this server's memory only until the server restarts. `Memory.IsUsingFallback()` tells you.
+- **Memory** is short-lived storage shared by all servers (MemoryStore). When MemoryStore fails (no API access, or one error in a live game), it uses this server's memory only, and tries MemoryStore again 60 seconds later. `Memory.IsUsingFallback()` tells you.
 - **Studio cannot teleport or reserve servers.** Messages and Memory need a published place with *Game Settings → Security → Enable Studio Access to API Services*. An agent cannot run these tests: give the user the steps and say which checks are still open.
 
 ## Step 1 — A portal to another place, and /match for a private server
@@ -113,8 +113,9 @@ local function onAnnouncement(data: any, _sentTimestamp: number)
 		Net.FireAllClients("Announcement", data.text)
 	end
 end
-local subscribed, subscribeError = pcall(Messages.Subscribe, TOPIC, onAnnouncement)
-if not subscribed then
+-- Subscribe returns nil and the reason (it does not error) when MessagingService is unavailable.
+local subscription, subscribeError = Messages.Subscribe(TOPIC, onAnnouncement)
+if not subscription then
 	warn(`[GlobalAnnouncements] cannot receive messages (publish the place and enable API access): {subscribeError}`)
 end
 -- /announce <text> for admins. Chat passes each word as its own entry in args.
@@ -203,8 +204,8 @@ end
 | Coins, items or "isVIP" in teleport data | Only harmless data (which mode, where from) | Teleport data passes through the player's computer and can be faked. Saved data travels by itself. |
 | `Teleport.ToPrivate(players, id, code)` without checking `code` | Stop when `code == nil` (Step 1) | `ReserveServer` returns `nil` in Studio and on errors. |
 | `Messages.Publish` in a loop or every frame | A few messages per minute | After 10 quick messages, more than 2 per second return `false` and warn `Rate limit hit`. |
-| `Messages.Subscribe(...)` without `pcall` | Wrap it in `pcall` (Step 2) | Subscribe **errors** when MessagingService is unavailable, which stops the script. |
-| Trusting the total after a MemoryStore error | Watch `shared:` in the `GlobalPlayerCount` line | After one failure Memory counts only this server until it restarts. |
+| `Messages.Subscribe(...)` without checking the result | `local subscription, err = Messages.Subscribe(...)`, warn when `subscription` is `nil` (Step 2) | Without API access (Studio, an outage) Subscribe returns `nil` and the reason, and no message arrives. |
+| Trusting the total after a MemoryStore error | Watch `shared:` in the `GlobalPlayerCount` line | After a failure Memory counts only this server for 60 seconds, then tries MemoryStore again. Values written meanwhile stay on this server. |
 | Memory for things that must be kept | Player data → `GaxiaServer.Data`, global boards → `Leaderboard` | MemoryStore entries expire and are not backed up. |
 
 ## Change it

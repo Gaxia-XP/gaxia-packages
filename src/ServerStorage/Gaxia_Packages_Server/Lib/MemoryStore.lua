@@ -9,7 +9,8 @@
 --           it with one clean API AND a transparent in-memory FALLBACK: when the
 --           real service is unreachable (Studio, no API access) every op routes
 --           to a local table so code still runs and is testable — single-server,
---           but correct. Backs global CooldownService (18.4) + PartyService (24.8).
+--           but correct. The real store is tried again 60 s after a failure.
+--           Backs global CooldownService (18.4) + PartyService (24.8).
 --
 -- Access  : Gaxia.Memory  (server)
 --   Gaxia.Memory.MapSet("ranks", tostring(uid), {name=n}, 3600, score)
@@ -24,11 +25,25 @@ export type MapRangeEntry = { key: string, value: any, sortKey: number }
 
 local Memory = {}
 
--- ── Availability probe (once) ──
+-- ── Availability probe ──
+-- The first call probes the real store. When the probe or a live call fails,
+-- every op routes to the local fallback for RETRY_AFTER seconds, then the next
+-- call probes the real store again (Studio without API access, a MemoryStore
+-- outage, a throttled request). Entries written to the fallback stay local: they
+-- are not copied to the real store when it comes back.
+local RETRY_AFTER : number = 60
+
 local probed = false
 local fallback = false
+local fallbackSince = 0
+
+local function useFallback(): ()
+	fallback = true
+	fallbackSince = os.clock()
+end
+
 local function ensureProbe(): ()
-	if probed then
+	if probed and not (fallback and os.clock() - fallbackSince >= RETRY_AFTER) then
 		return
 	end
 	probed = true
@@ -36,9 +51,15 @@ local function ensureProbe(): ()
 		local m = MemoryStoreService:GetSortedMap("__gaxia_probe")
 		m:SetAsync("__probe", 1, 1)
 	end)
-	fallback = not ok
+	if ok then
+		fallback = false
+	else
+		useFallback()
+	end
 end
 
+-- True while calls use the local single-server fallback. After a failure the real
+-- store is tried again 60 seconds later (on the next call), so this can turn false again.
 function Memory.IsUsingFallback(): boolean
 	ensureProbe()
 	return fallback
@@ -79,7 +100,7 @@ function Memory.MapSet(mapName: string, key: string, value: any, ttl: number, so
 		if ok then
 			return true
 		end
-		fallback = true -- fall through to local on a live failure
+		useFallback() -- fall through to local on a live failure
 	end
 	fbMap(mapName)[key] = { value = value, sortKey = sortKey or 0, expireAt = now() + ttl }
 	return true
@@ -94,7 +115,7 @@ function Memory.MapGet(mapName: string, key: string): any
 		if ok then
 			return v
 		end
-		fallback = true
+		useFallback()
 	end
 	local e = fbMap(mapName)[key]
 	if not e or e.expireAt < now() then
@@ -112,7 +133,7 @@ function Memory.MapRemove(mapName: string, key: string): boolean
 		if ok then
 			return true
 		end
-		fallback = true
+		useFallback()
 	end
 	fbMap(mapName)[key] = nil
 	return true
@@ -130,7 +151,7 @@ function Memory.MapRange(mapName: string, count: number, ascending: boolean?): {
 		if ok then
 			return result
 		end
-		fallback = true
+		useFallback()
 	end
 	local entries: { MapRangeEntry } = {}
 	for key, e in pairs(fbMap(mapName)) do
@@ -162,7 +183,7 @@ function Memory.QueueAdd(queueName: string, value: any, ttl: number, priority: n
 		if ok then
 			return true
 		end
-		fallback = true
+		useFallback()
 	end
 	local q = localQueues[queueName]
 	if not q then
@@ -185,7 +206,7 @@ function Memory.QueueRead(queueName: string, count: number): ({ any }, string?)
 		if ok then
 			return items or {}, id
 		end
-		fallback = true
+		useFallback()
 	end
 	local q = localQueues[queueName] or {}
 	local live: { QueueEntry } = {}
@@ -214,14 +235,15 @@ end
 
 function Memory.QueueRemove(queueName: string, readId: string): boolean
 	ensureProbe()
-	if not fallback then
+	-- A readId from a fallback read is removed locally, even after the real store is back.
+	if not fallback and readBatches[readId] == nil then
 		local ok = pcall(function()
 			MemoryStoreService:GetQueue(queueName):RemoveAsync(readId)
 		end)
 		if ok then
 			return true
 		end
-		fallback = true
+		useFallback()
 	end
 	local ids = readBatches[readId]
 	if not ids then
@@ -244,7 +266,8 @@ function Memory.QueueRemove(queueName: string, readId: string): boolean
 end
 
 -- Pure API: nothing to set up (the availability probe runs on the first call,
--- which may yield). Registered so Features / IsEnabled know it.
+-- and again on the first call 60 s after a failure; it may yield). Registered so
+-- Features / IsEnabled know it.
 Lifecycle.Define(Memory, {
 	Name = "Memory",
 	Needs = {},

@@ -25,7 +25,7 @@ local Camera = Gaxia.Camera
 
 - `Camera.GetCamera(): Camera`
 - `Camera.Shake(intensity: number, duration: number): ()`
-  intensity is in studs (XY rotational offset); duration in seconds. Shake decays LINEARLY toward zero — most action games use linear or quadratic falloff, linear gives the cleanest "punch then settle" feel.
+  Shakes the camera for `duration` seconds. `intensity` is the largest turn of the camera in DEGREES (pitch and yaw, at the start; not studs): 0.5 is a light bump, 2 a hit, 5 an explosion. The shake decays LINEARLY toward zero — linear gives the cleanest "punch then settle" feel. A new Shake replaces the current one.
 - `Camera.SetFOV(fov: number, duration: number?): ()`
   Tween-based FOV change. Cancels any prior in-flight tween so a fast pair of calls (e.g. ADS in → ADS out) doesn't blend at half-way and look mushy.
 - `Camera.ResetFOV(duration: number?): ()`
@@ -42,7 +42,7 @@ Exported types (use them in annotations: `local x: Module.TypeName`).
 
 ```lua
 export type CameraControllerType = {
-    Shake          : (intensity: number, duration: number) -> (),
+    Shake          : (intensity: number, duration: number) -> (), -- intensity in degrees
     SetFOV         : (fov: number, duration: number?) -> (),
     ResetFOV       : (duration: number?) -> (),
     GetCamera      : () -> Camera,

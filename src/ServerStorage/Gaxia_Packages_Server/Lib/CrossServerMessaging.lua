@@ -69,9 +69,12 @@ end
 
 -- ── Public API ──
 
-function CrossServerMessaging.Subscribe(topic: string, handler: (data: any, sentTimestamp: number) -> ()): RBXScriptConnection
+-- Calls handler(data, sentTimestamp) for every message published to `topic` (by any
+-- server, this one too). Returns the subscription (Disconnect() it to stop), or
+-- (nil, reason) when MessagingService is unavailable (Studio without API access,
+-- an outage): it never errors. OnError fires too.
+function CrossServerMessaging.Subscribe(topic: string, handler: (data: any, sentTimestamp: number) -> ()): (RBXScriptConnection?, string?)
 	-- WHY: MessagingService wraps payloads in {Data, Sent}; we further JSON-decode our envelope.
-	local connection: RBXScriptConnection
 	local ok, result = pcall(function()
 		return MessagingService:SubscribeAsync(topic, function(message: any)
 			local raw: any = message.Data
@@ -99,14 +102,17 @@ function CrossServerMessaging.Subscribe(topic: string, handler: (data: any, sent
 	end)
 
 	if not ok then
-		CrossServerMessaging.OnError:Fire(topic, `SubscribeAsync failed: {result}`)
-		error(`[CrossServerMessaging] SubscribeAsync failed for topic '{topic}': {result}`)
+		local reason = `SubscribeAsync failed: {result}`
+		CrossServerMessaging.OnError:Fire(topic, reason)
+		return nil, reason
 	end
 
-	connection = result :: RBXScriptConnection
-	return connection
+	return result :: RBXScriptConnection, nil
 end
 
+-- Sends `data` (a table, string, number or boolean that JSON can hold, under 1 kB
+-- encoded) to every server subscribed to `topic`. Returns false (and fires OnError)
+-- when the rate limit drops it or MessagingService fails; it never errors.
 function CrossServerMessaging.Publish(topic: string, data: any): boolean
 	if not tryConsumeToken() then
 		warn(`[CrossServerMessaging] Rate limit hit, dropping publish to '{topic}'`)

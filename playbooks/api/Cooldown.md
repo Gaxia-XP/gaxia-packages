@@ -24,17 +24,20 @@ local Cooldown = GaxiaServer.Cooldown
 ### Functions
 
 - `Cooldown.Start(key: string, duration: number): ()`
-  Set / refresh a cooldown on `key` for `duration` seconds. (Gameplay API — the service's lifecycle hooks are in the Define spec at the bottom.)
+  Starts (or restarts) a cooldown on `key` for `duration` seconds. Ignored when key is not a string or duration is not a positive number. Cooldowns are kept in this server's memory only: they are not saved and not shared with other servers. (Gameplay API — the service's lifecycle hooks are in the Define spec at the bottom.)
 - `Cooldown.IsActive(key: string): boolean`
-  True while the cooldown is active.
+  True while the cooldown on `key` is running.
 - `Cooldown.GetRemaining(key: string): number`
-  Seconds remaining (0 when not active).
+  Seconds left on the cooldown on `key` (0 when it is not running).
 - `Cooldown.Consume(key: string, duration: number): boolean`
-  ATOMIC check-and-set: if `key` is NOT on cooldown, start it for `duration` and return true (action allowed); otherwise return false (still cooling down). A single call both gates and arms — no TOCTOU window for spam exploits.
+  ATOMIC check-and-set: if `key` is NOT on cooldown, start it for `duration` and return true (action allowed); otherwise return false (still cooling down). A single call both gates and arms — no TOCTOU window for spam exploits. Also false when key is not a string or duration is not a positive number.
 - `Cooldown.Clear(key: string): ()`
-  Clear a cooldown immediately.
+  Ends the cooldown on `key` now (the next Consume succeeds).
 - `Cooldown.Key(player: Player, action: string): string`
-  Build a per-player key so the same `action` cools down independently per player.
+  The key for `action` of one player ("P:<UserId>:<action>"), so the same action cools down independently per player. The per-player functions below use it; pass it to Start / Clear / IsActive for a per-player cooldown too.
 - `Cooldown.ConsumePlayer(player: Player, action: string, duration: number): boolean`
+  Consume for one player: true (and the cooldown starts) when `action` is not cooling down for `player`, false while it is. A player's cooldowns are cleared when they leave this server, so a rejoin resets them: for once-a-day rewards save the claim time in player data instead.
 - `Cooldown.IsPlayerActive(player: Player, action: string): boolean`
+  True while `action` is cooling down for `player`.
 - `Cooldown.GetPlayerRemaining(player: Player, action: string): number`
+  Seconds left before `player` can do `action` again (0 when it is not cooling down).

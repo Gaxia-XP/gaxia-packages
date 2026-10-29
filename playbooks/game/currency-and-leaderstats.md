@@ -133,7 +133,7 @@ end
 | `Economy.Add(player, 100, "Coins")` | `Economy.Add(player, "Coins", 100)`: player, currency, then amount | Swapped arguments return `false` and warn `currency must be a non-empty string, got number 100 (are currency and amount swapped?)`. |
 | A price or reward above 1,000,000 | Keep each amount at or below `Economy.MaxTransaction`, or raise it: `GaxiaServer.EConfig.Set("Economy.MaxTransaction", 5000000)` ([config-and-flags](config-and-flags.md)) | Bigger amounts are refused, not cut: `Spend(player, "Coins", 2000000)` returns `false`, takes nothing and warns `amount 2000000 is above Economy.MaxTransaction (1000000)`. `Economy.GetMaxTransaction()` returns the current limit. |
 | A currency named like any saved field (`Level`, `Inventory`, `Pets`, `Quests`, your own `Wins` …) | `Coins`, `Gems` or a new name like `Tokens` | A field that holds a number (`Level`, `Wins`) is changed as if it were money. A field that holds something else (`Inventory`, `Pets`, `Quests`) is refused with a warning (`the saved value "Inventory" is a table, not a number`). Full list of taken names: [player-data](player-data.md). |
-| `GaxiaServer.Player.SetLeaderstat` before `GaxiaServer.Player.SetupLeaderstats` | Set up first (Step 1 does it on load) | `SetLeaderstat` does nothing when the column does not exist. |
+| `GaxiaServer.Player.SetLeaderstat` before `GaxiaServer.Player.SetupLeaderstats` | Set up first (Step 1 does it on load) | `SetLeaderstat` creates a missing column, but the column order follows the order they were made, and before data loads it shows a wrong value. |
 
 ## Change it
 

@@ -1550,10 +1550,11 @@ LB.OnUpdate:Connect(function(name, userId, value) end)
 ```lua
 local Msg = GaxiaServer.Messages
 
--- Subscribe ทำตอน server start
-local conn = Msg.Subscribe("GlobalChat", function(data, sentTimestamp)
+-- Subscribe ทำตอน server start — คืน nil + เหตุผล (ไม่ error) เมื่อ MessagingService ใช้ไม่ได้
+local conn, err = Msg.Subscribe("GlobalChat", function(data, sentTimestamp)
     print(`[Global] {data.player}: {data.text}  (sent {sentTimestamp})`)
 end)
+if not conn then warn("subscribe failed:", err) end
 
 -- Publish — token-bucket rate limited (2/sec sustained, burst 10)
 Msg.Publish("GlobalChat", {

@@ -84,7 +84,7 @@ A. requires and loading · B. packages missing, nil services · C. player data �
 | Symptom | Cause | Fix |
 |---|---|---|
 | Coins change but the player list does not | Coins were changed with `Data.Set` | Use `Economy.Add` / `Spend` / `Set`, and sync `Economy.OnTransaction` to `GaxiaServer.Player.SetLeaderstat` ([currency-and-leaderstats](game/currency-and-leaderstats.md)). |
-| `GaxiaServer.Player.SetLeaderstat` does nothing | The column was never created | `GaxiaServer.Player.SetupLeaderstats(player, { Coins = Economy.Get(player, "Coins") })` after the data loads, first. |
+| `GaxiaServer.Player.SetLeaderstat` does nothing, with a yellow `[PlayerService] SetLeaderstat` warning | The value is `nil`, or of another type than the column (a string into a number column) | Pass a value of the column's type: `GaxiaServer.Player.SetLeaderstat(player, "Coins", Economy.Get(player, "Coins"))`. |
 | `Economy.Add` returns false | Data not loaded yet, or the call was refused (Output shows a yellow `[Economy] Add refused: …` warning with the reason and your script line) | Wait for the data. Pass `(player, currency, amount)` in that order, with a whole amount from 1 to `Economy.MaxTransaction`; use `Economy.Spend` to take Coins. |
 | `Economy.Spend(player, "Coins", 2000000)` returns false with enough Coins | Amounts above `Economy.MaxTransaction` (1,000,000) are refused (warning `amount 2000000 is above Economy.MaxTransaction`) | Keep every price and reward at or below 1,000,000, or raise the limit ([config-and-flags](game/config-and-flags.md)). |
 | `Economy.Add(player, "Coins", 0.5)` returns false (warning `amount must be a whole number`) | Fractions are refused, not rounded | Whole numbers only: `math.ceil(price * 0.9)`. |

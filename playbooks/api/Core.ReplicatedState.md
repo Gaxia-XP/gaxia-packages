@@ -30,6 +30,7 @@ local State = Gaxia.State
   Returns a connection — caller controls lifetime via :Disconnect().
 - `StateClass:GetAll(): { [string]: any }`
 - `StateClass:Destroy(): ()`
+  Server: deletes the state (its folder) for every client, and forgets it, so a later State.Get(name) returns nil and State.Create(name) makes a fresh one. Client: only forgets the local object (clients cannot delete replicated state).
 - `State.Create(name: string, defaults: { [string]: any }?): StateObject`
   Server: create a state container with `defaults`. Existing attributes are preserved (i.e. defaults only fill MISSING keys), so Create is idempotent and safe to call from multiple bootstrap scripts.
 - `State.Get(name: string): StateObject?`

@@ -24,6 +24,7 @@ local Memory = GaxiaServer.Memory
 ### Functions
 
 - `Memory.IsUsingFallback(): boolean`
+  True while calls use the local single-server fallback. After a failure the real store is tried again 60 seconds later (on the next call), so this can turn false again.
 - `Memory.MapSet(mapName: string, key: string, value: any, ttl: number, sortKey: number?): boolean`
 - `Memory.MapGet(mapName: string, key: string): any`
 - `Memory.MapRemove(mapName: string, key: string): boolean`

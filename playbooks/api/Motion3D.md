@@ -26,4 +26,6 @@ local Motion3D = GaxiaServer.Motion3D
 - `Motion3D.To(target: Instance, goal: CFrame, dur: number?, easing: Enum.EasingStyle?): Tween`
 - `Motion3D.Path(target: Instance, waypoints: { CFrame }, durPerSegment: number?, easing: Enum.EasingStyle?): ()`
 - `Motion3D.Spin(part: BasePart, axis: Vector3?, degPerSec: number?): () -> ()`
+  Turns `part` about its own `axis` (default Y) at degPerSec (default 90) until the returned stop() is called or the part is removed.
 - `Motion3D.Float(part: BasePart, amplitude: number?, period: number?): () -> ()`
+  Bobs `part` up and down by `amplitude` studs (default 1) along its up direction at the start, once every `period` seconds (default 2), until the returned stop() is called (it puts the part back at its resting height) or the part is removed.

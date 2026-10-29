@@ -159,9 +159,8 @@ What it does: the closer the player stands, the stronger the shake, FOV punch an
 | `Gaxia.Camera.Shake(...)` in a Script | Camera, Sound and Effects in a LocalScript; the server sends `Net.FireAllClients` | Client modules are empty on the server: the call errors. |
 | `GaxiaServer.VFX.PlayAt(...)` in a LocalScript | VFX, SFX, Motion3D, Anim, Ragdoll in a Script | Server packages cannot be required on the client. |
 | `VFX.PlayAt("Boom", ...)` before `VFX.Register("Boom", ...)` | Register every effect and sound once, at the top | PlayAt warns `[VFX] no effect 'Boom'` and shows nothing. Same for SFX: `[SFX] no sound 'Boom'`. |
-| A long sound or music with `SFX.PlayAt` | `Gaxia.Sound.PlayMusic(id)` on the client | SFX deletes the sound when it ends, or after 10 seconds if it has not ended. A longer track is cut off. |
-| `Motion3D.Spin(part)` and `Motion3D.Float(part)` on the same part | One of them per part | Float resets the part's rotation every frame, so the spin never shows. |
-| An emitter with `Rate = 0` in `VFX.Register` | A `Rate` above 0 (here 80) | PlayAt turns the emitter on for `Duration` seconds. With `Rate = 0` only the one-time `EmitCount` burst plays, in the same frame the effect appears, so other players can miss it. |
+| Music with `SFX.PlayAt` / `SFX.Play2D` | `Gaxia.Sound.PlayMusic(id)` on the client | SFX plays once for everyone and deletes the sound when it ends (or 10 seconds after a sound that never loads). Music needs loops, crossfades and each player's volume. |
+| An emitter with `Rate = 0` in `VFX.Register` | A `Rate` above 0 (here 80) | PlayAt turns the emitter on for `Duration` seconds. With `Rate = 0` only the one-time `EmitCount` burst plays (one frame after the effect appears), which is easy to miss. |
 | `Camera.ResetFOV()` | `Camera.SetFOV(baseFov, 0.4)` (as in BoomFeel) | ResetFOV always goes back to 70, which undoes a FOV the player chose. |
 | `SoundId = "123456"` | `SoundId = "rbxassetid://123456"` | A plain number is not loaded. A wrong ID plays nothing and Output shows a red asset error. |
 | `Anim.Play` with an animation you found online | An animation owned by the game's owner (you or your group) | Roblox only loads animations the place owner may use. Others fail to load and nothing plays. |
@@ -177,7 +176,7 @@ What it does: the closer the player stands, the stronger the shake, FOV punch an
   sparks.Lifetime = NumberRange.new(0.3, 0.6)
   sparks.Speed = NumberRange.new(8, 14)
   ```
-- A floating coin (server): set `coin.Anchored = true` first, then `Motion3D.Float(coin, 1, 2)` (1 stud up and down, every 2 seconds). Every Spin/Float returns a stop function: `local stop = Motion3D.Float(coin, 1, 2)`, later `stop()`.
+- A floating coin (server): set `coin.Anchored = true` first, then `Motion3D.Float(coin, 1, 2)` (1 stud up and down, every 2 seconds). Spin and Float can run on the same part (a spinning, bobbing coin). Every Spin/Float returns a stop function: `local stop = Motion3D.Float(coin, 1, 2)`, later `stop()` (the coin goes back to its resting height).
 - A door that slides up (server, anchored part): `Motion3D.To(door, door.CFrame * CFrame.new(0, 10, 0), 0.6, Enum.EasingStyle.Back)`. A platform that moves back and forth: `local cframeA = platform.CFrame; local cframeB = cframeA * CFrame.new(20, 0, 0)` (20 studs along X), then `task.spawn(function() while platform.Parent do Motion3D.To(platform, cframeB, 2); task.wait(3); Motion3D.To(platform, cframeA, 2); task.wait(3) end end)`. Players standing on it are **not** carried along: use it for scenery. For a platform players ride, use a Roblox `PrismaticConstraint`. (`Motion3D.Path` runs a list of CFrames once, it does not loop.)
 - Knock a character down for 2 seconds (server, package `Ragdoll`). Test it in Studio Play: the simulator used to check this guide has no physics.
   ```lua

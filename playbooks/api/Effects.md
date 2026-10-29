@@ -24,7 +24,9 @@ local Effects = Gaxia.Effects
 ### Functions
 
 - `Effects.EmitParticle(template: ParticleEmitter, atCFrame: CFrame, count: number?): ()`
-  Clones the emitter template to a tiny anchored Part at the target CFrame, calls :Emit(count), then schedules destruction once the longest-lived particle has had time to die. Anchored = no physics jitter; CanCollide off so it doesn't push players. Size near-zero so the Part itself is invisible.
+  One burst: clones the emitter template to a tiny anchored Part at the target CFrame, turns the clone's Enabled off (so a template left Enabled in Studio does not keep emitting until cleanup), calls :Emit(count) (default 10), then schedules destruction once the longest-lived particle has had time to die. Anchored = no physics jitter; CanCollide off so it doesn't push players.
+- `Effects.EmitBurst(template: Instance, atCFrame: CFrame, count: number?): number`
+  A burst of a whole effect: `template` is a ParticleEmitter, or any Instance (Attachment, Part, Model, Folder) holding several emitters (sparks + smoke + flash). Every ParticleEmitter in the clone is turned off and emits once: its "EmitCount" attribute when it has one, else `count` (default 10); an "EmitDelay" attribute (seconds) delays that emitter. Returns the number of emitters that fired. Cleaned up once the slowest particle has died.
 - `Effects.SpawnBeam(template : Beam, fromAttachment : Attachment, toAttachment : Attachment, lifetime : number?): Beam`
   Clone a beam template between two attachments. We re-parent the clone to the FROM attachment's parent so the Beam shows under a sensible owner; the Attachment0/1 properties point at the user-supplied endpoints. Returns the live Beam so callers can tween or mutate it before it auto-destroys.
 - `Effects.SpawnTrail(template : Trail, parent : BasePart, lifetime : number?): Trail`
@@ -40,6 +42,7 @@ Exported types (use them in annotations: `local x: Module.TypeName`).
 export type EffectType = "Particle" | "Beam" | "Trail"
 export type EffectsControllerType = {
     EmitParticle : (template: ParticleEmitter, atCFrame: CFrame, count: number?) -> (),
+    EmitBurst    : (template: Instance, atCFrame: CFrame, count: number?) -> number,
     SpawnBeam    : (template: Beam, fromAttachment: Attachment, toAttachment: Attachment, lifetime: number?) -> Beam,
     SpawnTrail   : (template: Trail, parent: BasePart, lifetime: number?) -> Trail,
     ClearAll     : () -> (),

@@ -2,7 +2,8 @@
 -- ─────────────────────────────────────────────────────────────
 -- Module:   EffectsController
 -- Location: ReplicatedStorage/Gaxia_Packages/Client/EffectsController
--- Purpose:  Spawn-pool for ParticleEmitter / Beam / Trail bursts.
+-- Purpose:  Spawn-pool for ParticleEmitter / Beam / Trail bursts
+--           (EmitParticle: one emitter; EmitBurst: every emitter of a template).
 --           Game code typically wants to "play a hit-flash at this
 --           CFrame" without thinking about cleanup. This module
 --           owns a Trove of every spawned effect so a single
@@ -10,7 +11,6 @@
 --           wipe in-flight effects without leaking instances.
 -- ─────────────────────────────────────────────────────────────
 
-local Debris            = game:GetService("Debris")
 local RunService        = game:GetService("RunService")
 local Workspace         = game:GetService("Workspace")
 
@@ -23,6 +23,7 @@ export type EffectType = "Particle" | "Beam" | "Trail"
 
 export type EffectsControllerType = {
 	EmitParticle : (template: ParticleEmitter, atCFrame: CFrame, count: number?) -> (),
+	EmitBurst    : (template: Instance, atCFrame: CFrame, count: number?) -> number,
 	SpawnBeam    : (template: Beam, fromAttachment: Attachment, toAttachment: Attachment, lifetime: number?) -> Beam,
 	SpawnTrail   : (template: Trail, parent: BasePart, lifetime: number?) -> Trail,
 	ClearAll     : () -> (),
@@ -67,23 +68,26 @@ local EffectsController = {}
 
 -- ── Helpers ──
 
--- Schedule destruction via Debris so it survives if our Trove is cleared.
--- Returns nothing — the Trove + Debris together cover cleanup paths.
+-- Track `inst` in the current Trove and destroy it after `lifetime` seconds. When
+-- it expires it is also removed from the Trove, so the Trove only holds live
+-- effects (it used to keep every effect ever spawned until ClearAll). If ClearAll
+-- swapped the Trove meanwhile, the old Trove already destroyed it.
 local function scheduleDestroy(inst: Instance, lifetime: number): ()
-	Debris:AddItem(inst, lifetime)
-	fxTrove:Add(inst)
+	local trove = fxTrove
+	trove:Add(inst)
+	task.delay(lifetime, function()
+		if trove == fxTrove then
+			trove:Remove(inst) -- destroys it and forgets it
+		else
+			inst:Destroy()
+		end
+	end)
 end
 
--- ── EmitParticle ──
--- Clones the emitter template to a tiny anchored Part at the target CFrame,
--- calls :Emit(count), then schedules destruction once the longest-lived
--- particle has had time to die. Anchored = no physics jitter; CanCollide off
--- so it doesn't push players. Size near-zero so the Part itself is invisible.
-function EffectsController.EmitParticle(template: ParticleEmitter, atCFrame: CFrame, count: number?): ()
-	local n = count or DEFAULT_EMIT_COUNT
-
+-- An invisible anchored Part at `atCFrame` that hosts emitters.
+local function makeHost(name: string, atCFrame: CFrame): Part
 	local host = Instance.new("Part")
-	host.Name         = `FX_Particle_{template.Name}`
+	host.Name         = name
 	host.Size         = Vector3.new(0.05, 0.05, 0.05)
 	host.Transparency = 1
 	host.Anchored     = true
@@ -92,24 +96,87 @@ function EffectsController.EmitParticle(template: ParticleEmitter, atCFrame: CFr
 	host.CanTouch     = false
 	host.CFrame       = atCFrame
 	host.Parent       = hostFolder
+	return host
+end
 
-	local emitter = template:Clone() :: ParticleEmitter
-	emitter.Parent = host
-	emitter:Emit(n)
-
-	-- Particle lifetime range is on the emitter — we use the MAX so even the
-	-- longest-lived particle has expired by destruction time. Fall back to a
-	-- safe default if the emitter has no Lifetime NumberRange (e.g. odd
-	-- template config).
-	local maxLife : number = DEFAULT_PARTICLE_LIFETIME
+-- Longest particle lifetime of `emitter` (DEFAULT_PARTICLE_LIFETIME when unreadable).
+local function maxLifetime(emitter: ParticleEmitter): number
 	local ok, val = pcall(function()
 		return emitter.Lifetime.Max
 	end)
 	if ok and typeof(val) == "number" then
-		maxLife = math.max(val, 0.1)
+		return math.max(val, 0.1)
 	end
+	return DEFAULT_PARTICLE_LIFETIME
+end
 
-	scheduleDestroy(host, maxLife + 0.1)
+-- ── EmitParticle ──
+-- One burst: clones the emitter template to a tiny anchored Part at the target
+-- CFrame, turns the clone's Enabled off (so a template left Enabled in Studio
+-- does not keep emitting until cleanup), calls :Emit(count) (default 10), then
+-- schedules destruction once the longest-lived particle has had time to die.
+-- Anchored = no physics jitter; CanCollide off so it doesn't push players.
+function EffectsController.EmitParticle(template: ParticleEmitter, atCFrame: CFrame, count: number?): ()
+	local n = count or DEFAULT_EMIT_COUNT
+	local host = makeHost(`FX_Particle_{template.Name}`, atCFrame)
+
+	local emitter = template:Clone() :: ParticleEmitter
+	emitter.Enabled = false
+	emitter.Parent = host
+	emitter:Emit(n)
+
+	scheduleDestroy(host, maxLifetime(emitter) + 0.1)
+end
+
+-- ── EmitBurst ──
+-- A burst of a whole effect: `template` is a ParticleEmitter, or any Instance
+-- (Attachment, Part, Model, Folder) holding several emitters (sparks + smoke +
+-- flash). Every ParticleEmitter in the clone is turned off and emits once: its
+-- "EmitCount" attribute when it has one, else `count` (default 10); an
+-- "EmitDelay" attribute (seconds) delays that emitter. Returns the number of
+-- emitters that fired. Cleaned up once the slowest particle has died.
+function EffectsController.EmitBurst(template: Instance, atCFrame: CFrame, count: number?): number
+	if template:IsA("ParticleEmitter") then
+		EffectsController.EmitParticle(template, atCFrame, count)
+		return 1
+	end
+	local n = count or DEFAULT_EMIT_COUNT
+	local host = makeHost(`FX_Burst_{template.Name}`, atCFrame)
+	local clone = template:Clone()
+	if clone:IsA("BasePart") then
+		clone.Anchored = true
+		clone.CanCollide = false
+		clone.CanQuery = false
+		clone.CanTouch = false
+		clone.Transparency = 1
+		clone.CFrame = atCFrame
+	elseif clone:IsA("Model") then
+		clone:PivotTo(atCFrame)
+	end
+	clone.Parent = host
+
+	local life = 0.1
+	local fired = 0
+	for _, d in clone:GetDescendants() do
+		if d:IsA("ParticleEmitter") then
+			d.Enabled = false
+			local amount = tonumber(d:GetAttribute("EmitCount")) or n
+			local delay = tonumber(d:GetAttribute("EmitDelay")) or 0
+			if delay > 0 then
+				task.delay(delay, function()
+					if d.Parent ~= nil then
+						d:Emit(amount)
+					end
+				end)
+			else
+				d:Emit(amount)
+			end
+			fired += 1
+			life = math.max(life, delay + maxLifetime(d))
+		end
+	end
+	scheduleDestroy(host, life + 0.1)
+	return fired
 end
 
 -- ── SpawnBeam ──

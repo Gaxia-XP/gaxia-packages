@@ -34,6 +34,7 @@ local Trade = GaxiaServer.Trade
 - `Trade.Confirm(player: Player, tradeId: string): (boolean, boolean, string)`
   Returns (ok, executed, message). The swap fires when BOTH sides are confirmed.
 - `Trade.Cancel(player: Player, tradeId: string): boolean`
+  Closes the trade without moving anything (OnComplete fires with false). Only one of the two players in the trade can cancel it: returns false for anyone else, or when the trade is already closed. A trade is also cancelled when either player leaves.
 
 ### Signals
 
@@ -42,7 +43,7 @@ Connect with `:Connect(function(...) end)`; the parameters are the payload types
 - `Trade.OnUpdate` — `Signal<string>`
   (tradeId) on Request, every offer change and every Confirm
 - `Trade.OnComplete` — `Signal<string, boolean>`
-  (tradeId, success) after the swap ran (Confirm) or the trade was cancelled (success = false)
+  (tradeId, success) after the swap ran (Confirm: items and currency have already moved) or the trade was cancelled (Cancel, or a player left: success = false). The trade is closed by then: GetTrade(tradeId) is nil and both players can trade again.
 
 ### Types
 

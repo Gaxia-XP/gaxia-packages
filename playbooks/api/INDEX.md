@@ -134,16 +134,17 @@ GaxiaServer.Memory.MapRange(mapName: string, count: number, ascending: boolean?)
 GaxiaServer.Memory.QueueAdd(queueName: string, value: any, ttl: number, priority: number?): boolean   → Memory.md
 GaxiaServer.Memory.QueueRead(queueName: string, count: number): ({ any }, string?)   → Memory.md
 GaxiaServer.Memory.QueueRemove(queueName: string, readId: string): boolean   → Memory.md
-GaxiaServer.Messages.Subscribe(topic: string, handler: (data: any, sentTimestamp: number) -> ()): RBXScriptConnection   → Messages.md
+GaxiaServer.Messages.Subscribe(topic: string, handler: (data: any, sentTimestamp: number) -> ()): (RBXScriptConnection?, string?)   → Messages.md
 GaxiaServer.Messages.Publish(topic: string, data: any): boolean   → Messages.md
 GaxiaServer.Messages.OnError : Signal<string, string>   → Messages.md
 GaxiaServer.Teleport.Configure(partial: { [string]: any }): ()   → Teleport.md
 GaxiaServer.Teleport.ComputeBackoff(attempt: number, base: number, maxDelay: number): number   → Teleport.md
+GaxiaServer.Teleport.IsRetryable(result: Enum.TeleportResult): boolean   → Teleport.md
 GaxiaServer.Teleport.To(players: Player | { Player }, placeId: number, opts: TeleportOpts?): (boolean, any)   → Teleport.md
 GaxiaServer.Teleport.ReserveServer(placeId: number): (string?, string?, string?)   → Teleport.md
 GaxiaServer.Teleport.ToPrivate(players: Player | { Player }, placeId: number, accessCode: string, opts: TeleportOpts?): (boolean, any)   → Teleport.md
 GaxiaServer.Teleport.GetArrivingData(player: Player): any   → Teleport.md
-GaxiaServer.Teleport.GetPlaceInstance(placeId: number, userId: number): (any?, any?, string?)   → Teleport.md
+GaxiaServer.Teleport.GetPlaceInstance(placeId: number, userId: number): (number?, string?, string?)   → Teleport.md
 GaxiaServer.Teleport.OnTeleportFailed : Signal<{ Player }, number, any>   → Teleport.md
 GaxiaServer.Economy.Get(player: Player, currency: string): number   → Economy.md
 GaxiaServer.Economy.Add(player: Player, currency: string, amount: number): boolean   → Economy.md
@@ -586,6 +587,7 @@ Gaxia.Sound.StopAll(category: Category?): ()   → Sound.md
 Gaxia.Sound.PlayMusic(soundId: string, fadeIn: number?): Sound   → Sound.md
 Gaxia.Sound.StopMusic(fadeOut: number?): ()   → Sound.md
 Gaxia.Effects.EmitParticle(template: ParticleEmitter, atCFrame: CFrame, count: number?): ()   → Effects.md
+Gaxia.Effects.EmitBurst(template: Instance, atCFrame: CFrame, count: number?): number   → Effects.md
 Gaxia.Effects.SpawnBeam(template : Beam, fromAttachment : Attachment, toAttachment : Attachment, lifetime : number?): Beam   → Effects.md
 Gaxia.Effects.SpawnTrail(template : Trail, parent : BasePart, lifetime : number?): Trail   → Effects.md
 Gaxia.Effects.ClearAll(): ()   → Effects.md

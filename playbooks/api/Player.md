@@ -26,7 +26,9 @@ local Player = GaxiaServer.Player
 - `Player.SetupLeaderstats(player: Player, dict: { [string]: any }): ()`
   Create a leaderstats Folder (if missing) and populate with one ValueObject per dict entry. Existing entries are overwritten (Value updated) so this can be called repeatedly.
 - `Player.GetLeaderstat(player: Player, name: string): any`
+  The value of leaderstat `name`, or nil when the player has no such stat.
 - `Player.SetLeaderstat(player: Player, name: string, value: any): ()`
+  Sets leaderstat `name` to `value`. A missing leaderstats Folder or stat is created (IntValue for a whole number, NumberValue, StringValue or BoolValue), like SetupLeaderstats. A nil value, or a value of another type than the existing stat (a string into an IntValue), is not written and warns.
 - `Player.SetWalkSpeed(player: Player, speed: number): (boolean, number?)`
   Returns (applied, actualSpeed). Clamps to [0, Player.MaxWalkSpeed] as defense-in-depth for every caller: a NEGATIVE WalkSpeed still moves the character (in reverse, at |speed|) while SpeedDetector's baseline floors at max(WalkSpeed, 8) — so the player reads as a speeder and gets flagged once any admin whitelist window expires.
 - `Player.SetJumpPower(player: Player, power: number): ()`

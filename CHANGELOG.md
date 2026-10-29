@@ -257,6 +257,64 @@ this framework uses a single rolling version until a public release cut.
   a Robux item (`devProductId`) also no longer opens the purchase prompt, and a free item
   (cost 0 / nil) no longer runs its `grant`, until the buyer's data is loaded.
   playbooks/game/shop.md maps the new reason to a message.
+### Fixed — hardening (infra-misc)
+- **Teleport:** a teleport that `TeleportAsync` accepted but that then fails
+  (`TeleportInitFailed`) is retried with the same backoff when the result is `Flooded` or
+  `Failure` (up to `MaxAttempts` in all); any other result, or the last retry, fires
+  `OnTeleportFailed({ player }, placeId, "<TeleportResult>: <message>")`. New pure helper
+  `Teleport.IsRetryable(result)`.
+- **Teleport.GetPlaceInstance (behaviour change):** returns `(placeId, jobId, err)` of the
+  server the user is in (it returned the raw, mislabelled `(isThisServer, errorMessage)` and
+  ignored `placeId`). Pass the expected place or `0` for any place; not online / another
+  place / an error return `(nil, nil, reason)`.
+- **Trade:** a player who leaves cancels their open trade (`OnComplete(tradeId, false)`), so
+  the partner can trade again; before, both stayed "already trading" until the server
+  restarted. **Behaviour change:** `Trade.Cancel(player, tradeId)` returns `false` unless
+  `player` is one of the two players in the trade (anyone could cancel any trade).
+  `OnComplete` was already fired after the items and currency moved; its doc now says so.
+- **Memory:** after the real MemoryStore fails (Studio without API access, an outage, one
+  failed call), calls use the local fallback for 60 s and then try the real store again;
+  before, one failure kept the server on the single-server fallback until it restarted.
+  A queue `readId` from a fallback read is still removed locally.
+- **Messages.Subscribe (behaviour change):** returns `(nil, reason)` (and fires `OnError`)
+  when `SubscribeAsync` fails, instead of erroring. Its type is now
+  `(RBXScriptConnection?, string?)`; code that wrapped it in `pcall` must check the first
+  result (playbook multi-server updated).
+- **Interaction:** a prompt with a `Cooldown` forgets a player's last use when they leave
+  (the table kept every player who ever used it); `Destroy()` releases it too.
+- **SFX:** a sound is cleaned up after its own length (`TimeLength / PlaybackSpeed`, read once
+  it has loaded: `TimeLength` is 0 before) when `Ended` does not fire, or after 10 s when it
+  never loads. Before, every sound was destroyed after 10 s, cutting off longer sounds.
+- **Motion3D (behaviour change):** `Spin` and `Float` on the same part compose (Float moved
+  the part to an absolute CFrame every frame, undoing Spin and any other move). Float's
+  `stop()` now removes only its own offset instead of snapping the part back to the CFrame
+  it had when Float started.
+- **VFX.PlayAt:** the `EmitCount` burst is emitted on the next frame, after the holder is
+  parented and replicated (an `Emit` in the same frame as the parenting can be lost on
+  clients), and is skipped when the effect already ended.
+- **Player.SetLeaderstat (behaviour change):** creates a missing `leaderstats` folder or stat
+  (like `SetupLeaderstats`) instead of doing nothing; a `nil` value or a value the stat's class
+  cannot hold warns `[PlayerService] SetLeaderstat(...)` instead of erroring or doing nothing.
+- **Cooldown:** doc comments for every function, including that per-player cooldowns are
+  in memory and cleared when the player leaves (the header example no longer suggests
+  `ConsumePlayer` for a daily reward).
+- **State (ReplicatedState):** `Destroy()` drops the object from the cache, so `State.Get`
+  returns `nil` and `State.Create` makes a fresh state after it (both returned the destroyed
+  object). A cached object whose folder is gone (destroyed by the server) is dropped on
+  the client too.
+- **Flags (client):** when the server has no flag state yet, only the first `Get` /
+  `IsEnabled` / `OnChanged` waits (up to ~10 s); later calls return the default at once
+  until the server creates it (each call waited again).
+- **Sound (client):** `PlayOnce` releases a sound that never loads, or whose `Ended` never
+  fires, after its own length (or 10 s when not loaded); before, it stayed active in the
+  pool forever. Releasing an already released sound does nothing (StopAll then a music
+  fade-out pooled it twice).
+- **Effects (client):** `EmitParticle` turns the clone's `Enabled` off, so it is one burst
+  even when the template is Enabled. New `Effects.EmitBurst(template, cframe, count?)` bursts
+  every ParticleEmitter of a template (Attachment / Part / Model / Folder), honouring
+  `EmitCount` / `EmitDelay` attributes. Expired effects are removed from the cleanup Trove
+  (it kept every effect until `ClearAll`).
+- **Camera:** `Shake`'s `intensity` is documented as degrees of camera turn (it said studs).
 
 ### Added — pick the packages a game installs
 The framework is split into ~100 packages (`Gaxia_Packages_Server/Packages.lua`). Pick

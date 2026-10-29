@@ -24,6 +24,7 @@ local Interaction = GaxiaServer.Interaction
 ### Functions
 
 - `Interaction.Register(target: Instance, config: InteractionConfig): Handle?`
+  Mounts a ProximityPrompt on target (a BasePart, an Attachment, or a Model's PrimaryPart / first part) and calls config.OnTrigger(player) when a player uses it, at most once per config.Cooldown seconds per player. Returns a handle (Destroy() removes the prompt), or nil with a warning when target has nothing to mount on.
 
 ### Types
 

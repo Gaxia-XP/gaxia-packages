@@ -25,18 +25,22 @@ local Teleport = GaxiaServer.Teleport
 
 - `Teleport.Configure(partial: { [string]: any }): ()`
 - `Teleport.ComputeBackoff(attempt: number, base: number, maxDelay: number): number`
+- `Teleport.IsRetryable(result: Enum.TeleportResult): boolean`
+  Flooded (too many teleport requests) and Failure (a transient error) are retried; the rest (GameFull, GameNotFound, Unauthorized, IsTeleporting, ...) are not.
 - `Teleport.To(players: Player | { Player }, placeId: number, opts: TeleportOpts?): (boolean, any)`
+  Teleports one player or a group to placeId, retrying a failed request with exponential backoff (Config.Teleport.Retry / Configure). Returns (true, TeleportAsyncResult) once Roblox accepted it, or (false, err) after the last try (OnTeleportFailed fires). A teleport that fails after it was accepted is retried through TeleportInitFailed. Yields.
 - `Teleport.ReserveServer(placeId: number): (string?, string?, string?)`
 - `Teleport.ToPrivate(players: Player | { Player }, placeId: number, accessCode: string, opts: TeleportOpts?): (boolean, any)`
 - `Teleport.GetArrivingData(player: Player): any`
-- `Teleport.GetPlaceInstance(placeId: number, userId: number): (any?, any?, string?)`
+- `Teleport.GetPlaceInstance(placeId: number, userId: number): (number?, string?, string?)`
+  Where user `userId` is playing now: returns (placeId, jobId) of their server, for example to follow a friend with TeleportService:TeleportToPlaceInstance. Pass the place you expect, or 0 for any place: a user in another place returns (nil, nil, "in another place"). Not online, not found or an error: (nil, nil, reason). Yields; never errors.
 
 ### Signals
 
 Connect with `:Connect(function(...) end)`; the parameters are the payload types, in order.
 
 - `Teleport.OnTeleportFailed` — `Signal<{ Player }, number, any>`
-  (players, placeId, err) once To/ToPrivate has used up every retry without success
+  (players, placeId, err) once To/ToPrivate has used up every retry without success, or when a started teleport fails later (TeleportInitFailed) and is not retried: then players is that one player and err is "<TeleportResult name>: <message>".
 
 ### Types
 

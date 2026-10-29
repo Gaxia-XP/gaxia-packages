@@ -23,8 +23,10 @@ local Messages = GaxiaServer.Messages
 
 ### Functions
 
-- `Messages.Subscribe(topic: string, handler: (data: any, sentTimestamp: number) -> ()): RBXScriptConnection`
+- `Messages.Subscribe(topic: string, handler: (data: any, sentTimestamp: number) -> ()): (RBXScriptConnection?, string?)`
+  Calls handler(data, sentTimestamp) for every message published to `topic` (by any server, this one too). Returns the subscription (Disconnect() it to stop), or (nil, reason) when MessagingService is unavailable (Studio without API access, an outage): it never errors. OnError fires too.
 - `Messages.Publish(topic: string, data: any): boolean`
+  Sends `data` (a table, string, number or boolean that JSON can hold, under 1 kB encoded) to every server subscribed to `topic`. Returns false (and fires OnError) when the rate limit drops it or MessagingService fails; it never errors.
 
 ### Signals
 
