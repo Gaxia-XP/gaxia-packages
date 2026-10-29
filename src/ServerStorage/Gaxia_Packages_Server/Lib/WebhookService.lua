@@ -8,18 +8,22 @@
 --           and AntiCheat hard actions with zero wiring when a channel is set.
 --
 -- SERVER-ONLY. Webhook URLs are secrets: they live in Config.Webhook.Channels
--- (ServerStorage, never replicated) and are NEVER driven by client RemoteEvents
--- (a client-triggered webhook is an abuse vector).
+-- or are set from a server Script with Webhook.SetChannel (both ServerStorage-side,
+-- never replicated) and are NEVER driven by client RemoteEvents (a client-triggered
+-- webhook is an abuse vector).
 --
 -- Access  : Gaxia.Webhook  (server)
+--   Gaxia.Webhook.SetChannel("BanReports", "https://discord.com/api/webhooks/...")
 --   Gaxia.Webhook.Discord("BanReports", { title = "Hi", description = "world", color = Color3.fromRGB(231,76,60) })
 --   Gaxia.Webhook.Send("ShopStock", { content = "Stock updated" })   -- raw JSON
 --   Gaxia.Webhook.SendUrl("https://discord.com/api/webhooks/...", { content = "ad-hoc" })
 --
 -- Lifecycle: Start wires the auto-reports (Ban, AntiCheat, Guild signals) for
---            each Config.Webhook.AutoReport source whose channel has a URL and
---            whose package is installed. Subscribing never starts those services
---            (Features decides).
+--            each Config.Webhook.AutoReport source whose package is installed. The
+--            channel and its URL are looked up when the event fires, so a channel
+--            set later (SetChannel, or Config from a game Script) still reports.
+--            Subscribing never starts those services (Features decides). Start also
+--            binds game:BindToClose to deliver what is still queued at shutdown.
 -- ─────────────────────────────────────────────────────────────
 local HttpService       = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -53,9 +57,16 @@ end
 local function rate(key: string, configured: number?, fallback: number): number
 	return flag("RateLimit." .. key, configured or fallback)
 end
+-- Channels set from code with Webhook.SetChannel (they win over Config).
+local runtimeChannels: { [string]: string } = {}
+
+-- Looked up on every call (never cached), so a channel set after boot works.
 local function channelUrl(channel: string): string?
-	-- Channels maps channel name -> secret URL (a free-form map in Config).
-	local url = Config.Webhook.Channels[channel]
+	local url: any = runtimeChannels[channel]
+	if url == nil then
+		-- Channels maps channel name -> secret URL (a free-form map in Config).
+		url = Config.Webhook.Channels[channel]
+	end
 	if typeof(url) == "string" and #url > 0 then
 		return url
 	end
@@ -67,7 +78,9 @@ local Webhook = {}
 
 -- (channel, ok) after a 2xx delivery; channel is "(url)" for SendUrl
 Webhook.OnSend = Signal.new() :: Signal.Signal<string, boolean>
--- (channel, reason) when a payload is dropped (JSON encode failure, retries exhausted)
+-- (channel, reason) when a payload is dropped (JSON encode failure, retries exhausted,
+-- "queue_full" when MaxQueue pushed it out). Not fired while HTTP is disabled: those
+-- messages stay queued and are retried.
 Webhook.OnError = Signal.new() :: Signal.Signal<string, string>
 
 -- ── Transport ──
@@ -118,16 +131,24 @@ type Item = { url: string, channel: string, body: string }
 local queues: { [string]: { Item } } = {} -- keyed by url
 local draining: { [string]: boolean } = {}
 local httpDisabledWarned = false
+-- Set by the BindToClose handler: drains send faster and stop retrying a disabled HTTP.
+local closing = false
+local CLOSE_INTERVAL : number = 0.5 -- seconds between sends per URL while the server shuts down
+local CLOSE_DEADLINE : number = 25  -- seconds BindToClose waits for the queues (Roblox kills at ~30)
 
 local function reportFail(channel: string, reason: string): ()
 	Webhook.OnError:Fire(channel, reason)
-	if string.find(reason, "not enabled", 1, true) then
-		if not httpDisabledWarned then
-			httpDisabledWarned = true
-			warn("[Webhook] HTTP requests are not enabled (Game Settings → Security). Webhooks are off.")
-		end
-	else
-		warn(`[Webhook] '{channel}' dropped: {reason}`)
+	warn(`[Webhook] '{channel}' dropped: {reason}`)
+end
+
+local function isHttpDisabled(err: string?): boolean
+	return typeof(err) == "string" and string.find(err, "not enabled", 1, true) ~= nil
+end
+
+local function warnHttpDisabled(): ()
+	if not httpDisabledWarned then
+		httpDisabledWarned = true
+		warn("[Webhook] HTTP requests are not enabled (Game Settings → Security). Messages stay queued and are retried.")
 	end
 end
 
@@ -141,11 +162,19 @@ local function drain(url: string): ()
 			local item = table.remove(q, 1) :: Item
 			local maxR = rate("MaxRetries", Config.Webhook.RateLimit.MaxRetries, 3)
 			local attempt = 0
+			local httpOff = false
 			while true do
 				attempt += 1
 				local ok, status, retryAfter, err = transport(item.url, item.body)
 				if ok then
 					Webhook.OnSend:Fire(item.channel, true)
+					break
+				end
+				if status == nil and isHttpDisabled(err) then
+					-- HTTP is off: keep the message (front of its queue) and retry later.
+					warnHttpDisabled()
+					table.insert(q, 1, item)
+					httpOff = true
 					break
 				end
 				local canRetry = attempt <= maxR
@@ -158,14 +187,56 @@ local function drain(url: string): ()
 					break
 				end
 			end
-			task.wait(rate("MinInterval", Config.Webhook.RateLimit.MinInterval, 2))
+			if httpOff then
+				if closing then
+					break -- nothing can be sent during shutdown
+				end
+				task.wait(math.max(1, rate("HttpOffRetry", Config.Webhook.RateLimit.HttpOffRetry, 30)))
+			elseif closing then
+				task.wait(math.min(CLOSE_INTERVAL, rate("MinInterval", Config.Webhook.RateLimit.MinInterval, 2)))
+			else
+				task.wait(rate("MinInterval", Config.Webhook.RateLimit.MinInterval, 2))
+			end
 		end
 		draining[url] = false
 	end)
 end
 
+-- Number of messages still waiting in every queue.
+local function pendingCount(): number
+	local n = 0
+	for _, q in pairs(queues) do
+		n += #q
+	end
+	return n
+end
+
+-- game:BindToClose: deliver what is still queued (faster than MinInterval) until
+-- the queues are empty or CLOSE_DEADLINE passes. With HTTP disabled nothing can be sent.
+local function flushOnClose(): ()
+	closing = true
+	for url, q in pairs(queues) do
+		if #q > 0 then
+			drain(url)
+		end
+	end
+	local deadline = os.clock() + CLOSE_DEADLINE
+	while os.clock() < deadline do
+		local busy = false
+		for _, d in pairs(draining) do
+			if d then busy = true; break end
+		end
+		if not busy then break end
+		task.wait(0.1)
+	end
+	local left = pendingCount()
+	if left > 0 then
+		warn(`[Webhook] server closing: {left} queued message(s) not delivered`)
+	end
+end
+
 local function enqueue(url: string, channel: string, payload: any): boolean
-	if not enabled() or httpDisabledWarned then
+	if not enabled() then
 		return false
 	end
 	if typeof(url) ~= "string" or #url == 0 then
@@ -181,13 +252,34 @@ local function enqueue(url: string, channel: string, payload: any): boolean
 	table.insert(q, { url = url, channel = channel, body = body })
 	local cap = rate("MaxQueue", Config.Webhook.RateLimit.MaxQueue, 100)
 	while #q > cap do
-		table.remove(q, 1) -- drop oldest
+		local dropped = table.remove(q, 1) :: Item -- drop oldest
+		Webhook.OnError:Fire(dropped.channel, "queue_full")
 	end
 	drain(url)
 	return true
 end
 
 -- ── Public send API ──
+
+-- Set (or, with nil / "", remove) the URL of a channel from a server Script. It wins
+-- over Config.Webhook.Channels and is never replicated. Returns false (and warns)
+-- for a bad name or a URL that does not start with http:// or https://.
+function Webhook.SetChannel(channel: string, url: string?): boolean
+	if typeof(channel) ~= "string" or #channel == 0 then
+		warn("[Webhook] SetChannel: the channel name must be a non-empty string")
+		return false
+	end
+	if url == nil or url == "" then
+		runtimeChannels[channel] = nil
+		return true
+	end
+	if typeof(url) ~= "string" or not (string.match(url, "^https?://") :: string?) then
+		warn(`[Webhook] SetChannel('{channel}'): the URL must start with https://`)
+		return false
+	end
+	runtimeChannels[channel] = url
+	return true
+end
 
 function Webhook.SendUrl(url: string, payload: any): boolean
 	return enqueue(url, "(url)", payload)
@@ -282,8 +374,10 @@ end
 -- ── Auto-reports (zero-wiring) — wired in Start ──
 local RED, GREEN, ORANGE = 0xE74C3C, 0x2ECC71, 0xE67E22
 
--- `ch` is a Config.Webhook.AutoReport entry: the channel, if it has a URL.
-local function autoChannel(ch: string?): string?
+-- The channel of a Config.Webhook.AutoReport source ("Bans", "AntiCheat", "Guild"),
+-- if it has a URL right now. Read when the event fires, never cached at Start.
+local function autoChannel(source: string): string?
+	local ch: any = Config.Webhook.AutoReport[source]
 	if typeof(ch) == "string" and channelUrl(ch) then
 		return ch
 	end
@@ -295,9 +389,10 @@ local function autoSubscribe(): ()
 	local AntiCheat: AntiCheatApi? = Lifecycle.Find("AntiCheat")
 	local GuildService: GuildApi? = Lifecycle.Find("Guild")
 
-	local banCh = autoChannel(Config.Webhook.AutoReport.Bans)
-	if banCh and BanService then
+	if BanService then
 		BanService.OnBan:Connect(function(userId: number, ban: any)
+			local banCh = autoChannel("Bans")
+			if not banCh then return end
 			ban = ban or {}
 			local duration = if ban.expiresAt
 				then string.format("temp (until %d)", ban.expiresAt)
@@ -313,6 +408,8 @@ local function autoSubscribe(): ()
 			})
 		end)
 		BanService.OnUnban:Connect(function(userId: number)
+			local banCh = autoChannel("Bans")
+			if not banCh then return end
 			Webhook.Discord(banCh, {
 				title = "✅ Player Unbanned",
 				color = GREEN,
@@ -321,11 +418,12 @@ local function autoSubscribe(): ()
 		end)
 	end
 
-	local acCh = autoChannel(Config.Webhook.AutoReport.AntiCheat)
-	if acCh and AntiCheat then
+	if AntiCheat then
 		AntiCheat.OnAction:Connect(function(player: any, reason: string, kind: string)
 			-- "observe" = would have been "hard" but Config.AntiCheat.Enforce is false.
 			if kind ~= "hard" and kind ~= "observe" then return end
+			local acCh = autoChannel("AntiCheat")
+			if not acCh then return end
 			Webhook.Discord(acCh, {
 				title = if kind == "observe" then "👁️ AntiCheat (observe mode — not enforced)" else "⚠️ AntiCheat Action",
 				color = ORANGE,
@@ -339,12 +437,13 @@ local function autoSubscribe(): ()
 	end
 
 	-- ── Guild auto-report (Phase 26 · Social) ──
-	-- Only when a Guild channel is configured. (This used to touch GaxiaServer.Guild
+	-- Sends only while a Guild channel has a URL. (This used to touch GaxiaServer.Guild
 	-- unconditionally, which started GuildService as a side effect; Guild is in the
 	-- default Features, and otherwise Features decides whether it runs.)
-	local guildChannel = autoChannel(Config.Webhook.AutoReport.Guild)
-	if guildChannel and GuildService then
+	if GuildService then
 		GuildService.OnCreate:Connect(function(guildId: string, ownerUserId: number)
+			local guildChannel = autoChannel("Guild")
+			if not guildChannel then return end
 			Webhook.Discord(guildChannel, {
 				title = "Guild created",
 				description = `**{guildId}** by user {ownerUserId}`,
@@ -352,6 +451,8 @@ local function autoSubscribe(): ()
 			})
 		end)
 		GuildService.OnDisband:Connect(function(guildId: string, byUserId: number)
+			local guildChannel = autoChannel("Guild")
+			if not guildChannel then return end
 			Webhook.Discord(guildChannel, {
 				title = "Guild disbanded",
 				description = `**{guildId}** by user {byUserId}`,
@@ -359,7 +460,8 @@ local function autoSubscribe(): ()
 			})
 		end)
 		GuildService.OnRoleChange:Connect(function(guildId: string, userId: number, newRole: string)
-			if newRole == "Owner" then
+			local guildChannel = autoChannel("Guild")
+			if newRole == "Owner" and guildChannel then
 				Webhook.Discord(guildChannel, {
 					title = "Guild ownership transferred",
 					description = `**{guildId}** → user {userId}`,
@@ -373,7 +475,10 @@ end
 Lifecycle.Define(Webhook, {
 	Name = "Webhook",
 	Needs = {},
-	Start = autoSubscribe,
+	Start = function()
+		game:BindToClose(flushOnClose)
+		autoSubscribe()
+	end,
 })
 
 return Webhook

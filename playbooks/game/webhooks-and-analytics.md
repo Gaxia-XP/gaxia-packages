@@ -10,9 +10,9 @@ Steps 1–2 (Discord) and Step 3 (analytics) are independent. Do only what the u
 
 How it works:
 
-- **Webhook** sends JSON to a URL from the **server only**. A *channel* is a name (`"Alerts"`) for one secret URL. `Webhook.Discord(channel, {...})` builds a Discord message; `Webhook.Send(channel, table)` sends any JSON.
-- Sending never blocks your code: messages wait in a queue per URL, one every 2 seconds, with retries (also after Discord's "too many requests"). At most 100 wait; older ones are dropped.
-- HTTP must be on: **Game Settings → Security → Allow HTTP Requests**. When it is off, Output shows `[Webhook] HTTP requests are not enabled ... Webhooks are off.` once, and nothing is sent.
+- **Webhook** sends JSON to a URL from the **server only**. A *channel* is a name (`"Alerts"`) for one secret URL, set with `Webhook.SetChannel(name, url)`. `Webhook.Discord(channel, {...})` builds a Discord message; `Webhook.Send(channel, table)` sends any JSON.
+- Sending never blocks your code: messages wait in a queue per URL, one every 2 seconds, with retries (also after Discord's "too many requests"). At most 100 wait; older ones are dropped. When the server shuts down, the messages still waiting are sent first (for up to 25 seconds).
+- HTTP must be on: **Game Settings → Security → Allow HTTP Requests**. When it is off, Output shows `[Webhook] HTTP requests are not enabled ... Messages stay queued and are retried.` once. The messages wait (at most 100) and are sent when HTTP is turned on.
 - The URL is a password: anyone who has it can post in your channel. Keep it in a server Script. Never in a LocalScript, ReplicatedStorage or a client remote.
 - **Journal** remembers every AntiCheat flag and action in this server (`Journal.GetForPlayer`, `Journal.GetRecent`) and fires `Journal.OnEntry` for each one.
 - **Analytics** sends events to one sink function. It already tracks `currency_change` (Economy), `level_up` (Level) and `quest_complete` (Quest) when those packages are installed. You add your own with `Analytics.Track`.
@@ -37,8 +37,8 @@ local Webhook = GaxiaServer.Webhook
 local ALERTS_URL = ""
 
 -- The channel "Alerts" = ALERTS_URL. Kept in your script, so Gaxia updates do not remove it.
--- Set it in Config, never with EConfig.Set: EConfig values are copied to every player.
-GaxiaServer.Config.Webhook.Channels.Alerts = ALERTS_URL
+-- Never with EConfig.Set: EConfig values are copied to every player. An empty URL removes the channel.
+Webhook.SetChannel("Alerts", ALERTS_URL)
 
 Webhook.OnSend:Connect(function(channel: string, _ok: boolean)
 	print(`[WebhookSetup] delivered to {channel}`)
@@ -58,7 +58,7 @@ print("[WebhookSetup] ready")
 ```
 
 What it does: it registers the channel `Alerts`. In Studio it sends one green test message.
-Webhook URLs are the one setting you write into `GaxiaServer.Config`: it stays on the server. `EConfig` flags are sent to every player ([config-and-flags](config-and-flags.md)).
+`Webhook.SetChannel` keeps the URL on the server. `EConfig` flags are sent to every player ([config-and-flags](config-and-flags.md)).
 
 ## Step 2 — Report bans and anti-cheat to Discord
 
@@ -192,9 +192,9 @@ What it does: Coins changes appear in the Creator Dashboard (**Analytics → Eco
 |---|---|---|
 | The webhook URL in a LocalScript, a ModuleScript in ReplicatedStorage, or a StringValue | Only in a server Script (`WebhookSetup`) | Everything the client can see can be copied; anyone could spam your Discord. |
 | Editing `Config/Webhook.lua` inside `Gaxia_Packages_Server` | Set the URL in `WebhookSetup` (Step 1) | Install / Update replaces the package and your URL is lost. |
-| Expecting the built-in auto-reports to work after Step 1 | Use Step 2 | They use the channels `BanReports` and `GuildEvents`, and only if those have a URL at boot, before your Script runs. |
-| `Journal.SetSink(...)` for Discord reports | `Journal.OnEntry:Connect(...)` (Step 2) | There is only one sink: another script can replace it. `OnEntry` never replaces anything. |
-| `GaxiaServer.EConfig.Set("Webhook.Channels.Alerts", url)` | The `Channels.Alerts = ALERTS_URL` line in `WebhookSetup` (Step 1) | EConfig values are copied to every client, so the URL would leak. Webhook never reads them. |
+| Expecting the built-in auto-reports to post to `Alerts` | Use Step 2, or `Webhook.SetChannel("BanReports", url)` (bans and anti-cheat) / `Webhook.SetChannel("GuildEvents", url)` (guilds) | The built-in reports post only to the channels `BanReports` and `GuildEvents`, whenever those have a URL. Use one way for bans, not both, or each ban is posted twice. |
+| `Journal.SetSink(...)` for Discord reports | `Journal.OnEntry:Connect(...)` (Step 2) | There is only one sink; another script ([anticheat-and-bans](anticheat-and-bans.md)) replaces it. `OnEntry` never replaces anything. |
+| `GaxiaServer.EConfig.Set("Webhook.Channels.Alerts", url)` | `Webhook.SetChannel("Alerts", ALERTS_URL)` in `WebhookSetup` (Step 1) | EConfig values are copied to every client, so the URL would leak. Webhook never reads them. |
 | `Webhook.Discord("alerts", ...)` | `Webhook.Discord("Alerts", ...)` | Channel names are case-sensitive. An unknown channel returns `false` and sends nothing. |
 | A message for every Coins change or every second | Only rare, important events | One message per 2 seconds per URL; at most 100 wait, older ones are dropped. |
 | `Analytics.Track(player, "Bought Sword!!")` | Short names like `"item_bought"`, details in the props | Roblox Analytics groups custom events by name; keep few, stable names. |
@@ -202,7 +202,7 @@ What it does: Coins changes appear in the Creator Dashboard (**Analytics → Eco
 
 ## Change it
 
-- A second channel (for example shop logs): in `WebhookSetup`, copy the `Channels.Alerts = ALERTS_URL` line, change `Alerts` to `Shop` and put the second URL there. Send with `Webhook.Discord("Shop", { content = "..." })`.
+- A second channel (for example shop logs): in `WebhookSetup`, copy the `Webhook.SetChannel("Alerts", ALERTS_URL)` line, change `Alerts` to `Shop` and put the second URL there. Send with `Webhook.Discord("Shop", { content = "..." })`.
 - Plain text: `Webhook.Discord("Alerts", { content = "Server is restarting" })`; add `username = "Moderation"` for another bot name. Any JSON service: `Webhook.Send("Alerts", { event = "test" })`.
 - Guild news ([social](social.md)), in `ModerationReports` before `print`: `GaxiaServer.Guild.OnCreate:Connect(function(guildId: string, ownerUserId: number) Webhook.Discord(CHANNEL, { title = "Guild created", description = guildId .. " by user " .. ownerUserId }) end)`. `GaxiaServer.Guild.OnDisband` gets `(guildId: string, byUserId: number)`. Check `GaxiaServer.IsInstalled("Guild")` first.
 - Recent anti-cheat history in this server: `Journal.GetRecent(20)` returns the last 20 entries (`name`, `reason`, `severity`, `action`, `time`). Admins can also type `/acflags <player>` ([anticheat-and-bans](anticheat-and-bans.md)).

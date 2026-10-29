@@ -24,6 +24,8 @@ local Webhook = GaxiaServer.Webhook
 ### Functions
 
 - `Webhook.SetTransport(fn: (url: string, body: string) -> (boolean, number?, number?, string?)): ()`
+- `Webhook.SetChannel(channel: string, url: string?): boolean`
+  Set (or, with nil / "", remove) the URL of a channel from a server Script. It wins over Config.Webhook.Channels and is never replicated. Returns false (and warns) for a bad name or a URL that does not start with http:// or https://.
 - `Webhook.SendUrl(url: string, payload: any): boolean`
 - `Webhook.Send(channel: string, payload: any): boolean`
 - `Webhook.IsConfigured(channel: string): boolean`
@@ -37,7 +39,7 @@ Connect with `:Connect(function(...) end)`; the parameters are the payload types
 - `Webhook.OnSend` — `Signal<string, boolean>`
   (channel, ok) after a 2xx delivery; channel is "(url)" for SendUrl
 - `Webhook.OnError` — `Signal<string, string>`
-  (channel, reason) when a payload is dropped (JSON encode failure, retries exhausted)
+  (channel, reason) when a payload is dropped (JSON encode failure, retries exhausted, "queue_full" when MaxQueue pushed it out). Not fired while HTTP is disabled: those messages stay queued and are retried.
 
 ### Types
 

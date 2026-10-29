@@ -821,6 +821,8 @@ export type WebhookConfig = {
         MinInterval: number,
         MaxQueue: number,
         MaxRetries: number,
+        -- Seconds between retries while HttpService requests are disabled.
+        HttpOffRetry: number?,
     },
     Username: string,
 }
@@ -839,6 +841,8 @@ export type WebhookConfig = {
 		MinInterval: number,
 		MaxQueue: number,
 		MaxRetries: number,
+		-- Seconds between retries while HttpService requests are disabled.
+		HttpOffRetry: number?,
 	},
 	Username: string,
 }
@@ -858,6 +862,7 @@ local Webhook: WebhookConfig = {
 		MinInterval = 2,   -- seconds between sends per channel
 		MaxQueue    = 100, -- drop oldest beyond this (bounded memory)
 		MaxRetries  = 3,   -- on HTTP 429 / transient failure
+		HttpOffRetry = 30, -- HTTP disabled: keep the queue, retry every N seconds
 	},
 	Username = "Gaxia", -- default Discord webhook username override
 }
