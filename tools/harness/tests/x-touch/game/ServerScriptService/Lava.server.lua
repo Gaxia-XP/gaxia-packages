@@ -21,3 +21,7 @@ local ghost = workspace:WaitForChild("Ghost") :: BasePart
 ghost.Touched:Connect(function(hit: BasePart)
 	print(`[Ghost] touched {hit.Name}`)
 end)
+local wall = workspace:WaitForChild("Wall") :: BasePart
+wall.Touched:Connect(function(hit: BasePart)
+	print(`[Wall] touched {hit.Name}`)
+end)

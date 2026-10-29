@@ -29,7 +29,8 @@ error, hang and `warn` with the file to edit. Docs: `tools/harness/README.md`.
   `chat`, `fireServer` / `invokeServer`, `autoBuy` / `purchase`,
   `touch(part, hitPart, endAfter?)`, `touchEnded`, `touchWith(player, part, endAfter?, limb?)`
   (no physics: parts touch only when a scenario says so; nothing fires outside the
-  Workspace or with `CanTouch = false`) and `activateTool(player, toolName)`.
+  Workspace, with `CanTouch = false`, or between two `Anchored` parts, since Roblox needs
+  one of them to be simulated) and `activateTool(player, toolName)`.
   `Tool:Activate()` / `Deactivate()` fire `Activated` / `Deactivated` while the tool is
   equipped, like Roblox.
 - **Behaviour change:** notes at the top of a `--game` folder (`PACKAGES.txt`,

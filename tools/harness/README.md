@@ -87,7 +87,7 @@ print(harness.runClient(p, [[return #game.Players.LocalPlayer.PlayerGui:GetChild
 -- harness.fireServer(p, "ReplicatedStorage.Events.MyRemote", "arg")  -- your remote
 -- print(harness.invokeServer(p, "ReplicatedStorage.MyFunction", 1))  -- your RemoteFunction
 -- harness.touchWith(p, "Workspace.Lava")                       -- your part: the player's character touches it
--- harness.touch("Workspace.Button", "Workspace.Crate", 0.5)    -- two parts touch, the touch ends 0.5 s later
+-- harness.touch("Workspace.Button", "Workspace.Crate", 0.5)    -- two parts touch (not both Anchored), the touch ends 0.5 s later
 -- harness.activateTool(p, "Sword")                             -- your tool: equip it (from the Backpack) and click
 harness.leave(p)
 ```
@@ -108,7 +108,10 @@ click is clicked next), and fires `Activated` with a mouse `InputObject` and cli
 | `harness.touchWith(player, part, endAfter?, limb?)` | the player's character touches `part` with its `HumanoidRootPart` (or `limb`, e.g. `"LeftFoot"`), on the server and on that player's client (Roblox's client sees its own character's touches) |
 
 Both return `true`, or `false` (with a note in the SCENARIO LOG) when Roblox would not fire `Touched`: a part
-outside the Workspace or with `CanTouch = false`.
+outside the Workspace, a part with `CanTouch = false`, or two parts that are both `Anchored` (Roblox fires
+`Touched` only when at least one of the two is physically simulated, so two anchored parts never touch, even
+when they overlap; a character's parts are not anchored). Only the `Anchored` property is checked: a part welded
+to an anchored part still counts as moving here.
 
 **Tools.** `harness.activateTool(player, toolName)` clicks with a Tool: if it is in the Backpack it is equipped
 first (another equipped tool goes back to the Backpack; `Unequipped` / `Equipped` fire), then `Activated` and

@@ -469,7 +469,10 @@ local function inWorkspace(raw)
 	return false
 end
 -- Can these two parts touch? Roblox fires Touched only for parts in the
--- Workspace whose CanTouch is true (on both).
+-- Workspace whose CanTouch is true (on both), and only when at least one of
+-- them is physically simulated: two Anchored parts never fire Touched, even
+-- when they overlap. (Only the Anchored property is checked: a part welded to
+-- an anchored part counts as simulated here.)
 local function canTouch(a, b)
 	for _, r in { a, b } do
 		if not inWorkspace(r) then
@@ -478,6 +481,9 @@ local function canTouch(a, b)
 		if readable(r, server, "CanTouch") == false then
 			return false, I.fullName(r) .. ".CanTouch = false"
 		end
+	end
+	if readable(a, server, "Anchored") == true and readable(b, server, "Anchored") == true then
+		return false, I.fullName(a) .. " and " .. I.fullName(b) .. " are both Anchored (one of them must move)"
 	end
 	return true, nil
 end
@@ -511,7 +517,8 @@ end
 -- harness.touch(part, hitPart, endAfter?): part.Touched(hitPart) and
 -- hitPart.Touched(part) fire on the server. With endAfter (seconds), that much
 -- time passes and TouchEnded fires the same way. Returns false (and logs why)
--- when Roblox would not fire it (a part outside the Workspace, CanTouch false).
+-- when Roblox would not fire it (a part outside the Workspace, CanTouch false,
+-- or both parts Anchored).
 function harness.touch(part, hitPart, endAfter)
 	return touchParts("touch", partArg("touch", part, 1), partArg("touch", hitPart, 2), endAfter, { server })
 end

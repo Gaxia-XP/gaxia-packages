@@ -1,5 +1,5 @@
 {
-  "description": "(x) harness.touch / harness.touchWith fire Touched (both parts) and TouchEnded; CanTouch = false fires nothing",
+  "description": "(x) harness.touch / harness.touchWith fire Touched (both parts) and TouchEnded; CanTouch = false or two Anchored parts fire nothing",
   "framework": false,
   "exit": 0,
   "errorCount": 0,
@@ -11,6 +11,6 @@
     { "contains": "[Lava] server touched by part Ball" },
     { "contains": "[Ball] touched Lava" }
   ],
-  "notPrints": ["[Ghost]", "[LavaFx] client saw Ball"],
-  "summary": ["touchWith: true", "touch: true", "touch ghost: false", "Workspace.Ghost.CanTouch = false", "health 0"]
+  "notPrints": ["[Ghost]", "[Wall]", "[Lava] server touched by part Wall", "[LavaFx] client saw Ball"],
+  "summary": ["touchWith: true", "touch: true", "touch ghost: false", "Workspace.Ghost.CanTouch = false", "touch anchored: false", "Workspace.Lava and Workspace.Wall are both Anchored", "health 0"]
 }
