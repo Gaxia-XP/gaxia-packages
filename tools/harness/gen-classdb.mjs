@@ -19,7 +19,8 @@ if (!defs || !fs.existsSync(defs)) {
   console.error('usage: node tools/harness/gen-classdb.mjs path/to/globalTypes.d.luau')
   process.exit(2)
 }
-const PRIMS = { number: 'n', string: 's', boolean: 'b' }
+// ContentId / ProtectedString are strings in Roblox ("rbxassetid://1", Script.Source)
+const PRIMS = { number: 'n', string: 's', boolean: 'b', ContentId: 's', ProtectedString: 's' }
 let classNames = new Set()
 const typeCode = (t) => {
   t = t.trim()

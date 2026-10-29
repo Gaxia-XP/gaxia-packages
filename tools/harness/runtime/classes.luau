@@ -687,6 +687,15 @@ I.define("Humanoid", {
 	methods = {
 		TakeDamage = function(self, amount)
 			local raw = self_(self, "TakeDamage")
+			if amount == nil then
+				error("Argument 1 missing or nil", 2)
+			end
+			if type(amount) ~= "number" then
+				amount = tonumber(amount)
+				if amount == nil then
+					error("Unable to cast string to float", 2)
+				end
+			end
 			local model = raw.Parent
 			if model and I.findChild(model, "ForceField", nil) then
 				return

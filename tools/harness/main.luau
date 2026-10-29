@@ -79,6 +79,7 @@ local function build(node, parent)
 	local raw = I.new(cls, nil)
 	raw.Name = node.n
 	raw.source = node.s
+	raw.file = node.f
 	if not raw.class.known then
 		H.note("unmodeled class " .. cls .. " (generic instance that accepts any property)")
 	end
@@ -259,17 +260,63 @@ function harness.chat(p, text)
 	P.chat(playerByName(p), text)
 	S.flush()
 end
+-- What Roblox passes to Activated: (InputObject, clickCount). A stub mouse click.
+local function clickInput(world)
+	local raw = I.new("InputObject", nil)
+	raw.Name = "InputObject"
+	raw.props.UserInputType = D.Enum.UserInputType.MouseButton1
+	raw.props.UserInputState = D.Enum.UserInputState.End
+	raw.props.KeyCode = D.Enum.KeyCode.Unknown
+	raw.props.Position = D.Vector3.zero
+	raw.props.Delta = D.Vector3.zero
+	return I.wrap(world, raw)
+end
+
 -- Click a button in the player's PlayerGui: by path ("ShopGui.Frame.BuyButton",
 -- under PlayerGui) or by the text shown on it ("Buy 100 Gems").
 local function clickNode(node, world)
 	for _, ev in { "MouseButton1Down", "MouseButton1Up", "MouseButton1Click", "Activated" } do
 		local s = node.sigs and node.sigs[ev]
 		if s then
-			H.sig.fireWorld(s, world, if ev == "Activated" then nil else 0, if ev == "Activated" then 1 else 0)
+			if ev == "Activated" then
+				H.sig.fireWorld(s, world, clickInput(world), 1)
+			elseif ev == "MouseButton1Click" then
+				H.sig.fireWorld(s, world)
+			else
+				H.sig.fireWorld(s, world, 0, 0)
+			end
 		end
 	end
 	S.flush()
 end
+
+-- Can a player click this button now? Roblox only delivers clicks to a button
+-- that is on screen: it and every GuiObject above it are Visible, its ScreenGui
+-- (LayerCollector) is Enabled, and it is Interactable.
+local function readable(raw, world, key)
+	local ok, v = pcall(I.readProp, raw, world, key)
+	if ok then
+		return v
+	end
+	return nil
+end
+local function onScreen(node, world, gui)
+	if readable(node, world, "Interactable") == false then
+		return false, "Interactable = false"
+	end
+	local n = node
+	while n and n ~= gui do
+		if n.class.isA.GuiObject and readable(n, world, "Visible") == false then
+			return false, (if n == node then "Visible = false" else n.Name .. ".Visible = false")
+		end
+		if n.class.isA.LayerCollector and readable(n, world, "Enabled") == false then
+			return false, n.Name .. ".Enabled = false"
+		end
+		n = n.Parent
+	end
+	return n == gui, "not in PlayerGui"
+end
+
 function harness.clickButton(p, path)
 	local plr = playerByName(p)
 	local world = plr.clientWorld
@@ -289,18 +336,25 @@ function harness.clickButton(p, path)
 	if node == nil then
 		error("harness.clickButton: no button at PlayerGui." .. path .. " and no button with that text", 2)
 	end
+	local ok, why = onScreen(node, world, gui)
+	if not ok then
+		-- still clicked (the scenario asked for it), but say a player could not
+		H.emit({ t = "scenario", text = "note: clicked " .. path .. " although a player could not (" .. why .. ")", time = S.clock })
+	end
 	clickNode(node, world)
 end
 -- Every button in a player's PlayerGui that has a click handler connected, as
 -- "Gui.Frame.Button" paths (sorted, so runs are deterministic). Used by
 -- tools/harness/scenarios/click-all.lua (check-playbooks --run).
-local function buttonNodes(p)
+-- With onlyClickable, buttons a player cannot click right now are left out
+-- (returned separately as `hidden`).
+local function buttonNodes(p, onlyClickable)
 	local plr = playerByName(p)
 	local world = plr.clientWorld
 	local gui = I.findChild(plr, "PlayerGui", nil)
-	local out = {}
+	local out, hidden = {}, {}
 	if gui == nil then
-		return out, world
+		return out, world, hidden
 	end
 	for _, d in I.visibleDescendants(gui, world, {}) do
 		if d.class.isA.GuiButton and d.sigs then
@@ -317,14 +371,23 @@ local function buttonNodes(p)
 					table.insert(parts, 1, node.Name)
 					node = node.Parent
 				end
-				table.insert(out, { path = table.concat(parts, "."), node = d })
+				local entry = { path = table.concat(parts, "."), node = d }
+				if onlyClickable then
+					local ok, why = onScreen(d, world, gui)
+					entry.why = why
+					table.insert(if ok then out else hidden, entry)
+				else
+					table.insert(out, entry)
+				end
 			end
 		end
 	end
-	table.sort(out, function(a, b)
+	local byPath = function(a, b)
 		return a.path < b.path
-	end)
-	return out, world
+	end
+	table.sort(out, byPath)
+	table.sort(hidden, byPath)
+	return out, world, hidden
 end
 function harness.buttons(p)
 	local out = {}
@@ -333,19 +396,39 @@ function harness.buttons(p)
 	end
 	return out
 end
--- Click every hooked button in the player's PlayerGui once, `gap` simulated
--- seconds apart (default 0.5). Returns the clicked paths.
+-- Click every button a player can click in their PlayerGui once, `gap`
+-- simulated seconds apart (default 0.5). After each click the list is rebuilt,
+-- so a button revealed by an earlier click (a confirm dialog) is clicked in a
+-- later pass; hidden buttons are skipped. Returns the clicked paths and the
+-- paths that stayed hidden.
 function harness.clickAll(p, gap)
-	local list, world = buttonNodes(p)
-	local clicked = {}
-	for _, b in list do
-		if b.node.Parent ~= nil then
-			clickNode(b.node, world)
-			table.insert(clicked, b.path)
-			S.advance(gap or 0.5)
+	local clicked, done = {}, {}
+	local hiddenLeft = {}
+	for _ = 1, 200 do
+		local list, world, hidden = buttonNodes(p, true)
+		hiddenLeft = hidden
+		local nextOne = nil
+		for _, b in list do
+			if not done[b.node] and b.node.Parent ~= nil then
+				nextOne = b
+				break
+			end
+		end
+		if nextOne == nil then
+			break
+		end
+		done[nextOne.node] = true
+		clickNode(nextOne.node, world)
+		table.insert(clicked, nextOne.path)
+		S.advance(gap or 0.5)
+	end
+	local skipped = {}
+	for _, b in hiddenLeft do
+		if not done[b.node] then
+			table.insert(skipped, b.path .. " (" .. b.why .. ")")
 		end
 	end
-	return clicked
+	return clicked, skipped
 end
 local scenarioRun = 0
 local function runSource(world, source)
@@ -376,10 +459,38 @@ end
 function harness.exists(path)
 	return findPath(path, nil) ~= nil
 end
+-- A scenario value as text: arrays as "{a, b, c}", other tables as "{k = v, ...}"
+-- (sorted), so logs are readable and the same on every run.
+local function show(v, depth)
+	if type(v) ~= "table" or I.isRaw[v] or getmetatable(v) ~= nil then
+		return H.stable(D.tostring(v))
+	end
+	if depth > 3 then
+		return "{...}"
+	end
+	local parts = {}
+	local n = rawlen(v)
+	for i = 1, n do
+		parts[i] = show(v[i], depth + 1)
+	end
+	local keys = {}
+	for k in v do
+		if not (type(k) == "number" and k >= 1 and k <= n and k == math.floor(k)) then
+			table.insert(keys, k)
+		end
+	end
+	table.sort(keys, function(a, b)
+		return tostring(a) < tostring(b)
+	end)
+	for _, k in keys do
+		table.insert(parts, tostring(k) .. " = " .. show(v[k], depth + 1))
+	end
+	return "{" .. table.concat(parts, ", ") .. "}"
+end
 function harness.log(...)
 	local parts = {}
 	for i = 1, select("#", ...) do
-		parts[i] = D.tostring((select(i, ...)))
+		parts[i] = show((select(i, ...)), 0)
 	end
 	H.emit({ t = "scenario", text = table.concat(parts, " "), time = S.clock })
 end

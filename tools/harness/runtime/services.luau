@@ -49,6 +49,9 @@ local function getService(provider, name, level)
 		if cls.known and not (cls.service or KNOWN_SERVICES[name]) then
 			error(string.format("'%s' is not a valid Service name", name), level + 1)
 		end
+		if not cls.known and not KNOWN_SERVICES[name] then
+			error(string.format("'%s' is not a valid Service name (if it is a new Roblox service, regenerate tools/harness/classdb.json with tools/harness/gen-classdb.mjs)", name), level + 1)
+		end
 		return I.service(name)
 	end
 	for _, c in provider.children do
@@ -879,13 +882,25 @@ local collisionGroups = { Default = true }
 I.define("PhysicsService", {
 	methods = {
 		RegisterCollisionGroup = function(self, name)
+			if name == nil then
+				error("Argument 1 missing or nil", 2)
+			end
+			name = tostring(name)
 			collisionGroups[name] = true
 		end,
 		CreateCollisionGroup = function(self, name)
+			if name == nil then
+				error("Argument 1 missing or nil", 2)
+			end
+			name = tostring(name)
 			collisionGroups[name] = true
 			return 1
 		end,
 		UnregisterCollisionGroup = function(self, name)
+			if name == nil then
+				error("Argument 1 missing or nil", 2)
+			end
+			name = tostring(name)
 			collisionGroups[name] = nil
 		end,
 		IsCollisionGroupRegistered = function(self, name)
@@ -1045,11 +1060,15 @@ I.define("PolicyService", {
 I.define("BadgeService", {
 	methods = {
 		AwardBadge = function(self, userId, badgeId)
+			userId = H.checkInt64(userId, 1, 2)
+			badgeId = H.checkInt64(badgeId, 2, 2)
 			H.record("call", { service = "BadgeService", method = "AwardBadge", args = { userId, badgeId } })
 			asyncYield()
 			return true
 		end,
-		UserHasBadgeAsync = function()
+		UserHasBadgeAsync = function(self, userId, badgeId)
+			H.checkInt64(userId, 1, 2)
+			H.checkInt64(badgeId, 2, 2)
 			asyncYield()
 			return false
 		end,

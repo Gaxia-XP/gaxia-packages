@@ -1,0 +1,11 @@
+{
+  "description": "(o) an error in a server remote handler is red on the server and re-raised by the client's InvokeServer",
+  "framework": true,
+  "exit": 1,
+  "errorCount": 2,
+  "errors": [
+    { "contains": "ServerScriptService.CoinRemote:7: attempt to index nil with 'Coins'", "world": "server" },
+    { "contains": "ServerScriptService.CoinRemote:7: attempt to index nil with 'Coins'", "world": "client:Player1" }
+  ],
+  "summary": ["your code: Players.Player1.PlayerScripts.AskCoins:3"]
+}

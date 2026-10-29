@@ -89,7 +89,7 @@ I.define("Players", {
 		end,
 		GetPlayerFromCharacter = function(self, model)
 			local _, world = self_(self, "GetPlayerFromCharacter")
-			local m = I.rawOf(model)
+			local m = H.checkObject(model, 1, 2, nil, true)
 			if m == nil then
 				return nil
 			end
@@ -115,7 +115,14 @@ I.define("Players", {
 		end,
 		GetUserThumbnailAsync = function(self, id, kind, size)
 			H.asyncYield()
-			return string.format("rbxthumb://type=AvatarHeadShot&id=%s&w=150&h=150", tostring(id)), true
+			local kinds = { HeadShot = "AvatarHeadShot", AvatarBust = "AvatarBust", AvatarThumbnail = "Avatar" }
+			local k = if typeof(kind) == "EnumItem" then kinds[kind.Name] else nil
+			local w, h = 150, 150
+			if typeof(size) == "EnumItem" then
+				local a, b = string.match(size.Name, "^Size(%d+)x(%d+)$")
+				w, h = tonumber(a) or w, tonumber(b) or h
+			end
+			return string.format("rbxthumb://type=%s&id=%s&w=%d&h=%d", k or "AvatarHeadShot", tostring(id), w, h), true
 		end,
 		GetFriendsAsync = function(self)
 			local _, world = self_(self, "GetFriendsAsync")
@@ -182,24 +189,30 @@ I.define("Player", {
 				P.leave(raw, "kicked")
 			end)
 		end,
-		GetRankInGroup = function()
+		GetRankInGroup = function(self, groupId)
+			H.checkInt64(groupId, 1, 2)
 			return 0
 		end,
-		GetRoleInGroup = function()
+		GetRoleInGroup = function(self, groupId)
+			H.checkInt64(groupId, 1, 2)
 			return "Guest"
 		end,
-		IsInGroup = function()
+		IsInGroup = function(self, groupId)
+			H.checkInt64(groupId, 1, 2)
 			return false
 		end,
-		GetRankInGroupAsync = function()
+		GetRankInGroupAsync = function(self, groupId)
+			H.checkInt64(groupId, 1, 2)
 			H.asyncYield()
 			return 0
 		end,
-		GetRoleInGroupAsync = function()
+		GetRoleInGroupAsync = function(self, groupId)
+			H.checkInt64(groupId, 1, 2)
 			H.asyncYield()
 			return "Guest"
 		end,
-		IsInGroupAsync = function()
+		IsInGroupAsync = function(self, groupId)
+			H.checkInt64(groupId, 1, 2)
 			H.asyncYield()
 			return false
 		end,

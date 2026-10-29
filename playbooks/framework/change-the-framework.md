@@ -136,7 +136,7 @@ grep -c TypeError lsp-before.txt lsp-after.txt lsp-v2-before.txt lsp-v2-after.tx
 grep -c "<YourFile>.*TypeError" lsp-before.txt lsp-after.txt lsp-v2-before.txt lsp-v2-after.txt
 ```
 
-The `run-game` and `--run` lines run the framework headlessly: a server and one player for 10 s of simulated time ([tools/harness/README.md](../../tools/harness/README.md)). `--self-test` must print `self-test: N/N passed` (every case passed). The two `run-game.mjs --quiet` lines must print `RESULT: 0 errors, 0 hangs`, and `--run` must print `0 problem(s)`. `<YourPackage>` = the package in `Packages.lua` that holds the module you changed. A line marked `HARNESS ERROR` is a bug in the harness, not in your change.
+The `run-game` and `--run` lines run the framework headlessly: a server and one player for 10 s of simulated time ([tools/harness/README.md](../../tools/harness/README.md)). `--self-test` must print `self-test: N/N passed` (every case passed). The two `run-game.mjs --quiet` lines must exit with code `0`: their `RESULT:` line starts `RESULT: 0 errors, 0 hangs` and ends `→ exit 0` (`RESULT: HARNESS ERROR` means nothing was checked). `--run` must print `0 problem(s)` and exit `0`. `<YourPackage>` = the package in `Packages.lua` that holds the module you changed. A line marked `HARNESS ERROR` is a bug in the harness, not in your change.
 
 Run the last line once for each file you changed (`<YourFile>` = the end of its path, for example `Lib/EconomyService.lua`). Each `after` count must not be higher than its `before` count. A new file must have `0` in both `after` files. Some files already have type errors: those are not yours to fix.
 
@@ -163,7 +163,7 @@ No Studio? Run every command check, report each Studio check as NOT RUN, and tel
 
 1. `packages.mjs check` prints `✓ … catalogue matches the source`; `gen-api.mjs --check` prints `✓ playbooks/api is up to date`.
 2. `check-architecture.mjs --complete` prints `… 0 violation(s)`; `check-playbooks.mjs --v2` prints `… 0 problem(s)`.
-3. `run-game.mjs` (full install and your package) prints `RESULT: 0 errors, 0 hangs`; `check-playbooks.mjs --no-types --run` prints `… 0 problem(s)`.
+3. `run-game.mjs` (full install and your package) exits `0` and prints `RESULT: 0 errors, 0 hangs, … → exit 0`; `check-playbooks.mjs --no-types --run` prints `… 0 problem(s)` and exits `0`.
 4. The `grep -c` counts in Step 7: no `after` count is higher than its `before` count, and new files have `0`.
 5. The Studio play-test shows no red errors, and the changed feature works.
 6. `CHANGELOG.md` has your entry, and `git status` shows only the files you meant to change.

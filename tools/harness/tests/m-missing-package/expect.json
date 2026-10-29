@@ -1,0 +1,7 @@
+{
+  "description": "(m) using a package that was not picked (GaxiaServer.Pet with --packages Data,Economy) errors at the game line",
+  "packages": "Data,Economy",
+  "exit": 1,
+  "errorCount": 1,
+  "errors": [{ "contains": "ServerScriptService.Eggs:6: attempt to index nil with 'Hatch'", "world": "server" }]
+}

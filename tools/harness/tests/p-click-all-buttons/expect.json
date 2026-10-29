@@ -1,0 +1,8 @@
+{
+  "description": "(p) harness.clickAll clicks every hooked button (what check-playbooks --run does): a handler's error is found",
+  "framework": false,
+  "exit": 1,
+  "errorCount": 1,
+  "errors": [{ "contains": "Players.Player1.PlayerScripts.Buttons:18: attempt to index nil with 'Price'", "world": "client:Player1" }],
+  "prints": [{ "contains": "[Buttons] ok clicked" }]
+}

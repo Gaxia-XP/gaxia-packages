@@ -91,6 +91,42 @@ function H.gameError(world: string, message: string, trace: string?, context: st
 	end
 end
 
+-- Roblox argument casts. `argn` is the argument number (1-based, after self);
+-- `level` is the error level as seen from the caller of these helpers.
+-- int64 parameters (user ids, product / pass / badge / group ids): a number or a
+-- numeric string; anything else is "Unable to cast <type> to int64".
+function H.checkInt64(v, argn: number, level: number)
+	if v == nil then
+		error(string.format("Argument %d missing or nil", argn), level + 1)
+	end
+	if type(v) == "number" then
+		return math.floor(v)
+	end
+	if type(v) == "string" and tonumber(v) then
+		return math.floor(tonumber(v))
+	end
+	error(string.format("Unable to cast %s to int64", if type(v) == "string" then "string" else H.typeof(v)), level + 1)
+end
+
+-- Object parameters (a Player, an Instance): anything that is not an Instance
+-- is "Unable to cast value to Object". `className` (optional) narrows it.
+function H.checkObject(v, argn: number, level: number, className: string?, allowNil: boolean?)
+	if v == nil then
+		if allowNil then
+			return nil
+		end
+		error(string.format("Argument %d missing or nil", argn), level + 1)
+	end
+	local raw = H.inst.rawOf(v)
+	if raw == nil then
+		error("Unable to cast value to Object", level + 1)
+	end
+	if className and not (raw.class and raw.class.isA and raw.class.isA[className]) then
+		error(string.format("Unable to cast value to Object (expected a %s, got a %s)", className, raw.ClassName), level + 1)
+	end
+	return raw
+end
+
 function H.note(text: string)
 	if not H.notes[text] then
 		H.notes[text] = true

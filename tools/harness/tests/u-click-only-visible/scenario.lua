@@ -1,0 +1,7 @@
+harness.advance(2)
+local p = harness.join("Player1")
+harness.advance(2)
+local clicked, skipped = harness.clickAll(p, 0.5)
+print("clicked", clicked)
+print("skipped", skipped)
+harness.advance(1)

@@ -76,6 +76,29 @@ function S.cleanMessage(v): string
 	return msg
 end
 
+-- Lune's datatypes (Color3, Vector3, UDim2, ...) raise errors as an "error"
+-- userdata whose tostring carries "runtime error: " and a traceback. Roblox code
+-- always sees a string such as "Script:1: message": convert it.
+function S.normalizeError(e)
+	if type(e) ~= "userdata" or typeof(e) ~= "error" then
+		return e
+	end
+	local full = tostring(e)
+	local first = string.match(full, "^[^\n]*") or full
+	first = string.gsub(first, "^runtime error: ", "")
+	first = string.gsub(first, "^callback error: ", "")
+	if string.match(first, "^[^:]+:%d+: ") then
+		return first
+	end
+	for line in string.gmatch(full, "[^\n]+") do
+		local src, ln = string.match(line, "^%s*(.-):(%d+):")
+		if src and isGameSource(src) then
+			return src .. ":" .. ln .. ": " .. first
+		end
+	end
+	return first
+end
+
 function S.worldOf(co)
 	local i = info[co]
 	return i and i.world
@@ -97,7 +120,7 @@ function S.reportError(co, value, trace)
 end
 
 -- ── threads ──────────────────────────────────────────────────────────────────
-function S.create(fn, world)
+function S.create(fn, world, origin)
 	local co
 	co = coroutine.create(function(...)
 		local r = table.pack(xpcall(fn, function(e)
@@ -109,8 +132,27 @@ function S.create(fn, world)
 		end
 		return ERR
 	end)
-	info[co] = { world = world }
+	local src = debug.info(origin or fn, "s")
+	info[co] = { world = world, src = if src and isGameSource(src) then src else nil }
 	return co
+end
+
+-- Which script is running now, for tools/run-game.mjs's timeout message: a
+-- "@@R world|script" line each time the running (world, script) changes. When
+-- a thread never yields, the last such line names it.
+local runKey = nil
+local function announce(key)
+	if key ~= runKey then
+		runKey = key
+		print("@@R " .. key)
+	end
+end
+local function keyOf(co)
+	local i = info[co]
+	if not i then
+		return "?|?"
+	end
+	return (if i.world then i.world.id else "?") .. "|" .. (i.src or "?")
 end
 
 -- Resume a thread from the engine (scheduler, signal, task.spawn). An error that
@@ -127,7 +169,11 @@ function S.resume(co, ...)
 		i.token = nil
 		i.waiting = nil
 	end
+	local running = coroutine.running()
+	local outer = if info[running] then keyOf(running) else "-|engine"
+	announce(keyOf(co))
 	local r = table.pack(coroutine.resume(co, ...))
+	announce(outer)
 	if not r[1] then
 		S.reportError(co, r[2], nil)
 	elseif r[2] == ERR and coroutine.status(co) == "dead" then
@@ -216,8 +262,8 @@ function S.waitFor(seconds: number?): number
 end
 
 -- Engine signal handler: Deferred signal behaviour (Roblox default) queues it.
-function S.runHandler(fn, world, args)
-	local co = S.create(fn, world)
+function S.runHandler(fn, world, args, origin)
+	local co = S.create(fn, world, origin)
 	if H.options.signalBehavior == "immediate" then
 		S.resume(co, table.unpack(args, 1, args.n))
 	else
@@ -249,6 +295,11 @@ S.frameHooks = {} -- { phase = "render"|"stepped"|"heartbeat", fn = function(dt)
 function S.step()
 	S.frame += 1
 	S.clock = S.frame * S.FRAME
+	if S.frame % 60 == 0 then
+		-- progress for tools/run-game.mjs's watchdog (it stops a run only when
+		-- no progress is seen for --timeout ms)
+		print("@@T " .. S.frame // 60)
+	end
 	S.intra = 0
 	for _, hook in S.frameHooks do
 		if hook.phase ~= "heartbeat" then

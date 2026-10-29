@@ -28,7 +28,8 @@
 //   node tools/check-playbooks.mjs --emit <dir>       # also write each playbook's
 //        game tree (framework + its scripts + default.project.json) to <dir>/<name>/
 //   node tools/check-playbooks.mjs --run              # also RUN each playbook's scripts
-//        headlessly (tools/run-game.mjs: full install, 1 player, 10 s) and report
+//        headlessly (tools/run-game.mjs: full install, 1 player joins, every button in
+//        PlayerGui is clicked once — tools/harness/scenarios/click-all.lua) and report
 //        runtime errors and hangs at their playbook line. Needs `lune` (not rojo or
 //        luau-lsp when combined with --no-types).
 //
@@ -42,7 +43,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { generate } from './gen-api.mjs'
-import { runGame } from './run-game.mjs'
+import { runGame, studioPath, FRAMEWORK } from './run-game.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const args = process.argv.slice(2)
@@ -230,33 +231,63 @@ if (!flag('--no-types') && !fs.existsSync(DEFS)) {
 // ── 3. run the playbook's scripts headlessly (--run) ─────────────────────────
 // A runtime error names the script by its full name ("ServerScriptService.CoinShop:12:"
 // or, for a LocalScript copied to the player, "Players.Player1.PlayerScripts.ShopUI:3:").
+// Only exact paths, after the runtime renames (PlayerScripts → StarterPlayerScripts,
+// PlayerGui → StarterGui, ...). A framework chunk never maps to a playbook block,
+// even when a block has the same leaf name (Toast, Config, Signal, ...).
 function blockFor(placed, chunk) {
-  const exact = placed.find((b) => b.dmPath.replaceAll('/', '.') === chunk)
-  if (exact) return exact
-  const leaf = chunk.split('.').pop()
-  const byName = placed.filter((b) => b.dmPath.split('/').pop() === leaf)
-  return byName.length === 1 ? byName[0] : null
+  if (FRAMEWORK.test(chunk)) return null
+  const studio = studioPath(chunk)
+  return placed.find((b) => { const p = b.dmPath.replaceAll('/', '.'); return p === chunk || p === studio }) ?? null
 }
 
 function mdLocation(file, placed, text) {
-  const m = /^([A-Za-z_][\w. -]*?):(\d+)\b/.exec(text ?? '')
-  if (m) {
+  const m = /^([^\n]+?):(\d+)(?=[: ]|$)/.exec(text ?? '')
+  if (m && !m[1].includes(': ')) {
     const b = blockFor(placed, m[1])
     if (b) return `${path.relative(ROOT, file)}:${b.start + Number(m[2]) - b.offset}`
   }
   return path.relative(ROOT, file)
 }
 
+const CLICK_ALL = path.join(ROOT, 'tools', 'harness', 'scenarios', 'click-all.lua')
 async function runPlaybook(file, placed, dir) {
-  const report = await runGame({ build: dir })
+  const report = await runGame({ build: dir, scenario: CLICK_ALL })
   const first = (t) => (t ?? '').split('\n')[0]
+  if (report.harness.some((h) => h.lune === 'missing')) {
+    console.log(`✗ HARNESS ERROR: ${report.harness[0].message}`)
+    console.log('check-playbooks: stopped — --run needs lune (no playbook was run)')
+    if (!emitDir) fs.rmSync(dir, { recursive: true, force: true })
+    process.exit(2)
+  }
   for (const h of report.harness) report_(file, `HARNESS ERROR (not a playbook bug): ${h.message.split('\n')[0]}`)
+  for (const e of report.scenarioErrors) report_(file, `SCENARIO ERROR in the click-all scenario (harness, not a playbook bug): ${e.message.split('\n')[0]}`)
+  if (report.exitCode === 2 && !report.harness.length && !report.scenarioErrors.length) report_(file, 'the harness run exited 2 (see node tools/run-game.mjs --build on the emitted tree)')
+  for (const k of report.kicks) {
+    let loc = path.relative(ROOT, file)
+    for (const line of (k.trace ?? '').split('\n')) {
+      loc = mdLocation(file, placed, line)
+      if (loc.includes(':')) break
+    }
+    problems.push(`${loc}: kick [${k.by}]: ${k.player} was kicked: "${k.message}" (a playbook must not kick the test player; the rest of its checks did not run)`)
+  }
   for (const e of report.errors) {
+    // The first playbook line in the message or the stack (an error raised inside
+    // Gaxia is reported at the playbook line that called it).
     let loc = mdLocation(file, placed, e.message)
-    if (!loc.includes(':')) loc = mdLocation(file, placed, first(e.trace))
+    for (const line of (e.trace ?? '').split('\n')) {
+      if (loc.includes(':')) break
+      loc = mdLocation(file, placed, line)
+    }
     problems.push(`${loc}: runtime error [${e.world}]: ${e.message}${e.count > 1 ? ` (x${e.count})` : ''}`)
   }
-  for (const h of report.hangs) problems.push(`${mdLocation(file, placed, first(h.trace))}: hang [${h.world}]: ${h.text} waits forever`)
+  for (const h of report.hangs) {
+    let loc = path.relative(ROOT, file)
+    for (const line of (h.trace ?? '').split('\n')) {
+      loc = mdLocation(file, placed, line)
+      if (loc.includes(':')) break
+    }
+    problems.push(`${loc}: hang [${h.world}]: ${h.text} waits forever`)
+  }
   for (const w of report.warnings) warnings.push(`${mdLocation(file, placed, w.source ?? first(w.trace))}: runtime warning [${w.world}]: ${w.text}`)
   return report
 }
@@ -304,5 +335,5 @@ for (const file of files) {
 
 for (const w of warnings) console.log(`  warn ${w}`)
 for (const p of problems) console.log(`✗ ${p}`)
-console.log(`check-playbooks: ${files.length} file(s), ${checkedBlocks} code block(s) type-checked${flag('--no-types') ? ' (types skipped)' : ''}, ${fragments} fragment(s)${RUN ? `, ${ranPlaybooks} playbook(s) run` : ''}, ${problems.length} problem(s)`)
+console.log(`check-playbooks: ${files.length} file(s), ${checkedBlocks} code block(s)${flag('--no-types') ? ' (type check skipped)' : ' type-checked'}, ${fragments} fragment(s)${RUN ? `, ${ranPlaybooks} playbook(s) run` : ''}, ${problems.length} problem(s)`)
 process.exit(problems.length ? 1 : 0)

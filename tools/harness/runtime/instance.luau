@@ -136,6 +136,14 @@ function I.class(name: string)
 			if c.members[pname] == nil and prop.Scriptability ~= "None" and not isAlias then
 				c.members[pname] = ":" .. ldbTypeCode(prop.Datatype)
 			end
+			-- the definitions only say "number": Lune's database knows which are integers
+			if (prop.Datatype == "Int32" or prop.Datatype == "Int64") and c.members[pname] == ":n" then
+				c.members[pname] = ":int"
+			end
+			-- string-like properties typed as an unknown type in the definitions
+			if c.members[pname] == ":?" and (prop.Datatype == "ContentId" or prop.Datatype == "String") then
+				c.members[pname] = ":s"
+			end
 		end
 		local tags = lc.Tags or {}
 		c.notCreatable = table.find(tags, "NotCreatable") ~= nil
@@ -397,7 +405,7 @@ end
 local D = nil
 local function typeDefault(code: string)
 	D = D or H.dt
-	if code == "n" then
+	if code == "n" or code == "int" then
 		return 0
 	elseif code == "s" then
 		return ""
@@ -440,7 +448,7 @@ local function typeDefault(code: string)
 end
 
 local function matchesCode(v, code: string): boolean
-	if code == "n" then
+	if code == "n" or code == "int" then
 		return type(v) == "number"
 	elseif code == "s" then
 		return type(v) == "string"
@@ -638,6 +646,18 @@ local function coerce(raw, key: string, code: string, v, level: number)
 			return tonumber(v)
 		end
 		error(string.format("Unable to assign property %s. number expected, got %s", key, t), level)
+	elseif code == "int" then
+		-- int / int64 properties (IntValue.Value, ZIndex, LayoutOrder, ...) never hold
+		-- fractions in Roblox. Rounded to the nearest integer here (confirm in Studio
+		-- whether Roblox rounds or truncates before relying on .5 cases).
+		local n = if t == "number" then v elseif t == "string" then tonumber(v) else nil
+		if n == nil then
+			error(string.format("Unable to assign property %s. number expected, got %s", key, t), level)
+		end
+		if n ~= n or n == math.huge or n == -math.huge then
+			return n
+		end
+		return math.floor(n + 0.5)
 	elseif code == "b" then
 		if t == "boolean" then
 			return v
@@ -960,7 +980,7 @@ function I.clone(raw, owner)
 		local c = {
 			ClassName = r.ClassName, Name = r.Name, class = r.class, children = {}, props = table.clone(r.props),
 			attrs = table.clone(r.attrs), tags = table.clone(r.tags), owner = owner, id = nextId, source = r.source,
-			scriptKind = r.scriptKind,
+			scriptKind = r.scriptKind, file = r.file,
 		}
 		isRaw[c] = true
 		if r.cloneState then

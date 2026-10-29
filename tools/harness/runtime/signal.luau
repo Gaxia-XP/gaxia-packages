@@ -163,7 +163,7 @@ function Sig.deliver(c, args)
 				return
 			end
 			return fn(...)
-		end, c.world, converted)
+		end, c.world, converted, fn)
 	end
 end
 

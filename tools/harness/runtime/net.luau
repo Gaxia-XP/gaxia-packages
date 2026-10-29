@@ -41,11 +41,34 @@ local function copyValue(v, dst, seen, mode)
 		end
 		local out = {}
 		seen[v] = out
+		-- Roblox remote rules: a mixed table (array part + other keys) keeps only
+		-- its array part; keys that are not numbers or strings become strings.
+		local arrayLen = if mode == "remote" then rawlen(v) else 0
+		local mixed = false
+		if arrayLen > 0 then
+			for k in v do
+				if not (type(k) == "number" and k >= 1 and k <= arrayLen and k == math.floor(k)) then
+					mixed = true
+					break
+				end
+			end
+		end
 		for k, val in v do
-			local ck = copyValue(k, dst, seen, mode)
-			local cv = copyValue(val, dst, seen, mode)
-			if ck ~= nil and cv ~= nil then
-				out[ck] = cv
+			local keep = true
+			if mixed and not (type(k) == "number" and k >= 1 and k <= arrayLen and k == math.floor(k)) then
+				keep = false
+			end
+			if keep then
+				local ck
+				if mode == "remote" and type(k) ~= "number" and type(k) ~= "string" then
+					ck = if I.rawOf(k) then I.rawOf(k).Name else tostring(k)
+				else
+					ck = copyValue(k, dst, seen, mode)
+				end
+				local cv = copyValue(val, dst, seen, mode)
+				if ck ~= nil and cv ~= nil then
+					out[ck] = cv
+				end
 			end
 		end
 		seen[v] = nil
@@ -149,9 +172,12 @@ local remoteEventMethods = {
 			if playerRaw.Parent == nil then
 				return
 			end
-			table.insert(args, 1, playerRaw)
-			args.n += 1
-			deliverRemote(raw, "OnServerEvent", server, args)
+			-- keep every argument in its position (args can have nil holes)
+			local out = { n = args.n + 1, [1] = playerRaw }
+			for i = 1, args.n do
+				out[i + 1] = args[i]
+			end
+			deliverRemote(raw, "OnServerEvent", server, out)
 		end)
 	end,
 	FireClient = function(self, player, ...)
@@ -222,7 +248,7 @@ H.callbackGet = callbackGet
 
 -- Run `cb` (in its world) with args; then hand results (or the error) to `done`.
 local function invokeCallback(cb, args, done)
-	S.spawn(function()
+	local co = S.create(function()
 		local r = table.pack(xpcall(cb.fn, function(e)
 			return { e, debug.traceback(nil, 2) }
 		end, table.unpack(args, 1, args.n)))
@@ -231,7 +257,8 @@ local function invokeCallback(cb, args, done)
 		else
 			done(false, r[2])
 		end
-	end, cb.world)
+	end, cb.world, cb.fn)
+	S.resume(co)
 end
 
 local function whenCallback(raw, name, world, go)
@@ -264,9 +291,11 @@ I.define("RemoteFunction", {
 				error("InvokeServer can only be called from the client", 2)
 			end
 			local server = H.worlds.server
-			local args = copyArgs(server, "remote", ...)
-			table.insert(args, 1, world.player)
-			args.n += 1
+			local copied = copyArgs(server, "remote", ...)
+			local args = { n = copied.n + 1, [1] = world.player }
+			for i = 1, copied.n do
+				args[i + 1] = copied[i]
+			end
 			countRemote(raw, "InvokeServer")
 			local w = S.suspend({ kind = "InvokeServer", text = string.format("%s:InvokeServer() waits for the server's OnServerInvoke", I.fullName(raw)), since = S.clock })
 			later(function()

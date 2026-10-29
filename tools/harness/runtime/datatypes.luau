@@ -15,6 +15,82 @@ for _, name in { "Vector3", "Vector2", "CFrame", "Color3", "UDim", "UDim2", "Num
 	D[name] = roblox[name]
 end
 
+-- Lune gaps in CFrame / Vector3 constructors (checked against Roblox):
+--  * Lune's CFrame.lookAt returns the inverse rotation (a view matrix), so its
+--    LookVector points the wrong way. Rebuilt here from fromMatrix.
+--  * CFrame.new(pos, lookAt) (2 Vector3s, deprecated but still valid) is missing.
+--  * Vector3.FromNormalId / Vector3.FromAxis are missing.
+do
+	local V3, CF = roblox.Vector3, roblox.CFrame
+	local function lookAt(at, target, up)
+		if typeof(at) ~= "Vector3" or typeof(target) ~= "Vector3" then
+			error("invalid argument #1 to 'lookAt' (Vector3 expected)", 3)
+		end
+		up = if typeof(up) == "Vector3" then up else V3.yAxis
+		local d = target - at
+		if d.Magnitude < 1e-9 then
+			return CF.new(at)
+		end
+		local look = d.Unit
+		local right = look:Cross(up)
+		if right.Magnitude < 1e-6 then
+			-- looking straight along `up`: Roblox picks a right vector perpendicular to it
+			right = look:Cross(V3.new(0, 0, -1))
+			if right.Magnitude < 1e-6 then
+				right = V3.xAxis
+			end
+		end
+		right = right.Unit
+		local up2 = right:Cross(look).Unit
+		return CF.fromMatrix(at, right, up2, -look)
+	end
+	local cf = setmetatable({}, { __index = CF })
+	for k, v in CF do
+		cf[k] = v
+	end
+	cf.lookAt = function(at, target, up)
+		return lookAt(at, target, up)
+	end
+	cf.new = function(...)
+		local n = select("#", ...)
+		local a, b = ...
+		if n == 2 and typeof(a) == "Vector3" and typeof(b) == "Vector3" then
+			return lookAt(a, b, nil)
+		end
+		return CF.new(...)
+	end
+	D.CFrame = cf
+
+	local v3 = setmetatable({}, { __index = V3 })
+	for k, v in V3 do
+		v3[k] = v
+	end
+	local normals = {
+		Right = V3.new(1, 0, 0),
+		Top = V3.new(0, 1, 0),
+		Back = V3.new(0, 0, 1),
+		Left = V3.new(-1, 0, 0),
+		Bottom = V3.new(0, -1, 0),
+		Front = V3.new(0, 0, -1),
+	}
+	v3.FromNormalId = function(id)
+		local v = normals[if typeof(id) == "EnumItem" then id.Name else tostring(id)]
+		if v == nil then
+			error("invalid argument #1 to 'FromNormalId' (NormalId expected)", 2)
+		end
+		return v
+	end
+	local axes = { X = V3.xAxis, Y = V3.yAxis, Z = V3.zAxis }
+	v3.FromAxis = function(id)
+		local v = axes[if typeof(id) == "EnumItem" then id.Name else tostring(id)]
+		if v == nil then
+			error("invalid argument #1 to 'FromAxis' (Axis expected)", 2)
+		end
+		return v
+	end
+	D.Vector3 = v3
+end
+
 local function readonlyType(typeName: string, fields, methods)
 	local obj = newproxy(true)
 	local mt = getmetatable(obj)
@@ -141,6 +217,10 @@ EnumMT.__index = function(self, key)
 		end
 	end
 	local item = d.items[key]
+	if item == nil and d.real then
+		-- the Enum type is known and complete: an unknown item is a typo, as in Roblox
+		error(string.format("%s is not a valid member of \"Enum.%s\"", tostring(key), d.name), 2)
+	end
 	if item == nil then
 		H.note(string.format("unmodeled Enum.%s.%s (not in the harness's Roblox database; given a placeholder item)", d.name, tostring(key)))
 		item = fakeItem(self, d.name, tostring(key))

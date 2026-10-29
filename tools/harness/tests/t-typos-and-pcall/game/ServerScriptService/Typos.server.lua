@@ -1,0 +1,17 @@
+local function try(name, f)
+	local ok, e = pcall(f)
+	print(name, ok, typeof(e), if ok then "" else e)
+end
+try("enum", function() return Enum.Material.Neonx end)
+try("class", function() return Instance.new("Partt") end)
+try("service", function() return game:GetService("NopeService") end)
+-- a Lune datatype error is still a string in pcall (Roblox: always a string)
+local ok, err = pcall(Color3.fromHex, "zz")
+warn("bad color: " .. err)
+local s = Instance.new("Sound")
+print("soundid", s.SoundId == "", typeof(s.SoundId))
+local v = Instance.new("IntValue")
+v.Value = 10 * 1.25
+print("int", v.Value)
+local h = Instance.new("Humanoid")
+try("damage", function() h:TakeDamage(nil) end)

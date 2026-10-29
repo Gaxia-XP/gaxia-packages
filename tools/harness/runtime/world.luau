@@ -49,6 +49,10 @@ function W.require(world, raw)
 	end
 	rec = { state = "loading", waiters = {}, thread = coroutine.running() }
 	world.modules[raw] = rec
+	if raw.file and not raw.requiredReported then
+		raw.requiredReported = true
+		H.emit({ t = "required", name = I.fullName(raw), file = raw.file })
+	end
 	local function finish(state, value, message)
 		rec.state = state
 		rec.value = value
@@ -114,7 +118,26 @@ function W.makeGlobals(world)
 	g.setmetatable, g.getmetatable, g.tonumber, g.xpcall, g.newproxy = setmetatable, getmetatable, tonumber, xpcall, newproxy
 	g.gcinfo, g.getfenv, g.setfenv, g.type = gcinfo, getfenv, setfenv, type
 	g.unpack = table.unpack
-	g.ypcall = pcall
+	-- pcall / xpcall: an error is always a string (or the table the game raised)
+	local norm = S.normalizeError
+	local function pcallResult(ok, ...)
+		if ok then
+			return true, ...
+		end
+		return false, norm((...))
+	end
+	g.pcall = function(f, ...)
+		return pcallResult(pcall(f, ...))
+	end
+	g.xpcall = function(f, handler, ...)
+		if type(handler) ~= "function" then
+			return xpcall(f, handler, ...)
+		end
+		return xpcall(f, function(e)
+			return handler(norm(e))
+		end, ...)
+	end
+	g.ypcall = g.pcall
 	g.string, g.table, g.utf8, g.bit32, g.buffer = string, table, utf8, bit32, buffer
 	g.vector = vector
 	g._VERSION = "Luau"
@@ -152,7 +175,7 @@ function W.makeGlobals(world)
 	end
 	local function finishResume(thread, r)
 		if not r[1] then
-			return false, S.cleanMessage(r[2])
+			return false, S.cleanMessage(S.normalizeError(r[2]))
 		end
 		if r[2] == S.ERR and coroutine.status(thread) == "dead" then
 			local e = S.threadErr[thread]
@@ -350,7 +373,7 @@ function W.makeGlobals(world)
 				error(string.format("Unable to create an Instance of type \"%s\"", className), 2)
 			end
 			if not cls.known then
-				H.note("unmodeled class " .. className .. " (generic instance that accepts any property)")
+				error(string.format("Unable to create an Instance of type \"%s\" (not a Roblox class; if it is new, regenerate tools/harness/classdb.json with tools/harness/gen-classdb.mjs)", className), 2)
 			end
 			local raw = I.new(className, H.ownerFor(world))
 			if parent ~= nil then
@@ -412,9 +435,10 @@ function W.runScript(raw, world)
 	local fn, err = compile(raw, world)
 	if not fn then
 		H.gameError(world.id, err, nil, "compile")
+		H.emit({ t = "script", world = world.id, name = I.fullName(raw), time = S.clock, file = raw.file, compileError = true })
 		return
 	end
-	H.emit({ t = "script", world = world.id, name = I.fullName(raw), time = S.clock })
+	H.emit({ t = "script", world = world.id, name = I.fullName(raw), time = S.clock, file = raw.file })
 	local co = S.create(fn, world)
 	S.deferThread(co)
 end

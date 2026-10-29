@@ -1,0 +1,13 @@
+{
+  "description": "(r) DataStore values follow Roblox's rules (nested Instance, mixed / number-keyed tables, missing value) and the error is the game's line, not a HARNESS ERROR",
+  "framework": false,
+  "exit": 1,
+  "errorCount": 1,
+  "errors": [{ "contains": "ServerScriptService.Save:13: 104: Cannot store Instance in data store" }],
+  "prints": [
+    { "contains": "mixed false ServerScriptService.Save:6: 104: Cannot store Array" },
+    { "contains": "numkeys false ServerScriptService.Save:7: 104: Cannot store Array" },
+    { "contains": "noval false ServerScriptService.Save:8: Argument 2 missing or nil" },
+    { "contains": "json false ServerScriptService.Save:11: Can't convert to JSON" }
+  ]
+}

@@ -16,30 +16,74 @@ local asyncYield = function()
 end
 
 -- ── value checks / copies ────────────────────────────────────────────────────
-local function storable(v, path, level, seen)
+-- Returns nil when `v` can be saved, else Roblox's error message. It never
+-- raises itself, so the caller raises once at the right level (the game line).
+-- Roblox serializes a value to JSON: a table must be a pure array (1..n, no
+-- holes) or a dictionary with only string keys.
+-- (Message texts follow Roblox's "104: Cannot store X in data store" pattern;
+-- confirm the exact wording in Studio before matching on it.)
+local function storableErr(v, path, seen)
 	local t = type(v)
 	if t == "nil" or t == "boolean" or t == "string" then
-		return
+		return nil
 	elseif t == "number" then
 		if v ~= v or v == math.huge or v == -math.huge then
-			error("104: Cannot store " .. tostring(v) .. " in data store. Data stores can only accept valid UTF-8 characters.", level)
+			return "104: Cannot store " .. tostring(v) .. " in data store. Data stores can only accept valid UTF-8 characters."
 		end
-		return
+		return nil
 	elseif t == "table" then
 		if seen[v] then
-			error("104: Cannot store a cyclic table in data store.", level)
+			return "104: Cannot store a cyclic table in data store."
+		end
+		if getmetatable(v) ~= nil and H.typeNames[v] then
+			return string.format("104: Cannot store %s in data store. Data stores can only accept valid UTF-8 characters.", H.typeof(v))
 		end
 		seen[v] = true
-		for k, x in v do
-			if type(k) ~= "string" and type(k) ~= "number" then
-				error("104: Cannot store table with " .. H.typeof(k) .. " keys in data store.", level)
+		local n = rawlen(v)
+		local count, strKeys, numKeys = 0, 0, 0
+		for k in v do
+			count += 1
+			if type(k) == "string" then
+				strKeys += 1
+			elseif type(k) == "number" then
+				numKeys += 1
+			else
+				seen[v] = nil
+				return "104: Cannot store Dictionary in data store. Data stores can only accept valid UTF-8 characters. (key of type " .. H.typeof(k) .. " at " .. path .. ")"
 			end
-			storable(x, path .. "." .. tostring(k), level, seen)
+		end
+		if strKeys > 0 and numKeys > 0 then
+			seen[v] = nil
+			return "104: Cannot store Array in data store. Data stores can only accept valid UTF-8 characters. (" .. path .. " mixes number and string keys)"
+		end
+		if numKeys > 0 and (numKeys ~= n or count ~= n) then
+			seen[v] = nil
+			return "104: Cannot store Array in data store. Data stores can only accept valid UTF-8 characters. (" .. path
+				.. " has number keys that are not 1, 2, 3, ... with no gaps; use string keys such as tostring(id))"
+		end
+		for k, x in v do
+			local e = storableErr(x, path .. "." .. tostring(k), seen)
+			if e then
+				seen[v] = nil
+				return e
+			end
 		end
 		seen[v] = nil
-		return
+		return nil
 	end
-	error(string.format("104: Cannot store %s in data store. Data stores can only accept valid UTF-8 characters.", H.typeof(v)), level)
+	return string.format("104: Cannot store %s in data store. Data stores can only accept valid UTF-8 characters. (at %s)", H.typeof(v), path)
+end
+
+local MAX_VALUE_CHARS = 4194304
+local function checkStorable(v, key, level)
+	local e = storableErr(v, key, {})
+	if e then
+		error(e, level + 1)
+	end
+	local ok, encoded = pcall(serde.encode, "json", v)
+	if ok and #encoded > MAX_VALUE_CHARS then
+		error(string.format("105: Serialized value converted byte size exceeds max size 4194304 bytes (%d)", #encoded), level + 1)
+	end
 end
 
 local function deepCopy(v)
@@ -178,10 +222,14 @@ local dsMethods = {
 		end
 		return deepCopy(e.value), makeKeyInfo(world, e)
 	end,
-	SetAsync = function(self, key, value, userIds, options)
+	SetAsync = function(self, key, ...)
+		local value, userIds, options = ...
 		local raw, world = self_(self, "SetAsync")
 		key = checkKey(key, 3)
-		storable(value, key, 3, {})
+		if select("#", ...) < 1 then
+			error("Argument 2 missing or nil", 2)
+		end
+		checkStorable(value, key, 2)
 		dsCall(raw, "SetAsync", key, 3)
 		local e = write(raw.data, key, value, userIds, options and options.metadata)
 		return e and e.version or ""
@@ -212,7 +260,7 @@ local dsMethods = {
 		if newValue == nil then
 			return nil, nil
 		end
-		storable(newValue, key, 3, {})
+		checkStorable(newValue, key, 2)
 		local ne = write(raw.data, key, newValue, userIds, metadata)
 		return deepCopy(ne.value), makeKeyInfo(world, ne)
 	end,
@@ -667,7 +715,10 @@ I.define("MessagingService", {
 local function recordPrompt(method)
 	return function(self, player, id, ...)
 		local _, world = self_(self, method)
-		local p = I.rawOf(player)
+		local p = H.checkObject(player, 1, 2, "Player")
+		if method ~= "PromptPremiumPurchase" and method ~= "PromptSubscriptionPurchase" then
+			id = H.checkInt64(id, 2, 2)
+		end
 		H.record("purchasePrompt", { method = method, player = p and p.Name, id = id, world = world.id })
 		if not (H.options.autoBuy and p) then
 			return
@@ -697,6 +748,8 @@ I.define("MarketplaceService", {
 		PromptBundlePurchase = recordPrompt("PromptBundlePurchase"),
 		PromptSubscriptionPurchase = recordPrompt("PromptSubscriptionPurchase"),
 		UserOwnsGamePassAsync = function(self, userId, passId)
+			userId = H.checkInt64(userId, 1, 2)
+			passId = H.checkInt64(passId, 2, 2)
 			asyncYield()
 			local owned = H.ownedPasses or {}
 			return owned[tostring(userId) .. ":" .. tostring(passId)] == true
@@ -775,7 +828,7 @@ local function teleportCall(method, yields)
 		local args = {}
 		for i = 1, math.min(n, 4) do
 			local v = select(i, ...)
-			args[i] = if type(v) == "userdata" or type(v) == "table" then H.typeof(v) else v
+			args[i] = if v == nil then "nil" elseif type(v) == "userdata" or type(v) == "table" then H.typeof(v) else v
 		end
 		H.record("teleport", { method = method, args = args, world = world.id })
 		if yields then
@@ -846,7 +899,8 @@ local function jsonEncode(v, seen, level)
 		return serde.encode("json", v)
 	elseif t == "table" then
 		if seen[v] then
-			error("Can't convert to JSON (cyclic table)", level)
+			-- raised as a marker table and re-raised once by JSONEncode at the caller's line
+			error({ jsonError = "Can't convert to JSON" })
 		end
 		seen[v] = true
 		local n = #v
@@ -909,7 +963,14 @@ I.define("HttpService", {
 	},
 	methods = {
 		JSONEncode = function(self, v)
-			return jsonEncode(v, {}, 3)
+			local ok, r = pcall(jsonEncode, v, {}, 3)
+			if not ok then
+				if type(r) == "table" and r.jsonError then
+					error(r.jsonError, 2)
+				end
+				error(r, 0)
+			end
+			return r
 		end,
 		JSONDecode = function(self, s)
 			if type(s) ~= "string" then
