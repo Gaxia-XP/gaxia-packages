@@ -4,7 +4,7 @@
 
 **Use this when** the user asks for: "shop", "store", "buy items with coins", "sell items", "buy button", "item shop", "upgrade shop" (ไทย: "ร้านค้า", "ซื้อของด้วยเหรียญ", "ปุ่มซื้อ", "ขายไอเทม", "ร้านขายของ", "ซื้ออัปเกรด").
 **Packages:** pick `Shop` **and** `Item` in the installer. `Shop` brings `Economy`, `Level`, `Monetization` and `Data`; it does **not** bring `Item`. The script stops with a clear message if one is missing.
-**You will create:** a Script `ServerScriptService/CoinShop` and a LocalScript `StarterPlayer/StarterPlayerScripts/CoinShopUI`.
+**You will create:** a Script `ServerScriptService/CoinShop`, a LocalScript `StarterPlayer/StarterPlayerScripts/CoinShopUI`, and (to test) the Script `ServerScriptService/StudioTestCoins`.
 
 How it works: `GaxiaServer.Shop` keeps the catalogue **on the server** (price, currency, a `grant` function per item).
 `Shop.Purchase(player, itemId)` checks the gates, takes the Coins with `Economy.Spend`, then runs `grant`. If `grant` errors, the Coins come back.
@@ -16,8 +16,6 @@ Create a **Script** in **ServerScriptService** named **CoinShop**. Paste this wh
 
 ```lua
 -- Script: ServerScriptService/CoinShop
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
 local Gaxia = require(game:GetService("ReplicatedStorage").Gaxia_Packages)
 
@@ -29,8 +27,6 @@ local Data = GaxiaServer.Data
 local Economy = GaxiaServer.Economy
 local Item = GaxiaServer.Item
 local Shop = GaxiaServer.Shop
-
-local STUDIO_TEST_COINS = 500 -- Studio only: Coins each tester gets on join, to test buying. No effect in a live game.
 
 -- Gives `count` of an item. error() makes Shop give the Coins back.
 local function giveItem(itemId: string, count: number): (player: Player) -> ()
@@ -88,18 +84,6 @@ Net.OnInvoke("ShopBuy", function(player: Player, itemId: any): (boolean, string)
 	print(`[CoinShop] {player.Name} bought {itemId}, Coins left: {coins}`)
 	return true, `Bought! Coins left: {coins}`
 end, { rate = 4, burst = 8 })
-
-local function onPlayerAdded(player: Player)
-	if RunService:IsStudio() and STUDIO_TEST_COINS > 0 and Data.WaitFor(player, 120) ~= nil then
-		Economy.Add(player, "Coins", STUDIO_TEST_COINS)
-		print(`[CoinShop] Studio test: gave {player.Name} {STUDIO_TEST_COINS} Coins`)
-	end
-end
-
-Players.PlayerAdded:Connect(onPlayerAdded)
-for _, player in Players:GetPlayers() do
-	task.spawn(onPlayerAdded, player)
-end
 
 print("[CoinShop] ready")
 ```
@@ -177,12 +161,17 @@ print("[CoinShopUI] ready")
 
 What it does: it asks the server for the list once, makes one button per item, and shows each answer for 2 seconds.
 
+## Step 3 — Give yourself test Coins in Studio
+
+Create the Script **StudioTestCoins** in **ServerScriptService**. Copy it exactly from [currency-and-leaderstats, Step 4](currency-and-leaderstats.md#step-4--studio-only-give-yourself-test-coins).
+It gives every tester at least 500 Coins on each Play, only in Studio, so you can test buying at once.
+
 ## Check that it works
 
 1. Press **Play** in Studio. Output shows `[CoinShop] ready` and `[CoinShopUI] ready`, and no red errors.
-2. Within a few seconds Output shows `[CoinShop] Studio test: gave <YourName> 500 Coins`.
+2. Within a few seconds Output shows `[StudioTestCoins] <YourName> now has at least 500 Coins`.
 3. Click **Apple - 10 Coins**. Output shows `[CoinShop] <YourName> bought Apple, Coins left: <number>` and `[CoinShopUI] buy Apple: true Bought! Coins left: <number>`.
-   The number is `490` on the first Play. Coins are kept between Plays only with **Enable Studio Access to API Services** ([player-data](player-data.md)).
+   The number is `490` on a new save (500 test Coins minus 10).
 4. Click **Wooden Sword - 150 Coins** twice (wait 2 seconds between). The second click shows `You already own it` (the first one too if you already had a sword).
 5. Click **Box of 10 Apples - 80 Coins** until the Coins run out. That click shows `Not enough Coins`, and Output shows `[CoinShop] <YourName> could not buy AppleBox: insufficient_funds`.
 

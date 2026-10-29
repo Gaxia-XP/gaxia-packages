@@ -2,7 +2,7 @@
 
 > You find the exact error text or symptom in a table below, apply the fix in its last column, and press Play again until Output has no red lines.
 
-**Use this when** the user says: "error", "it does not work", "nothing happens", "X is nil", "infinite yield", "player got kicked", "data not saving", "bought but got nothing", "Script Analysis shows red" (ไทย: "error", "ไม่ทำงาน", "กดแล้วไม่เกิดอะไร", "ขึ้นตัวแดง", "เป็น nil", "โดนเตะออก", "ข้อมูลไม่เซฟ", "ซื้อแล้วไม่ได้ของ", "ติดตั้งไม่ได้").
+**Use this when** the user says: "error", "it does not work", "nothing happens", "X is nil", "infinite yield", "player got kicked", "data not saving", "bought but got nothing", "Script Analysis shows red", "GAME LAYOUT", "HARNESS ERROR", "data not loaded" (ไทย: "error", "ไม่ทำงาน", "กดแล้วไม่เกิดอะไร", "ขึ้นตัวแดง", "เป็น nil", "โดนเตะออก", "ข้อมูลไม่เซฟ", "ซื้อแล้วไม่ได้ของ", "ติดตั้งไม่ได้").
 **Packages:** any. This page works with every install.
 **You will create:** nothing, except (only in Step 3) a temporary Script `ServerScriptService/HealthCheck` that you delete afterwards.
 
@@ -16,7 +16,7 @@
 ## Step 2 — Look the text up and apply the fix
 
 Search this page for a few words of the error, without your own names and numbers (for example `not registered by server`). Do the **Fix** column exactly, then press **Play** again. The tables are grouped:
-A. requires and loading · B. packages missing, nil services · C. player data · D. remotes (Net) · E. coins, shop, Robux · F. anti-cheat · G. UI and client · H. Script Analysis · I. installing (Companion, Rojo) · J. other packages.
+A. requires and loading · B. packages missing, nil services · C. player data · D. remotes (Net) · E. coins, shop, Robux · F. anti-cheat · G. UI and client · H. Script Analysis · I. installing (Companion, Rojo) · J. other packages · K. headless runs (`run-game`).
 
 ### A. Requires and loading
 
@@ -44,7 +44,7 @@ A. requires and loading · B. packages missing, nil services · C. player data �
 | `Gaxia.IsInstalled("Economy")` is false in a LocalScript | Server packages are not visible to the client | Check them with `GaxiaServer.IsInstalled("Economy")` in a Script. |
 | `Gaxia.IsInstalled("Util")` is false | `Util` is a folder | `Gaxia.IsInstalled("Util.Table")` |
 | `attempt to index nil with 'Shake'` (or `'Show'`, `'PlayMusic'`) in a **Script** | `Gaxia.Camera`, `Gaxia.UI`, `Gaxia.Sound`, `Gaxia.Effects` are client modules: nil on the server | Call them in a LocalScript. The server tells clients with `Net.FireAllClients` ([effects-and-feel](game/effects-and-feel.md)). |
-| Robux receipts or another boot package do nothing after ticking **All** | A full install boots an old fixed list without `Monetization` | Install with a pick instead of **All**. Or call `GaxiaServer.Monetization.RegisterProduct` at the top of a Script (first use starts it). |
+| Robux receipts or another boot package do nothing after ticking **All** or `packages.mjs build --all` (`[CheckInstall] picked: nil`) | A full install records no pick: it boots only the fixed list in `Config/Features`, without `Monetization` | Install with a pick instead (Companion: **None**, then tick; Rojo: `--select`). Or call `GaxiaServer.Monetization.RegisterProduct` at the top of a Script (first use starts it). |
 | `Data` / `Monetization` stopped starting after you added `ServerStorage/GaxiaFeatures` | That module **replaces** the whole boot list | List every service that must boot (Data, Player, Monetization if you sell Robux items). |
 | `[Gaxia_Packages_Server] Features: "X" is not installed` | `GaxiaFeatures` lists a package this place does not have | Remove `X` from the list, or install it. |
 | `[Gaxia_Packages_Server] Chat is running without Admin: ...` | Admin is installed but not started (missing from `GaxiaFeatures`) | Add `"Admin"` to `GaxiaFeatures`, or delete `GaxiaFeatures`. |
@@ -60,6 +60,8 @@ A. requires and loading · B. packages missing, nil services · C. player data �
 | Data resets every Play; Output: `[ProfileService]: Roblox API services unavailable - data will not be saved` | Studio API access is off | Publish the place, then **Game Settings → Security → Enable Studio Access to API Services**. Play still works without it. |
 | Kicked with `Could not load your data. Please rejoin.` | The data could not be loaded: the same account is still loaded on another server (a fast rejoin), or the DataStore failed. Output has a `[DataManager] Could not load profile …` warning with the reason | Wait a minute and join again. |
 | Kicked with `Your data was opened on another server. Please rejoin.` | The same account joined another server, which took over the data | Play on one server at a time. |
+| A call returns `false, "data not loaded"` (or `nil, "data not loaded"`): `Inventory.Add` / `Equip`, `Mail.Send`, `DailyReward.Claim`, `Pet.RemovePet`, `Guild.*`, `Friend.*` | The player's data is still loading (right after join). The call did nothing: no item, mail, reward or change | Call it after `Data.WaitFor(player, 120)`. From a button: answer "Your data is still loading" and let the player click again. `Shop.Purchase` says the same with `not_loaded` (table E). |
+| `[DataManager] SetDefaults was called after player data loaded` | `Data.SetDefaults` runs late (inside `PlayerAdded`, after a `task.wait`, or in a function called later) | Move `Data.SetDefaults({ ... })` to the top of a Script ([player-data](game/player-data.md) Step 1). |
 | TypeError `Cannot add property 'X' to table 'PlayerData'` | Game code added a field to `GaxiaServer.Data.DEFAULT_PROFILE` | Leave it alone. List your fields with `Data.SetDefaults` ([player-data](game/player-data.md) Step 1). |
 | Saved data lost, or the save fails | An Instance, Vector3, CFrame or Color3 was saved, or a table with mixed number keys | Save only numbers, strings, booleans and tables with string keys (`tostring(userId)`). |
 | Unlocking something for one player unlocks it for all | One defaults table is shared by every player | List the field in `Data.SetDefaults` ([player-data](game/player-data.md) Step 1): each player gets their own copy. |
@@ -88,6 +90,11 @@ A. requires and loading · B. packages missing, nil services · C. player data �
 | `Economy.Add` returns false | Data not loaded yet, or the call was refused (Output shows a yellow `[Economy] Add refused: …` warning with the reason and your script line) | Wait for the data. Pass `(player, currency, amount)` in that order, with a whole amount from 1 to `Economy.MaxTransaction`; use `Economy.Spend` to take Coins. |
 | `Economy.Spend(player, "Coins", 2000000)` returns false with enough Coins | Amounts above `Economy.MaxTransaction` (1,000,000) are refused (warning `amount 2000000 is above Economy.MaxTransaction`) | Keep every price and reward at or below 1,000,000, or raise the limit ([config-and-flags](game/config-and-flags.md)). |
 | `Economy.Add(player, "Coins", 0.5)` returns false (warning `amount must be a whole number`) | Fractions are refused, not rounded | Whole numbers only: `math.ceil(price * 0.9)`. |
+| `[Economy] Add refused: currency must be a non-empty string, got number 100 (are currency and amount swapped?)` | The arguments are in the wrong order | `Economy.Add(player, "Coins", 100)`: player, currency, then amount. |
+| `[Economy] Add refused: player must be a Player, got …` | The first argument is not a Player (a name, a UserId, a character Model, or `nil`) | Pass the Player: `Players:GetPlayerFromCharacter(hit.Parent)` for touches, the `player` argument in Net handlers. Check it is not `nil` first. |
+| `[Economy] Add refused: amount must be greater than 0` (also `Spend` / `Transfer`) | 0 or a negative amount | Use `Economy.Spend` to take Coins; skip the call when the amount is 0. |
+| `[Economy] … refused: the saved value "Inventory" is a table, not a number: it is not a currency` | A currency name that is another saved field (`Inventory`, `Pets`, `Quests`, …) | Use `Coins`, `Gems` or a new name such as `Tokens` ([currency-and-leaderstats](game/currency-and-leaderstats.md)). |
+| `[Economy] … refused: the saved balance "Coins" is nan (corrupt)` (or `inf`) | Game code saved a bad number with `Data.Set` (for example `0/0`) | Repair it once with `Economy.Set(player, "Coins", 0)` (Output then shows `[Economy] Set repaired a corrupt saved balance`). Then change balances only with `Economy`. |
 | `[EConfig] ignoring override Economy.MaxTransaction = …` in Output | The override has the wrong type (a string, or `true` from `/flag set` with no value) | Set a number: `/flag set Economy.MaxTransaction 5000000`, or `/flag clear Economy.MaxTransaction`. Until then the default is used. |
 | `Shop.Purchase` says `not_loaded` right after join | The buyer's data has not loaded yet (nothing was checked or taken) | Show "Your data is still loading" and let the player try again ([shop](game/shop.md)). |
 | The player pays but gets nothing | The `grant` function ignores a failed `Item.Give` | `if not Item.Give(player, id, 1) then error("Give failed") end`: an error refunds the Coins ([shop](game/shop.md)). |
@@ -150,6 +157,22 @@ Flags look like `[AntiCheat] observe mode — would take HARD action against <Na
 | `<dir> is not empty and is not a previous build` | `build` replaces `src/` in that folder | Use an empty folder such as `../MyGame/gaxia`. Never put game files in it. |
 | `unknown package(s): X` | A misspelled package name | Copy names from `node tools/packages.mjs list`: commas, no spaces. |
 | Rojo game boots the wrong services after a rebuild | The game's own project still has the old `GaxiaPackages` value in `$attributes` | Copy the new value from `gaxia/default.project.json` into the game's project. |
+
+### K. Headless runs (`tools/run-game.mjs`, `check-playbooks.mjs --run`)
+
+These lines come from the Gaxia repo's test tools, not from Studio. Pass = the `RESULT:` line ends `→ exit 0`.
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `GAME LAYOUT … none of your --game code ran` (or `none of your --game scripts ran`) | The scripts are not in service folders, or have the wrong file names | `mygame/ServerScriptService/X.server.lua` (Script), `mygame/StarterPlayer/StarterPlayerScripts/X.client.lua` (LocalScript), `mygame/ServerStorage/GameModules/X.lua` (ModuleScript). Pass `--game mygame`. |
+| `GAME LAYOUT … --game points at the service folder "ServerScriptService" itself` | `--game` is one folder too deep | Pass the parent folder, which holds one folder per service. |
+| `GAME LAYOUT … folder X was ignored: it is not a service name` (`did you mean …?`) | A misspelled service folder at the top of `--game` | Rename it to the exact service name it suggests. |
+| `GAME LAYOUT … X.lua is a ModuleScript … and nothing required it, so it never ran` | A Script saved without `.server` / `.client` in its name | Rename it `X.server.lua` (server) or `X.client.lua` (client). |
+| `HARNESS ERROR` (and `RESULT: HARNESS ERROR → exit 2`) | The test tool itself failed. Nothing was checked | Not a bug in the game. Report the first `HARNESS ERROR` line to the user. Do not change the game to hide it. |
+| `SCENARIO ERROR` | Your `--scenario` file failed | Fix the scenario file, not the game. |
+| `Infinite yield possible on '…:WaitForChild("X")'`, then a `HANGS` entry | A script waits for an instance that never appears (no timeout). This is a hang in Studio too | Create `X` where the script waits, fix the name, or pass a timeout: `WaitForChild("X", 10)`. For a remote: `Net.DeclareEvent("X")` on the server (table D). |
+| A `HANGS` entry on `InvokeServer` or `require` | A call never returned: a server handler that waits forever, or a ModuleScript that waits at its top level | Make the handler return. Never wait at the top level of a ModuleScript. |
+| `RESULT: 0 errors, 0 hangs, N warnings → exit 0` | Pass. Warnings do not fail a run | Still read each warning: most rows of this page start from a yellow line. |
 
 ### J. Other packages
 

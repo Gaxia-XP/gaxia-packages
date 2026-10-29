@@ -4,7 +4,7 @@
 
 **Use this when** the user asks for: "coins", "money", "gems", "currency", "leaderstats", "show coins on the leaderboard", "give coins every few seconds" (ไทย: "เงิน", "เหรียญ", "เพชร", "ระบบเงิน", "โชว์เงินบน leaderboard", "leaderstats", "ให้เงินทุกกี่วินาที").
 **Packages:** `Economy` (it also installs `Data`) and `Player`. The scripts below stop with a clear message if one is missing.
-**You will create:** the Scripts `ServerScriptService/CoinLeaderstats` and `ServerScriptService/CoinPayout`.
+**You will create:** the Scripts `ServerScriptService/CoinLeaderstats` and `ServerScriptService/CoinPayout`, and (only to test buying in Studio) `ServerScriptService/StudioTestCoins`.
 
 How it works:
 
@@ -110,6 +110,48 @@ end
 
 `Spend` takes nothing and returns `false` when the balance is too low. A full button-to-server purchase is in [04-client-server-communication](../start/04-client-server-communication.md); a full shop is in [shop](shop.md).
 
+## Step 4 — (Studio only) Give yourself test Coins
+
+Other playbooks send you here to test buying. Do this step after the checks below pass, or when a playbook links here.
+Create a **Script** in **ServerScriptService** named **StudioTestCoins**:
+
+```lua
+-- Script: ServerScriptService/StudioTestCoins
+-- Studio only: tops each tester up to TEST_COINS Coins on join. Does nothing in a live game.
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
+
+assert(GaxiaServer.IsInstalled("Economy"), "StudioTestCoins needs the Economy package: install it (playbooks/start/01-install-packages.md)")
+
+local Data = GaxiaServer.Data
+local Economy = GaxiaServer.Economy
+
+local TEST_COINS = 500 -- every tester starts each Play with at least this many Coins
+
+local function onPlayerAdded(player: Player)
+	if Data.WaitFor(player, 120) == nil then
+		return -- the player left before the data loaded
+	end
+	if Economy.Get(player, "Coins") < TEST_COINS then
+		Economy.Set(player, "Coins", TEST_COINS)
+	end
+	print(`[StudioTestCoins] {player.Name} now has at least {TEST_COINS} Coins`)
+end
+
+if RunService:IsStudio() then
+	Players.PlayerAdded:Connect(onPlayerAdded)
+	for _, player in Players:GetPlayers() do
+		task.spawn(onPlayerAdded, player)
+	end
+	print("[StudioTestCoins] ready (Studio only)")
+else
+	print("[StudioTestCoins] live game: gives no Coins")
+end
+```
+
+What it does: in Studio each tester has at least 500 Coins after their data loads, on every Play. `Economy.Set` fires `OnTransaction`, so the **Coins** column follows. In a live game it does nothing, so you can leave it in. Delete it when you no longer need it.
+
 ## Check that it works
 
 1. Press **Play** in Studio.
@@ -117,6 +159,7 @@ end
 3. Within a few seconds Output shows `[CoinLeaderstats] <YourName> has 0 Coins`. The player list (top right) has a **Coins** column showing 0.
 4. After 10 seconds Output shows `[CoinPayout] <YourName> +10 Coins, now 10`, and the **Coins** column shows 10.
 5. With **Enable Studio Access to API Services** on (see [player-data](player-data.md)), stop and press **Play** again: the Coins are still there.
+6. (Only if you made `StudioTestCoins`, Step 4) Output shows `[StudioTestCoins] ready (Studio only)`, then `[StudioTestCoins] <YourName> now has at least 500 Coins`. The **Coins** column shows 500 or more.
 
 ## Common mistakes
 
@@ -133,6 +176,7 @@ end
 | `Economy.Add(player, 100, "Coins")` | `Economy.Add(player, "Coins", 100)`: player, currency, then amount | Swapped arguments return `false` and warn `currency must be a non-empty string, got number 100 (are currency and amount swapped?)`. |
 | A price or reward above 1,000,000 | Keep each amount at or below `Economy.MaxTransaction`, or raise it: `GaxiaServer.EConfig.Set("Economy.MaxTransaction", 5000000)` ([config-and-flags](config-and-flags.md)) | Bigger amounts are refused, not cut: `Spend(player, "Coins", 2000000)` returns `false`, takes nothing and warns `amount 2000000 is above Economy.MaxTransaction (1000000)`. `Economy.GetMaxTransaction()` returns the current limit. |
 | A currency named like any saved field (`Level`, `Inventory`, `Pets`, `Quests`, your own `Wins` …) | `Coins`, `Gems` or a new name like `Tokens` | A field that holds a number (`Level`, `Wins`) is changed as if it were money. A field that holds something else (`Inventory`, `Pets`, `Quests`) is refused with a warning (`the saved value "Inventory" is a table, not a number`). Full list of taken names: [player-data](player-data.md). |
+| Test Coins added inside a game Script (`if RunService:IsStudio() then Economy.Add(...)` in `CoinShop`) | The separate Script `StudioTestCoins` (Step 4) | One test pattern for every playbook. `Add` on every Play keeps growing the saved balance; `StudioTestCoins` tops up to a fixed number. Delete one Script when you are done. |
 | `GaxiaServer.Player.SetLeaderstat` before `GaxiaServer.Player.SetupLeaderstats` | Set up first (Step 1 does it on load) | `SetLeaderstat` creates a missing column, but the column order follows the order they were made, and before data loads it shows a wrong value. |
 
 ## Change it

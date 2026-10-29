@@ -41,7 +41,7 @@ Feature → package: coins/gems `Economy` · items `Item` · shop `Shop` · Robu
 **Boot or first use** (true after Step 2 with a pick):
 - These start at server boot: every **server** package you picked, and every installed package marked **Boot** (`Data`, `Player`, `Monetization`, `Settings`, `Cooldown`, `AntiCheat`, `Admin`, `Chat`, …), even as a dependency. Boot rows show `· starts at boot` after the name in the Companion, and `●` before the name in `packages.mjs list`.
 - Every other installed server package starts the first time game code uses it. Client packages load on the client when code uses them.
-- Exceptions: a Companion **All** install boots a fixed old list (it has no `Monetization`). A `ServerStorage/GaxiaFeatures` module replaces the list completely (see Change it).
+- Exceptions: a **full install** records no pick. A full install is the Companion's **All**, `packages.mjs build --all`, or a pick that holds every package. It boots only the fixed list in `Gaxia_Packages_Server/Config/Features` (it has no `Monetization` and no `Settings`); every other package starts on first use. A `ServerStorage/GaxiaFeatures` module replaces the list completely (see Change it).
 
 ## Step 2 — Install
 
@@ -117,7 +117,7 @@ for _, name in NEEDED do
 	end
 end
 
--- The pick saved on the package root. nil = a full (All) install, "" = Core only.
+-- The pick saved on the package root. nil = a full install (All / --all / every package), "" = Core only.
 local picked = ServerStorage.Gaxia_Packages_Server:GetAttribute("GaxiaPackages")
 print(`[CheckInstall] picked: {tostring(picked)}`)
 
@@ -157,7 +157,7 @@ If you cannot press Play, ask the user to do it and paste the Output lines liste
 1. The Explorer shows the four instances from "What gets installed".
 2. Press **Play**. Output shows `[Gaxia_ServerBootstrap] complete` and `[Gaxia_ClientBootstrap] complete — client features loaded`, with no red errors.
 3. Output shows `[CheckInstall] done, 0 missing` and `[CheckInstallClient] done, 0 missing`.
-4. If `[CheckInstall] picked:` shows names (not `nil`) and there is no `ServerStorage/GaxiaFeatures`, `[CheckInstall] started services:` includes every picked **server** package. Client picks (`UI.Toast`, `Input`) and utilities never appear there.
+4. If `[CheckInstall] picked:` shows names (not `nil`) and there is no `ServerStorage/GaxiaFeatures`, `[CheckInstall] started services:` includes every picked **server** package. Client picks (`UI.Toast`, `Input`) and utilities never appear there. `picked: nil` means a full install: it is right only if the user asked for everything (see Common mistakes).
 5. You may delete both scripts once the checks pass.
 
 ## Common mistakes
@@ -166,7 +166,7 @@ If you cannot press Play, ask the user to do it and paste the Output lines liste
 |---|---|---|
 | Editing modules inside `Gaxia_Packages_Server` (Config too) | Settings: [config and flags](../game/config-and-flags.md); boot list: `ServerStorage/GaxiaFeatures` | Install / Update replaces the whole package. |
 | Game Scripts inside `Gaxia_Packages`, `Gaxia_Packages_Server` or `MyGame/gaxia` | Your own Scripts in `ServerScriptService` / `StarterPlayerScripts` | They are deleted by the next Install / Update or build. |
-| Ticking **All** | Tick only what the game uses | Every package is copied, but only an old fixed list boots (no `Monetization`). Unused packages make the place bigger. |
+| Ticking **All**, or `build --all` | Tick (or `--select`) only what the game uses | A full install records no pick (`picked: nil`): every package is copied, but only the fixed list in `Config/Features` boots (no `Monetization`, so Robux receipts are not granted until a Script uses Monetization). Unused packages make the place bigger. |
 | `--out` inside the Gaxia repo, or a folder with other files | An empty folder next to the repo, such as `../MyGame/gaxia` | `build` refuses, or would delete files. |
 | Serving `gaxia/default.project.json` when the game has its own project | Copy the four nodes into the game's project (2B step 3) | Rojo connects to one server: the game's own scripts stop syncing. |
 | `GaxiaServer.IsInstalled("UI.Toast")` on the server | `Gaxia.IsInstalled("UI.Toast")` in a LocalScript | Server `IsInstalled` only knows server services. |

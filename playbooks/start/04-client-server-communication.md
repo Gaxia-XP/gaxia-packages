@@ -4,7 +4,7 @@
 
 **Use this when** the user asks for: "a button that does something on the server", "RemoteEvent", "RemoteFunction", "send data from client to server", "the server tells all players", "fire a remote" (ไทย: "ส่งข้อมูลจาก client ไป server", "กดปุ่มแล้วให้ server ทำงาน", "remote", "ยิง event", "server แจ้งทุกคน").
 **Packages:** `Economy` (it also installs `Data`). `Net` is Core: it is always installed.
-**You will create:** a Script `ServerScriptService/PotionStand`, a LocalScript `StarterPlayer/StarterPlayerScripts/PotionStandButton`, and (only for the check, then deleted) a Script `ServerScriptService/PotionTestCoins`.
+**You will create:** a Script `ServerScriptService/PotionStand`, a LocalScript `StarterPlayer/StarterPlayerScripts/PotionStandButton`, and (only to test buying in Studio) the Script `ServerScriptService/StudioTestCoins`.
 
 How it works:
 
@@ -164,24 +164,9 @@ What it does: it shows one button. A press asks the server and shows the answer 
 1. Press **Play** in Studio.
 2. Output shows `[PotionStand] ready` and `[PotionStandButton] ready`, and no red errors.
 3. Wait 3 seconds, then click the button. A new player has 0 Coins, so Output shows `[PotionStandButton] answer: false Not enough Coins (costs 50)`. The server checked and said no: this is correct. (`Your data is still loading` means you clicked too early: wait 2 seconds and click again.) If you already have 50 Coins or more (for example from `CoinPayout` in [currency-and-leaderstats](../game/currency-and-leaderstats.md)), you see the lines of item 5 instead: skip to item 6.
-4. Stop. Create a temporary **Script** in **ServerScriptService** named **PotionTestCoins**. It gives you 100 Coins, only in Studio:
-   ```lua
-   -- Script: ServerScriptService/PotionTestCoins
-   -- TEMPORARY: delete this script after the check.
-   local Players = game:GetService("Players")
-   local RunService = game:GetService("RunService")
-   local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
-   assert(GaxiaServer.IsInstalled("Economy"), "PotionTestCoins needs the Economy package: install it (playbooks/start/01-install-packages.md)")
-
-   Players.PlayerAdded:Connect(function(player: Player)
-   	if RunService:IsStudio() and GaxiaServer.Data.WaitFor(player, 120) ~= nil then
-   		GaxiaServer.Economy.Set(player, "Coins", 100)
-   		print(`[PotionTestCoins] {player.Name} now has 100 Coins`)
-   	end
-   end)
-   ```
-5. Press **Play**. Wait until Output shows `[PotionTestCoins] <YourName> now has 100 Coins`, then click. Output shows these three lines (their order may differ): `[PotionStand] <YourName> bought 2 SpeedPotion for 50 Coins`, `[PotionStandButton] <YourName> bought 2 SpeedPotion` and `[PotionStandButton] answer: true Bought 2 SpeedPotion`.
-6. Stop. Delete the Script `PotionTestCoins`.
+4. Stop. Create the Script **StudioTestCoins** in **ServerScriptService**. Copy it exactly from [currency-and-leaderstats, Step 4](../game/currency-and-leaderstats.md#step-4--studio-only-give-yourself-test-coins). It gives you at least 500 Coins on each Play, only in Studio.
+5. Press **Play**. Wait until Output shows `[StudioTestCoins] <YourName> now has at least 500 Coins`, then click. Output shows these three lines (their order may differ): `[PotionStand] <YourName> bought 2 SpeedPotion for 50 Coins`, `[PotionStandButton] <YourName> bought 2 SpeedPotion` and `[PotionStandButton] answer: true Bought 2 SpeedPotion`.
+6. Keep `StudioTestCoins` while you test (it gives nothing in a live game), or delete it.
 
 ## Common mistakes
 

@@ -216,4 +216,4 @@ print("[WorldMessages] ready")
 ## See also
 
 - [API: Zone](../api/Zone.md) · [API: Interaction](../api/Interaction.md) · [API: Cooldown](../api/Cooldown.md) · [API: Economy](../api/Economy.md)
-- [Coins and leaderstats](currency-and-leaderstats.md) · [Client ↔ server](../start/04-client-server-communication.md) · [UI and toasts](ui.md) · [Troubleshooting](../troubleshooting.md)
+- [Coins and leaderstats](currency-and-leaderstats.md) · [Client ↔ server](../start/04-client-server-communication.md) · [UI and toasts](ui.md) · [Troubleshooting](../troubleshooting.md) · [NPC dialog and cutscenes](npc-dialog-and-cutscenes.md)

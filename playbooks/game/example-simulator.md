@@ -4,7 +4,7 @@
 
 **Use this when** the user asks for: "make a simulator", "a whole small game", "a coin collecting game", "build a game from scratch", "example game", "starter game" (ไทย: "ทำเกม simulator", "ทำเกมทั้งเกม", "เกมเก็บเหรียญ", "สร้างเกมตั้งแต่ศูนย์", "ตัวอย่างเกม", "เกมเริ่มต้น").
 **Packages:** `Data`, `Player`, `AntiCheat`, `Admin`, `Input`, `Economy`, `Shop`, `UI.Toast`, `UI.StateBinding` (Step 1 installs them; every script stops with a clear message if one is missing).
-**You will create:** a ModuleScript `ServerStorage/GameModules/SimConfig`, the Scripts `ServerScriptService/SimStats`, `ServerScriptService/SimCoins` and `ServerScriptService/SimShop`, and a LocalScript `StarterPlayer/StarterPlayerScripts/SimHud`.
+**You will create:** a ModuleScript `ServerStorage/GameModules/SimConfig`, the Scripts `ServerScriptService/SimStats`, `ServerScriptService/SimCoins` and `ServerScriptService/SimShop`, a LocalScript `StarterPlayer/StarterPlayerScripts/SimHud`, and (to test) the Script `ServerScriptService/StudioTestCoins`.
 
 How the game fits together (each part reuses a pattern from another playbook):
 
@@ -15,6 +15,7 @@ How the game fits together (each part reuses a pattern from another playbook):
 | Coin parts on the map, picked up on touch | `SimCoins` | [currency-and-leaderstats](currency-and-leaderstats.md) (`Economy.Add`) |
 | The 2x Coins upgrade, bought on the server | `SimShop` | [shop](shop.md), [04-client-server](../start/04-client-server-communication.md) |
 | Coins label, buy button and pop-up message | `SimHud` | [show-values-on-screen](show-values-on-screen.md), [ui](ui.md) |
+| Test Coins in Studio | `StudioTestCoins` | [currency-and-leaderstats](currency-and-leaderstats.md) (Step 4) |
 
 ## Step 1 — Install the packages
 
@@ -49,7 +50,6 @@ local SimConfig = {
 	SpawnRadius = 40, -- coins appear up to this many studs from SpawnCenter (a whole number)
 	UpgradePrice = 100, -- Coins for the 2x Coins upgrade
 	UpgradeField = "SimDoubleCoins", -- saved field: true once the player bought 2x Coins
-	StudioTestCoins = 100, -- Studio only: Coins each tester gets on join, to test the shop
 }
 
 -- 2 when the player owns the 2x Coins upgrade, else 1.
@@ -72,7 +72,6 @@ Create a **Script** in **ServerScriptService** named **SimStats**. Paste this wh
 ```lua
 -- Script: ServerScriptService/SimStats
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 local ServerStorage = game:GetService("ServerStorage")
 local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
 local Gaxia = require(game:GetService("ReplicatedStorage").Gaxia_Packages)
@@ -123,11 +122,6 @@ local function onPlayerAdded(player: Player)
 	hudState:Set(coinKey(player), coins)
 	hudState:Set(doubleKey(player), SimConfig.GetMultiplier(player) == 2)
 	print(`[SimStats] {player.Name} loaded: {coins} Coins, multiplier x{SimConfig.GetMultiplier(player)}`)
-
-	if RunService:IsStudio() and SimConfig.StudioTestCoins > 0 then
-		Economy.Add(player, "Coins", SimConfig.StudioTestCoins)
-		print(`[SimStats] Studio test: gave {player.Name} {SimConfig.StudioTestCoins} Coins`)
-	end
 end
 
 -- Players who join later, and players who are already in the game.
@@ -145,7 +139,6 @@ print("[SimStats] ready")
 ```
 
 What it does: it builds the **Coins** column from the saved balance and keeps it and the HUD values up to date.
-`StudioTestCoins` only runs in Studio. It lets you test the shop without collecting 20 coins first.
 
 ## Step 4 — Spawn coins that players collect
 
@@ -259,15 +252,13 @@ Shop.RegisterItem(UPGRADE_ID, {
 
 -- Text the player sees for each failure reason from Shop.Purchase.
 local MESSAGES: { [string]: string } = {
+	not_loaded = "Your data is still loading",
 	insufficient_funds = "Not enough Coins",
 	grant_failed = "Something went wrong, your Coins were returned",
 }
 
 -- The client sends nothing: the server knows the item, the price and who owns it.
 Net.OnInvoke("SimBuyUpgrade", function(player: Player): (boolean, string)
-	if not Data.IsLoaded(player) then
-		return false, "Your data is still loading" -- Shop would say "Not enough Coins"
-	end
 	if SimConfig.GetMultiplier(player) == 2 then
 		return false, "You already own 2x Coins" -- Shop never checks ownership itself
 	end
@@ -283,7 +274,7 @@ end, { rate = 2, burst = 4 })
 print("[SimShop] ready")
 ```
 
-What it does: one remote, `SimBuyUpgrade`. It checks loaded data and ownership, then `Shop.Purchase` takes the Coins and saves the upgrade.
+What it does: one remote, `SimBuyUpgrade`. It checks ownership, then `Shop.Purchase` takes the Coins and saves the upgrade. While the data is still loading, `Shop.Purchase` returns `not_loaded` and takes nothing.
 
 ## Step 6 — Show Coins, the buy button and the pop-up on the client
 
@@ -383,18 +374,23 @@ print("[SimHud] ready")
 
 What it does: the label shows your Coins, the button shows the price (or OWNED), and every answer appears as a toast at the top right.
 
+## Step 7 — Give yourself test Coins in Studio
+
+Create the Script **StudioTestCoins** in **ServerScriptService**. Copy it exactly from [currency-and-leaderstats, Step 4](currency-and-leaderstats.md#step-4--studio-only-give-yourself-test-coins).
+It gives every tester at least 500 Coins on each Play, only in Studio, so you can test the shop without collecting 20 coins first.
+
 ## Check that it works
 
 If you cannot press Play, ask the user to do these steps and paste the Output lines.
 
 1. Press **Play** in Studio. Output shows `[SimStats] ready`, `[SimCoins] ready`, `[SimShop] ready` and `[SimHud] ready` (any order), and no red errors.
-2. Within a few seconds Output shows `[SimStats] <YourName> loaded: 0 Coins, multiplier x1`, then `[SimStats] Studio test: gave <YourName> 100 Coins`. (With saved data from earlier Plays, the numbers are higher: that is fine.)
+2. Within a few seconds Output shows `[SimStats] <YourName> loaded: <N> Coins, multiplier x1` (`<N>` is 0 or 500) and `[StudioTestCoins] <YourName> now has at least 500 Coins`. (With saved data from earlier Plays, the numbers below are higher: that is fine.)
 3. The player list (top right) has a **Coins** column. The left label shows the same number. The button shows `Buy 2x Coins - 100 Coins`.
-4. Gold balls appear around the spawn, one per second, up to 15. Walk into one. Output shows `[SimCoins] <YourName> +5 Coins (now 105)`, and the column and label show 105.
-5. Click the green button. Output shows `[SimShop] <YourName> bought 2x Coins, Coins left: 5` and `[SimHud] buy 2x Coins: true 2x Coins bought! Every coin now gives double.`. A green **Shop** toast appears, and the button shows `2x Coins: OWNED`.
-6. Walk into another coin. Output shows `[SimCoins] <YourName> +10 Coins (now 15)`.
+4. Gold balls appear around the spawn, one per second, up to 15. Walk into one. Output shows `[SimCoins] <YourName> +5 Coins (now 505)`, and the column and label show 505.
+5. Click the green button. Output shows `[SimShop] <YourName> bought 2x Coins, Coins left: 405` and `[SimHud] buy 2x Coins: true 2x Coins bought! Every coin now gives double.`. A green **Shop** toast appears, and the button shows `2x Coins: OWNED`.
+6. Walk into another coin. Output shows `[SimCoins] <YourName> +10 Coins (now 415)`.
 7. Click the button again. Output shows `[SimHud] buy 2x Coins: false You already own 2x Coins`, with a red toast.
-8. Saving: with **Enable Studio Access to API Services** on ([player-data](player-data.md)), stop and press **Play** again. Step 2's line now says `multiplier x2`. Without API access every Play starts from 0 Coins and x1: that is expected.
+8. Saving: with **Enable Studio Access to API Services** on ([player-data](player-data.md)), stop and press **Play** again. Step 2's line now says `multiplier x2`. Without API access every Play starts again from 500 test Coins and x1: that is expected.
 
 ## Common mistakes
 
@@ -410,7 +406,7 @@ If you cannot press Play, ask the user to do these steps and paste the Output li
 | Expecting Coins from a coin touched in the first seconds after Play | Wait for the line `[SimStats] <YourName> loaded` | Before the data loads, `Economy.Add` returns false; the coin stays for later. |
 | `SpawnRadius = 40.5` | Whole numbers: `SpawnRadius = 40` | `math.random` errors with `number has no integer representation`. |
 | `coin.Anchored = false` | Keep `coin.Anchored = true` | Unanchored balls fall and roll away. |
-| Deleting `StudioTestCoins` before testing | Set it to `0` when you want to test the real loop | It only runs in Studio, so it never gives Coins in the live game. |
+| Testing the real coin loop while `StudioTestCoins` exists | Delete the Script `StudioTestCoins` first | It tops you up to 500 Coins on every Play in Studio. It never gives Coins in a live game. |
 
 ## Change it
 
@@ -423,6 +419,7 @@ If you cannot press Play, ask the user to do these steps and paste the Output li
 
 ## See also
 
+- Next: [rebirths, upgrades, timed boosts and auto-collect](simulator-extras.md)
 - [Install packages](../start/01-install-packages.md) · [Server script](../start/02-server-script.md) · [Client script](../start/03-client-script.md) · [Client ↔ server](../start/04-client-server-communication.md)
 - [Coins and leaderstats](currency-and-leaderstats.md) · [Shop](shop.md) · [Show values on screen](show-values-on-screen.md) · [UI](ui.md) · [Player data](player-data.md)
 - [API: Economy](../api/Economy.md) · [API: Shop](../api/Shop.md) · [API: State](../api/Core.ReplicatedState.md) · [API: UI.Toast](../api/UI.Toast.md) · [Troubleshooting](../troubleshooting.md)

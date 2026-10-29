@@ -10,7 +10,7 @@ How it works — there are three layers:
 
 | Layer | What it is | How you change it |
 |---|---|---|
-| `GaxiaServer.Config` | Gaxia's defaults, inside `Gaxia_Packages_Server/Config` | Never. Read it only: Install / Update replaces it. (One exception: Discord webhook URLs, set from your own Script in [webhooks-and-analytics](webhooks-and-analytics.md).) |
+| `GaxiaServer.Config` | Gaxia's defaults, inside `Gaxia_Packages_Server/Config` | Never. Read it only: Install / Update replaces it. (Discord webhook URLs: `GaxiaServer.Webhook.SetChannel` in your own Script, see [webhooks-and-analytics](webhooks-and-analytics.md).) |
 | Overrides | A value on top of a default, by key `"<Section>.<Key>"` | Server: `GaxiaServer.EConfig.Set(key, value)` / `GaxiaServer.EConfig.Clear(key)`. Admin chat: `/flag set <key> <value>`. |
 | `ReplicatedStorage/GameShared/GameConfig` | Your game's own values (Step 1) | Edit the module. |
 
