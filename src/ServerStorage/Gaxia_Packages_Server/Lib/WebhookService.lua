@@ -191,7 +191,15 @@ local function drain(url: string): ()
 				if closing then
 					break -- nothing can be sent during shutdown
 				end
-				task.wait(math.max(1, rate("HttpOffRetry", Config.Webhook.RateLimit.HttpOffRetry, 30)))
+				-- Short waits, so a shutdown (closing) ends the wait at once instead of
+				-- holding game:BindToClose for the whole HttpOffRetry.
+				local retryAt = os.clock() + math.max(1, rate("HttpOffRetry", Config.Webhook.RateLimit.HttpOffRetry, 30))
+				while not closing and os.clock() < retryAt do
+					task.wait(0.25)
+				end
+				if closing then
+					break -- HTTP was off a moment ago: do not hold the shutdown
+				end
 			elseif closing then
 				task.wait(math.min(CLOSE_INTERVAL, rate("MinInterval", Config.Webhook.RateLimit.MinInterval, 2)))
 			else
@@ -212,7 +220,8 @@ local function pendingCount(): number
 end
 
 -- game:BindToClose: deliver what is still queued (faster than MinInterval) until
--- the queues are empty or CLOSE_DEADLINE passes. With HTTP disabled nothing can be sent.
+-- the queues are empty or CLOSE_DEADLINE passes. With HTTP disabled nothing can be sent:
+-- a drain waiting for HTTP to come back stops within 0.25 s, so the shutdown is not held.
 local function flushOnClose(): ()
 	closing = true
 	for url, q in pairs(queues) do

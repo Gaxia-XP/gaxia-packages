@@ -336,6 +336,8 @@ this framework uses a single rolling version until a public release cut.
   to a channel named `BanReports` now gets each ban twice: drop one of the two.
 - **Webhook:** messages still queued when the server shuts down are delivered from
   `game:BindToClose` (faster than `MinInterval`, for up to 25 s). Before, they were lost.
+- **Webhook:** with HTTP requests disabled, a queued message no longer holds
+  `game:BindToClose` (Studio Stop) for up to 25 s: the HTTP-off wait ends at shutdown.
 - **Webhook (behaviour change):** with HTTP requests disabled, messages are no longer
   dropped and later sends no longer refused: they stay queued (up to `MaxQueue`) and are
   retried every `Config.Webhook.RateLimit.HttpOffRetry` seconds (new, default 30; flag
