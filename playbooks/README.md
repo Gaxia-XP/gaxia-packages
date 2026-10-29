@@ -7,7 +7,7 @@ Step-by-step recipes for AI agents (and people) building games with Gaxia Packag
 | Folder | What is in it |
 |---|---|
 | [start/](start/) | Installing Gaxia, first server and client scripts, client ↔ server messages |
-| [game/](game/) | One playbook per game feature (data, currency, shop, Robux, quests, UI, …) |
+| [game/](game/) | One playbook per game feature (data, currency, shop, Robux, quests, UI, combat, rounds and teams, obby, tycoon, simulator rebirths, NPC dialog, translation, …) |
 | [framework/](framework/) | Changing the Gaxia framework itself |
 | [api/](api/README.md) | Generated reference: every function, signal and type (`api/INDEX.md`) |
 | [troubleshooting.md](troubleshooting.md) | Symptom → cause → fix |

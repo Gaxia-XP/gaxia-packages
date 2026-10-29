@@ -79,7 +79,9 @@ Start with the playbook, not the API pages. Each one is a numbered recipe with c
 | Discord webhooks, analytics / webhook, analytics | [game/webhooks-and-analytics](playbooks/game/webhooks-and-analytics.md) |
 | an obby, checkpoints, kill bricks/lava, skip stage / ออบบี้, เช็คพอยต์, ลาวา, ข้ามด่าน | [game/obby-checkpoints](playbooks/game/obby-checkpoints.md) |
 | sword combat, enemy NPCs/mobs that chase and attack, kill rewards / ระบบต่อสู้, ดาบ, มอนสเตอร์, ซอมบี้ | [game/combat-and-npcs](playbooks/game/combat-and-npcs.md) |
+| round-based games, intermission, teams, lobby → map → winner / รอบเกม, ทีม | [game/rounds-and-teams](playbooks/game/rounds-and-teams.md) |
 | a tycoon: plots, droppers, buy buttons / ไทคูน, ดรอปเปอร์, ปุ่มซื้อ | [game/tycoon](playbooks/game/tycoon.md) |
+| rebirth, multipliers, upgrades, auto-click, boosts for simulators / รีเบิร์ธ, ตัวคูณ, อัปเกรด | [game/simulator-extras](playbooks/game/simulator-extras.md) |
 | translate the game, Thai language, language setting / แปลเกม, ภาษาไทย, เปลี่ยนภาษา | [game/translation](playbooks/game/translation.md) |
 | a whole small game from scratch / ทำเกมทั้งเกม | [game/example-simulator](playbooks/game/example-simulator.md) |
 | add a service to the framework | [framework/add-a-service](playbooks/framework/add-a-service.md) |
