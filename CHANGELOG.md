@@ -56,10 +56,19 @@ this framework uses a single rolling version until a public release cut.
   non-Player `player` is refused the same way.
 - Economy refuses (with a warning) a currency whose saved value is not a number
   (`Inventory`, `Pets`, …) instead of overwriting that data with a number; `Get` returns 0.
+- A saved balance that is NaN or ±inf (corrupt, e.g. from bad game math through
+  `Data.Set`) is not treated as "not a currency": `Economy.Set` overwrites it (the
+  `OnTransaction` delta counts it as 0) and warns that it repaired it, so the profile can
+  save again. `Get` returns 0 and `Add` / `Spend` refuse it, each with a warning that says
+  to repair it with `Economy.Set`.
 - Added `Economy.GetMaxTransaction()` and `Economy.GetMaxBalance()`. Idle offline
-  earnings, Raid loot and pet-multiplied Quest coin rewards are capped at
-  `GetMaxTransaction()` before they are paid, so they keep paying the limit (as the old
-  clamp did) instead of being refused. A Trade offering more than the limit of one
+  earnings and Raid loot are capped at `GetMaxTransaction()` before they are paid, so
+  they keep paying the limit (as the old clamp did) instead of being refused.
+- Quest and Achievement currency rewards (every currency, with or without the Pet
+  package) are rounded down and capped at `GetMaxTransaction()` before they are paid, as
+  the old clamp did: a 10.5 reward pays 10 and a 2,000,000 reward pays 1,000,000 instead
+  of nothing. `Quest.Register` / `Achievement.Register` warn once when a reward amount is
+  not a whole number from 1 to the limit, so the problem shows at boot. A Trade offering more than the limit of one
   currency now fails and rolls back (before: only the limit moved).
 - An invalid `Economy.MaxTransaction` / `MaxBalance` (not a finite number above 0) falls
   back to the default instead of making every call error.

@@ -101,6 +101,23 @@ local function isQuestSatisfied(def: QuestDef, progress: { [string]: number }): 
 	return true
 end
 
+-- Economy refuses (does not clamp) fractions and amounts above its per-call limit,
+-- so a reward is floored and capped at Economy.MaxTransaction before it is paid.
+-- Without this, a 10.5 or 2,000,000 reward would pay nothing after the quest is gone.
+local function payableAmount(amount: number): number
+	if amount ~= amount then return 0 end
+	return math.min(math.floor(amount), EconomyService.GetMaxTransaction())
+end
+
+-- Warns once at Register when the reward will be floored or capped when paid.
+local function checkRewardAmount(kind: string, id: string, amount: any): ()
+	if typeof(amount) ~= "number" or amount <= 0 then return end
+	local paid = payableAmount(amount)
+	if paid ~= amount then
+		warn(`[{kind}] "{id}" reward amount {amount} is not a whole number from 1 to Economy.MaxTransaction ({EconomyService.GetMaxTransaction()}): it pays {math.max(paid, 0)}`)
+	end
+end
+
 -- Pay out reward via Economy + Item services (best-effort: a failing grant is skipped).
 local function grantReward(player: Player, def: QuestDef): ()
 	local reward = def.reward
@@ -113,11 +130,13 @@ local function grantReward(player: Player, def: QuestDef): ()
 		if Pet then
 			local ok, mult = pcall(Pet.GetCoinMultiplier, player)
 			if ok and typeof(mult) == "number" and mult == mult then
-				-- Economy refuses (does not clamp) amounts above its per-call limit.
-				amount = math.min(math.floor(amount * mult), EconomyService.GetMaxTransaction())
+				amount = amount * mult
 			end
 		end
-		pcall(EconomyService.Add, player, reward.currency, amount)
+		amount = payableAmount(amount)
+		if amount >= 1 then
+			pcall(EconomyService.Add, player, reward.currency, amount)
+		end
 	end
 	if reward.items then
 		for itemId, qty in pairs(reward.items) do
@@ -130,6 +149,7 @@ end
 
 function QuestSystem.Register(def: QuestDef): ()
 	assert(type(def) == "table" and type(def.id) == "string", "QuestDef requires string id")
+	if def.reward then checkRewardAmount("Quest", def.id, def.reward.amount) end
 	Registry[def.id] = def
 end
 

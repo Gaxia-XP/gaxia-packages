@@ -24,13 +24,13 @@ local Economy = GaxiaServer.Economy
 ### Functions
 
 - `Economy.Get(player: Player, currency: string): number`
-  The current balance. 0 when the player's data has not loaded, the currency was never set, or the saved value under that name is not a number (warns).
+  The current balance. 0 when the player's data has not loaded, the currency was never set, or the saved value under that name is not a number or is NaN/inf (warns).
 - `Economy.Add(player: Player, currency: string, amount: number): boolean`
   Adds `amount` (a whole number from 1 to Economy.MaxTransaction). Any other amount is refused with a warning (never clamped). The balance stops at Economy.MaxBalance. Returns false when refused or the data is not loaded.
 - `Economy.Spend(player: Player, currency: string, amount: number): boolean`
   Takes `amount` (a whole number from 1 to Economy.MaxTransaction) if the player has at least that much. Any other amount is refused with a warning (never clamped). Returns false when refused, short on balance or the data is not loaded.
 - `Economy.Set(player: Player, currency: string, amount: number): boolean`
-  Admin override: sets an exact balance (a whole number from 0 to Economy.MaxBalance; skips the MaxTransaction limit). Any other amount is refused with a warning.
+  Admin override: sets an exact balance (a whole number from 0 to Economy.MaxBalance; skips the MaxTransaction limit). Any other amount is refused with a warning. Also repairs a corrupt (NaN/inf) saved balance, with a warning.
 - `Economy.Transfer(from: Player, to: Player, currency: string, amount: number): boolean`
   Atomic transfer between two players. Spend from sender first; only credit recipient if Spend succeeded so failure can't duplicate currency.
 - `Economy.GetMaxTransaction(): number`

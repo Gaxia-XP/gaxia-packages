@@ -63,11 +63,31 @@ local function ensureUnlockTable(player: Player): { [string]: boolean }?
 	return a
 end
 
+-- Economy refuses (does not clamp) fractions and amounts above its per-call limit,
+-- so a reward is floored and capped at Economy.MaxTransaction before it is paid.
+-- Without this, a 10.5 or 2,000,000 reward would pay nothing although the achievement unlocks.
+local function payableAmount(amount: number): number
+	if amount ~= amount then return 0 end
+	return math.min(math.floor(amount), EconomyService.GetMaxTransaction())
+end
+
+-- Warns once at Register when the reward will be floored or capped when paid.
+local function checkRewardAmount(kind: string, id: string, amount: any): ()
+	if typeof(amount) ~= "number" or amount <= 0 then return end
+	local paid = payableAmount(amount)
+	if paid ~= amount then
+		warn(`[{kind}] "{id}" reward amount {amount} is not a whole number from 1 to Economy.MaxTransaction ({EconomyService.GetMaxTransaction()}): it pays {math.max(paid, 0)}`)
+	end
+end
+
 local function payReward(player: Player, def: AchievementDef): ()
 	local reward = def.reward
 	if not reward then return end
 	if reward.currency and reward.amount and reward.amount > 0 then
-		pcall(EconomyService.Add, player, reward.currency, reward.amount)
+		local amount = payableAmount(reward.amount)
+		if amount >= 1 then
+			pcall(EconomyService.Add, player, reward.currency, amount)
+		end
 	end
 end
 
@@ -75,6 +95,7 @@ end
 
 function AchievementSystem.Register(def: AchievementDef): ()
 	assert(type(def) == "table" and type(def.id) == "string", "AchievementDef requires string id")
+	if def.reward then checkRewardAmount("Achievement", def.id, def.reward.amount) end
 	Registry[def.id] = def
 end
 

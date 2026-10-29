@@ -130,25 +130,35 @@ end
 -- Current balance, or nil (with a warning) when the saved value under this name
 -- is not a number: that key belongs to something else (a table, a string…), and
 -- writing a number over it would destroy that data.
-local function readBalance(fnName: string, player: Player, currency: string, level: number): number?
+-- A saved NaN / ±inf number is a corrupt balance, not "not a currency": the
+-- second result is true for it. Get reads it as 0, Add/Spend refuse it, and Set
+-- overwrites it (the only way to repair it).
+local function readBalance(fnName: string, player: Player, currency: string, level: number): (number?, boolean)
 	local v = DataManager.Get(player, currency)
 	if v == nil then
-		return 0
+		return 0, false
 	end
-	if typeof(v) ~= "number" or v ~= v then
+	if typeof(v) ~= "number" then
 		reject(fnName, "saved", `the saved value "{currency}" is a {typeof(v)}, not a number: it is not a currency`, level + 1)
-		return nil
+		return nil, false
 	end
-	return v
+	if v ~= v or v == math.huge or v == -math.huge then
+		if fnName ~= "Set" then
+			reject(fnName, "corrupt", `the saved balance "{currency}" is {tostring(v)} (corrupt); repair it with Economy.Set(player, "{currency}", amount)`, level + 1)
+		end
+		return nil, true
+	end
+	return v, false
 end
 
 -- ── Public API ──
 
 -- The current balance. 0 when the player's data has not loaded, the currency was
--- never set, or the saved value under that name is not a number (warns).
+-- never set, or the saved value under that name is not a number or is NaN/inf (warns).
 function EconomyService.Get(player: Player, currency: string): number
 	if not checkTarget("Get", player, currency, 1) then return 0 end
-	return readBalance("Get", player, currency, 1) or 0
+	local balance = readBalance("Get", player, currency, 1)
+	return balance or 0
 end
 
 -- Adds `amount` (a whole number from 1 to Economy.MaxTransaction). Any other
@@ -190,6 +200,7 @@ end
 
 -- Admin override: sets an exact balance (a whole number from 0 to Economy.MaxBalance;
 -- skips the MaxTransaction limit). Any other amount is refused with a warning.
+-- Also repairs a corrupt (NaN/inf) saved balance, with a warning.
 function EconomyService.Set(player: Player, currency: string, amount: number): boolean
 	if not checkTarget("Set", player, currency, 1) then return false end
 	local reason: string? = nil
@@ -211,7 +222,11 @@ function EconomyService.Set(player: Player, currency: string, amount: number): b
 		reject("Set", reason, detail, 1)
 		return false
 	end
-	local current = readBalance("Set", player, currency, 1)
+	local current, corrupt = readBalance("Set", player, currency, 1)
+	if corrupt then
+		warn(`[Economy] Set repaired a corrupt saved balance "{currency}" ({tostring(DataManager.Get(player, currency))}) for {player.Name}: now {amount}`)
+		current = 0
+	end
 	if not current then return false end
 	local ok = DataManager.Set(player, currency, amount)
 	if ok then
