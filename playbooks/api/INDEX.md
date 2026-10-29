@@ -103,6 +103,7 @@ GaxiaServer.Data.Set(player: Player, key: string, value: any): boolean   → Dat
 GaxiaServer.Data.WaitFor(player: Player, timeout: number?): any   → Data.md
 GaxiaServer.Data.IsLoaded(player: Player): boolean   → Data.md
 GaxiaServer.Data.Save(player: Player): ()   → Data.md
+GaxiaServer.Data.SetDefaults(defaults: { [string]: any }): boolean   → Data.md
 GaxiaServer.Data.OnLoaded : Signal<Player, PlayerData>   → Data.md
 GaxiaServer.Data.OnReleased : Signal<Player>   → Data.md
 GaxiaServer.Data.OnDataChanged : Signal<Player, string, any>   → Data.md

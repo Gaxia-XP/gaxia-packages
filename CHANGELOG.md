@@ -151,6 +151,31 @@ this framework uses a single rolling version until a public release cut.
 - Playbooks `live-ops`, `progression` and `items-and-inventory` updated (the progression
   example uses `Quest.IsComplete` instead of its own `QuestsDone` field).
 
+### Fixed — hardening (data)
+- **`Data.SetDefaults(defaults)` (new):** game code lists default values for its own saved
+  fields once, at the top of a Script. They are deep-merged into the template and reconciled
+  into every profile on load (after `DEFAULT_PROFILE`, before migrations), so `Data.WaitFor`
+  and `Data.OnLoaded` already see them; each player gets their own copy of the tables. Values
+  must be saveable; built-in fields (`Coins`, `Level`, …) and `__` names are refused with a
+  warning. A call after a profile loaded warns and fills the players already loaded.
+  `playbooks/game/player-data.md` uses it instead of the per-player `addMissingFields` helper.
+- **`Data.WaitFor(player)` default timeout is now 120 s** (was 30 s;
+  `Config.Data.WaitForDefaultTimeout`). Slow DataStore loads no longer return `nil` to game
+  code that did not pass a timeout. Pass a timeout to wait less.
+- **Neutral kick messages.** A failed data load kicks with `Could not load your data. Please
+  rejoin.` (was `[DataManager] Could not load profile (another session active).`) and a
+  session taken by another server with `Your data was opened on another server. Please
+  rejoin.` (was `[DataManager] Profile released.`). The details go to a server warning. An
+  error thrown by `LoadProfileAsync` is now caught and kicks the same way (before, the
+  player stayed in the game without data).
+- **Migrations are atomic.** `Migration.Migrate` runs the steps on a deep copy and commits
+  only when every step succeeds; a step that errors (or a missing step) leaves the data
+  exactly as it was and the warning names the failing step (`… failed: <error> (data left at
+  v1)`). Behaviour change: before, the steps before the failing one were kept (the save moved
+  to an in-between version, and a step that errored halfway left half its changes);
+  `Migrate` now returns `false` and `OnMigrated` does not fire in that case. Steps still run
+  in version order whatever order they were registered in.
+
 ### Added — pick the packages a game installs
 The framework is split into ~100 packages (`Gaxia_Packages_Server/Packages.lua`). Pick
 the ones a game uses and only those, the packages they need, and Core are installed;

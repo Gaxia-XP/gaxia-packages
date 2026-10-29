@@ -56,12 +56,13 @@ A. requires and loading · B. packages missing, nil services · C. player data �
 |---|---|---|
 | `Data.Get` returns nil, `Data.Set` returns false, or `attempt to perform arithmetic on nil` right after join | The data loads a moment after the player joins | `if Data.WaitFor(player, 120) == nil then return end` first, inside `onPlayerAdded` ([02-server-script](start/02-server-script.md)). In loops: `if Data.IsLoaded(player) then`. |
 | Code never runs for players who were already in the game | `GaxiaServer.Player.OnPlayerJoined` / `GaxiaServer.Data.OnLoaded` do not fire again for earlier players | `Players.PlayerAdded:Connect(f)` plus `for _, p in Players:GetPlayers() do task.spawn(f, p) end`, and `Data.WaitFor` inside `f`. |
-| `Data.Get(player, "Wins") + 1` errors although your script adds `Wins` | Your own fields are added just after the load; another script ran first | Read your own fields with a default: `(Data.Get(player, "Wins") or 0) + 1` ([player-data](game/player-data.md)). |
+| `Data.Get(player, "Wins") + 1` errors although your script adds `Wins` | The field is created with `Data.Set` after the load, or `Data.SetDefaults` runs late (after a `task.wait` or inside `PlayerAdded`) | Call `Data.SetDefaults({ Wins = 0 })` at the top of a Script ([player-data](game/player-data.md) Step 1). |
 | Data resets every Play; Output: `[ProfileService]: Roblox API services unavailable - data will not be saved` | Studio API access is off | Publish the place, then **Game Settings → Security → Enable Studio Access to API Services**. Play still works without it. |
-| Kicked with `[DataManager] Could not load profile (another session active).` | The same account is still loaded on another server (a fast rejoin) | Wait a minute and join again. |
-| TypeError `Cannot add property 'X' to table 'PlayerData'` | Game code added a field to `GaxiaServer.Data.DEFAULT_PROFILE` | Leave it alone. After `Data.WaitFor`, `Data.Set` each missing key ([player-data](game/player-data.md) Step 1). |
+| Kicked with `Could not load your data. Please rejoin.` | The data could not be loaded: the same account is still loaded on another server (a fast rejoin), or the DataStore failed. Output has a `[DataManager] Could not load profile …` warning with the reason | Wait a minute and join again. |
+| Kicked with `Your data was opened on another server. Please rejoin.` | The same account joined another server, which took over the data | Play on one server at a time. |
+| TypeError `Cannot add property 'X' to table 'PlayerData'` | Game code added a field to `GaxiaServer.Data.DEFAULT_PROFILE` | Leave it alone. List your fields with `Data.SetDefaults` ([player-data](game/player-data.md) Step 1). |
 | Saved data lost, or the save fails | An Instance, Vector3, CFrame or Color3 was saved, or a table with mixed number keys | Save only numbers, strings, booleans and tables with string keys (`tostring(userId)`). |
-| Unlocking something for one player unlocks it for all | One defaults table is shared by every player | Build new tables per player (a `newDefaults()` function). |
+| Unlocking something for one player unlocks it for all | One defaults table is shared by every player | List the field in `Data.SetDefaults` ([player-data](game/player-data.md) Step 1): each player gets their own copy. |
 | Your field overwrites framework data | Its name is taken (`Coins`, `Level`, `Inventory`, `Pets`, `Quests`, …) | Use your own names. Full list: [player-data](game/player-data.md). |
 
 ### D. Remotes (Net)

@@ -28,10 +28,12 @@ local Data = GaxiaServer.Data
 - `Data.Set(player: Player, key: string, value: any): boolean`
   Writes a key to Profile.Data and fires OnDataChanged. Returns false if profile is not loaded.
 - `Data.WaitFor(player: Player, timeout: number?): any`
-  Yields until profile loaded; returns the Data table or nil on timeout / leave.
+  Yields until the player's data is loaded and returns the data table. Returns nil when the player leaves or `timeout` seconds pass first (default 120 seconds: Config.Data.WaitForDefaultTimeout).
 - `Data.IsLoaded(player: Player): boolean`
 - `Data.Save(player: Player): ()`
   Force-save (ProfileService persists periodically, this just nudges it).
+- `Data.SetDefaults(defaults: { [string]: any }): boolean`
+  Adds default values for the game's own saved fields. Every player who does not have a field yet gets it when their data loads (new players, and fields added in an update), before Data.WaitFor / Data.OnLoaded return the data. Nested tables are deep-merged: `{ Settings = { Volume = 1 } }` adds `Settings.Volume` and keeps the built-in settings. Values must be saveable (numbers, strings, booleans, tables of them with string keys or a list). Built-in fields (Coins, Level, ...) and names starting with "__" are refused (warned). Call it at the top of a Script, before players load. A late call warns and fills the players already loaded too. Calling it again merges into the earlier defaults. Returns false when any field was refused.
 
 ### Signals
 

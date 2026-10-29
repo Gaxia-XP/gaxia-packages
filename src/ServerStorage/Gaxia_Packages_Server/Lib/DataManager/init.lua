@@ -10,6 +10,8 @@
 	          shutdown deadline, as defense-in-depth on top of ProfileService's own internal BindToClose,
 	          and (optionally) writes a disaster-recovery backup — OFF by default.
 	          Phase 17.4: DataMigration.Migrate runs on load (after Reconcile) to upgrade old schemas.
+	          SetDefaults: game code adds default values for its own saved fields; they are
+	          reconciled into every profile on load, right after DEFAULT_PROFILE.
 ]]
 
 -- ── Services ──
@@ -35,7 +37,7 @@ local DataMigration = require(script.Parent.DataMigration)
 -- nil) instead of making every module that requires DataManager fail to load.
 local PROFILE_STORE_NAME: string = ""
 local PROFILE_KEY_PREFIX: string = ""
-local WAIT_FOR_DEFAULT_TIMEOUT: number = 30
+local WAIT_FOR_DEFAULT_TIMEOUT: number = 120
 local SHUTDOWN_FLUSH_DEADLINE: number = 25
 local WRITE_MAX_ATTEMPTS: number = 1
 local WRITE_BASE_BACKOFF: number = 1
@@ -93,6 +95,10 @@ DataManager.DEFAULT_PROFILE = {
 	__version  = 1,
 } :: PlayerData
 
+-- Kick messages the player sees. Neutral on purpose: no internal names; details go to the server log.
+local KICK_LOAD_FAILED = "Could not load your data. Please rejoin."
+local KICK_SESSION_TAKEN = "Your data was opened on another server. Please rejoin."
+
 -- ── Signals ──
 -- (player, data) once the player's profile is loaded, reconciled and migrated
 DataManager.OnLoaded      = Signal.new() :: Signal.Signal<Player, PlayerData>
@@ -116,6 +122,10 @@ local function getProfileStore(): any
 	return profileStore
 end
 local loadedProfiles: { [number]: any } = {}
+-- Defaults game code added with DataManager.SetDefaults (deep-merged; reconciled on every load).
+local gameDefaults: { [string]: any } = {}
+-- Set once the first profile has been reconciled: SetDefaults after that is late (warned).
+local anyProfileLoaded: boolean = false
 -- Phase 17.3: set true once BindToClose begins so a late PlayerAdded does not load a doomed profile.
 local isClosing: boolean = false
 -- Phase 17.2: lazily-fetched backup store handle (nil until first successful GetDataStore, or if disabled).
@@ -219,7 +229,9 @@ function DataManager.Set(player: Player, key: string, value: any): boolean
 	return true
 end
 
--- Yields until profile loaded; returns the Data table or nil on timeout / leave.
+-- Yields until the player's data is loaded and returns the data table.
+-- Returns nil when the player leaves or `timeout` seconds pass first
+-- (default 120 seconds: Config.Data.WaitForDefaultTimeout).
 function DataManager.WaitFor(player: Player, timeout: number?): any
 	local deadline = os.clock() + (timeout or WAIT_FOR_DEFAULT_TIMEOUT)
 	while os.clock() < deadline do
@@ -243,6 +255,122 @@ function DataManager.Save(player: Player): ()
 	end
 end
 
+-- ── Game defaults (SetDefaults) ──
+
+-- Checks that `value` can be saved in a DataStore (numbers, strings, booleans and
+-- tables of them, string keys or a 1..n list). Returns an error text, or nil when fine.
+local function checkSaveable(value: any, path: string, depth: number): string?
+	local kind = typeof(value)
+	if kind == "number" then
+		if value ~= value or value == math.huge or value == -math.huge then
+			return `{path} is not a finite number`
+		end
+		return nil
+	elseif kind == "string" or kind == "boolean" then
+		return nil
+	elseif kind ~= "table" then
+		return `{path} is a {kind}: save numbers, strings, booleans or tables of them`
+	end
+	if depth > 16 then
+		return `{path} is nested too deep`
+	end
+	local count = 0
+	local hasStringKey = false
+	for k, v in pairs(value) do
+		count += 1
+		if type(k) == "string" then
+			hasStringKey = true
+		elseif type(k) ~= "number" then
+			return `{path} has a {typeof(k)} key: use string keys`
+		end
+		local problem = checkSaveable(v, `{path}.{tostring(k)}`, depth + 1)
+		if problem then
+			return problem
+		end
+	end
+	if not hasStringKey and count ~= #value then
+		return `{path} has number keys that are not a list 1, 2, 3...: use string keys`
+	end
+	if hasStringKey and #value > 0 then
+		return `{path} mixes a list and string keys`
+	end
+	return nil
+end
+
+-- Deep-merges `source` into `target`: nested tables merge key by key, other values replace.
+local function deepMerge(target: { [any]: any }, source: { [any]: any }): ()
+	for k, v in pairs(source) do
+		if type(v) == "table" and type(target[k]) == "table" then
+			deepMerge(target[k], v)
+		else
+			target[k] = if type(v) == "table" then Table.DeepCopy(v) else v
+		end
+	end
+end
+
+-- Adds default values for the game's own saved fields. Every player who does not have a
+-- field yet gets it when their data loads (new players, and fields added in an update),
+-- before Data.WaitFor / Data.OnLoaded return the data. Nested tables are deep-merged:
+-- `{ Settings = { Volume = 1 } }` adds `Settings.Volume` and keeps the built-in settings.
+-- Values must be saveable (numbers, strings, booleans, tables of them with string keys or a list).
+-- Built-in fields (Coins, Level, ...) and names starting with "__" are refused (warned).
+-- Call it at the top of a Script, before players load. A late call warns and fills the
+-- players already loaded too. Calling it again merges into the earlier defaults.
+-- Returns false when any field was refused.
+function DataManager.SetDefaults(defaults: { [string]: any }): boolean
+	if type(defaults) ~= "table" then
+		warn(`[DataManager] SetDefaults expects a table of field = default value, got {typeof(defaults)}`)
+		return false
+	end
+	local accepted: { [string]: any } = {}
+	local allOk = true
+	for key, value in pairs(defaults) do
+		local refused: string? = nil
+		if type(key) ~= "string" then
+			refused = `key {tostring(key)} is a {typeof(key)}: use string keys`
+		elseif string.sub(key, 1, 2) == "__" then
+			refused = `"{key}": names starting with "__" are reserved`
+		else
+			local builtIn = (DataManager.DEFAULT_PROFILE :: any)[key]
+			if builtIn ~= nil and (type(builtIn) ~= "table" or type(value) ~= "table") then
+				refused = `"{key}" is a built-in field: its default cannot change`
+			else
+				refused = checkSaveable(value, key, 1)
+			end
+		end
+		if refused then
+			warn(`[DataManager] SetDefaults: {refused} (ignored)`)
+			allOk = false
+		else
+			accepted[key] = value
+		end
+	end
+	deepMerge(gameDefaults, accepted)
+
+	if anyProfileLoaded then
+		warn("[DataManager] SetDefaults was called after player data loaded: call it at the top of a Script, before players join. Filling the players already loaded now.")
+		for userId, profile in pairs(loadedProfiles) do
+			local data = profile.Data
+			if type(data) == "table" then
+				local missing: { string } = {}
+				for key in pairs(accepted) do
+					if data[key] == nil then
+						table.insert(missing, key)
+					end
+				end
+				Table.Reconcile(data, accepted)
+				local player = Players:GetPlayerByUserId(userId)
+				if player then
+					for _, key in ipairs(missing) do
+						DataManager.OnDataChanged:Fire(player, key, data[key])
+					end
+				end
+			end
+		end
+	end
+	return allOk
+end
+
 -- ── Lifecycle ──
 local function onPlayerAdded(player: Player)
 	if isClosing then
@@ -250,16 +378,26 @@ local function onPlayerAdded(player: Player)
 		return
 	end
 	local key = `{PROFILE_KEY_PREFIX}{player.UserId}`
-	local profile = getProfileStore():LoadProfileAsync(key)
+	local loadOk, loaded = pcall(function()
+		return getProfileStore():LoadProfileAsync(key)
+	end)
+	local profile = if loadOk then loaded else nil
 	if not profile then
-		-- Another server holds the session; kick to avoid duplicate data.
-		player:Kick("[DataManager] Could not load profile (another session active).")
+		-- No profile (session lock held elsewhere, server shutting down, or an error):
+		-- kick so the player never plays on unsaved data. Details go to the server log only.
+		warn(`[DataManager] Could not load profile {key} for {player.Name}: {if loadOk then "no profile returned (session locked or shutting down)" else loaded}`)
+		if player.Parent then
+			player:Kick(KICK_LOAD_FAILED)
+		end
 		return
 	end
 
 	profile:AddUserId(player.UserId)
 	profile:Reconcile()
-	Table.Reconcile(profile.Data, DataManager.DEFAULT_PROFILE)
+	Table.Reconcile(profile.Data, DataManager.DEFAULT_PROFILE :: any)
+	-- Game fields from SetDefaults, right after the built-in template (before migration).
+	Table.Reconcile(profile.Data, gameDefaults)
+	anyProfileLoaded = true
 
 	-- ── Schema migration (Phase 17.4) ──
 	-- WHY here: run AFTER Reconcile (so every template field exists) and BEFORE
@@ -278,7 +416,8 @@ local function onPlayerAdded(player: Player)
 		end
 		loadedProfiles[player.UserId] = nil
 		if player.Parent then
-			player:Kick("[DataManager] Profile released.")
+			warn(`[DataManager] Profile of {player.Name} was released by another server; kicked`)
+			player:Kick(KICK_SESSION_TAKEN)
 		end
 	end)
 
@@ -396,7 +535,8 @@ function DataManager._SeedForTest(player: any, data: { [string]: any }?): ()
 		Data = data or {},
 		Save = function(_self) end,
 	}
-	Table.Reconcile(synthetic.Data, DataManager.DEFAULT_PROFILE)
+	Table.Reconcile(synthetic.Data, DataManager.DEFAULT_PROFILE :: any)
+	Table.Reconcile(synthetic.Data, gameDefaults)
 	loadedProfiles[player.UserId] = synthetic
 end
 

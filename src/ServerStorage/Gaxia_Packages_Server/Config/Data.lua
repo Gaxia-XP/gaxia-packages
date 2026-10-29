@@ -3,7 +3,7 @@
 return {
 	StoreName             = "GaxiaPlayerData",
 	KeyPrefix             = "Player_",
-	WaitForDefaultTimeout = 30,
+	WaitForDefaultTimeout = 120, -- seconds Data.WaitFor waits when no timeout is passed
 	ShutdownFlushDeadline = 25,
 	Write = {
 		MaxAttempts    = 4,
