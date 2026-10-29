@@ -81,9 +81,9 @@ local Interaction = GaxiaServer.Interaction
 local CHEST_COINS = 50
 local CHEST_COOLDOWN = 30 -- seconds, per player
 
--- Create the WorldMessage remote now. Without this line, WorldMessages (Step 4) waits 10 seconds
--- and then errors for a player who has not used the chest yet. Anything a client sends here is ignored.
-Net.OnServer("WorldMessage", function() end)
+-- Create the WorldMessage remote now (server -> client only). Without this line, WorldMessages (Step 4)
+-- waits, with a warning, until a player uses the chest. Anything a client sends here is ignored.
+Net.DeclareEvent("WorldMessage")
 local chest = Instance.new("Part")
 chest.Name = "CoinChest"
 chest.Size = Vector3.new(4, 3, 3)

@@ -29,8 +29,8 @@ assert(GaxiaServer.IsInstalled("Chat"), "FriendCommands needs the Chat package: 
 local Net, Data, Chat, Friend = Gaxia.Net, GaxiaServer.Data, GaxiaServer.Chat, GaxiaServer.Friend
 local NO_PLAYER = "No player matches, or more than one does. Type more of the name."
 local LOADING = "Data is still loading: try again in a moment"
--- Intentionally empty: it creates the remote now, so the client never waits for it (start/04).
-Net.OnServer("SocialNotice", function() end)
+-- Create the server -> client remote now, so the client never waits for it (start/04).
+Net.DeclareEvent("SocialNotice")
 local function playerArg(args: { string }): Player?
 	local parsed = Chat.ParseArgs({ "player" }, args)
 	return if parsed then parsed[1] else nil
@@ -85,7 +85,7 @@ assert(GaxiaServer.IsInstalled("Chat"), "PartyCommands needs the Chat package: i
 
 local Net, Chat, Party = Gaxia.Net, GaxiaServer.Chat, GaxiaServer.Party
 local NO_PLAYER = "No player matches, or more than one does. Type more of the name."
-Net.OnServer("SocialNotice", function() end) -- intentionally empty, see Step 1
+Net.DeclareEvent("SocialNotice") -- server -> client remote, see Step 1
 local function playerArg(args: { string }): Player?
 	local parsed = Chat.ParseArgs({ "player" }, args)
 	return if parsed then parsed[1] else nil
@@ -135,7 +135,7 @@ assert(GaxiaServer.IsInstalled("Chat"), "GuildCommands needs the Chat package: i
 
 local Net, Data, Chat, Guild = Gaxia.Net, GaxiaServer.Data, GaxiaServer.Chat, GaxiaServer.Guild
 local LOADING = "Data is still loading: try again in a moment"
-Net.OnServer("SocialNotice", function() end) -- intentionally empty, see Step 1
+Net.DeclareEvent("SocialNotice") -- server -> client remote, see Step 1
 Guild.OnInvite:Connect(function(toPlayer: Player, _guildId: string, guildName: string, fromName: string)
 	Net.FireClient(toPlayer, "SocialNotice", `{fromName} invited you to the guild {guildName}. Type /guildjoin`)
 end)

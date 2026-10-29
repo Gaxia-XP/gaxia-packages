@@ -20,13 +20,18 @@ local Net = Gaxia.Net
 ### Functions
 
 - `Net.SetViolationHandler(handler: ViolationHandler?): ()`
-  Server: route rate-limit ("soft") and argument-validation ("hard") violations to `handler`. The AntiCheat orchestrator installs this in its Init.
+  Server: route rate-limit ("soft") and argument-validation (opts.validationSeverity, default "soft") violations to `handler`. The AntiCheat orchestrator installs this in its Init.
 - `Net.OnServer(name: string, handler: (player: Player, ...any) -> (), opts: RemoteOpts?): RemoteEvent`
+  Server: run `handler` for each client FireServer of `name` (rate-limited, validated). Register once per name: a second registration warns and both handlers run.
 - `Net.OnInvoke(name: string, handler: (player: Player, ...any) -> ...any, opts: RemoteOpts?): RemoteFunction`
+  Server: answer client InvokeServer calls of `name`. If `handler` errors, the error (remote name + traceback) is reported in Output and the client gets nil. A second registration warns and replaces the first.
+- `Net.DeclareEvent(name: string, opts: RemoteOpts?): RemoteEvent`
+  Server: create RemoteEvent `name` without a server handler, for events only the server fires (FireClient / FireAllClients). Clients can then Net.OnClient it at once. Client FireServer calls are drained (rate-limited by `opts`) so they never queue up. A later Net.OnServer for the same name takes over.
 - `Net.FireClient(player: Player, name: string, ...: any): ()`
 - `Net.FireAllClients(name: string, ...: any): ()`
 - `Net.FireOtherClients(exceptPlayer: Player, name: string, ...: any): ()`
 - `Net.OnClient(name: string, handler: (...any) -> ()): RemoteEvent`
+  Client: run `handler` for each server FireClient / FireAllClients of `name`. Waits (yields) until the server has created the remote; after 5 s it warns once, naming the remote.
 - `Net.FireServer(name: string, ...: any): ()`
 - `Net.InvokeServer(name: string, ...: any): ...any`
   Returns whatever the server's OnInvoke handler returned (all values).
@@ -39,12 +44,17 @@ Exported types (use them in annotations: `local x: Module.TypeName`).
 export type RemoteOpts = {
     rate  : number?,                        -- requests per second (token refill rate)
     burst : number?,                        -- bucket capacity (max queue before throttle)
-    -- One predicate per positional arg; a falsy first return rejects (HARD flag +
-    -- drop). Gaxia.Guard checks plug in directly — they return (ok, err) and Net
-    -- only reads the truthy `ok`. For a single table payload validate its SHAPE:
+    -- One predicate per positional arg; a falsy first return rejects (drop + a
+    -- `RemoteValidation:<name>` flag of `validationSeverity`). A predicate that
+    -- errors also rejects (no flag; a warning names the remote). Gaxia.Guard checks
+    -- plug in directly — they return (ok, err) and Net only reads the truthy `ok`.
+    -- For a single table payload validate its SHAPE:
     --   { validators = { Guard.strictInterface({ id = Guard.string, qty = Guard.integer }) } }
     -- (typed `-> (boolean, ...any)` so both plain predicates and Guard checks fit)
     validators : { (any) -> (boolean, ...any) }?,
+    -- Severity of the AntiCheat flag when a validator rejects: "soft" (default,
+    -- counts toward the threshold ladder) or "hard" (escalates at once).
+    validationSeverity : ("soft" | "hard")?,
 }
 export type ViolationHandler = (player: Player, reason: string, severity: "soft" | "hard") -> ()
 ```

@@ -45,6 +45,7 @@ Logger:Error(msg: string, ...: any): () emit(self, "ERROR", msg, ...) end   → 
 Gaxia.Net.SetViolationHandler(handler: ViolationHandler?): ()   → Core.NetService.md
 Gaxia.Net.OnServer(name: string, handler: (player: Player, ...any) -> (), opts: RemoteOpts?): RemoteEvent   → Core.NetService.md
 Gaxia.Net.OnInvoke(name: string, handler: (player: Player, ...any) -> ...any, opts: RemoteOpts?): RemoteFunction   → Core.NetService.md
+Gaxia.Net.DeclareEvent(name: string, opts: RemoteOpts?): RemoteEvent   → Core.NetService.md
 Gaxia.Net.FireClient(player: Player, name: string, ...: any): ()   → Core.NetService.md
 Gaxia.Net.FireAllClients(name: string, ...: any): ()   → Core.NetService.md
 Gaxia.Net.FireOtherClients(exceptPlayer: Player, name: string, ...: any): ()   → Core.NetService.md
@@ -820,6 +821,7 @@ Gaxia.Scheduler.Every(intervalSec: number, fn: () -> ()): () -> ()   → Schedul
 Gaxia.Scheduler.Debounce<A...>(fn: (A...) -> (), waitSec: number): (A...) -> ()   → Scheduler.md
 Gaxia.Scheduler.Throttle<A...>(fn: (A...) -> (), intervalSec: number): (A...) -> ()   → Scheduler.md
 Gaxia.Scheduler.Stopwatch(): Stopwatch   → Scheduler.md
+Gaxia.Guard.number(value: any): (boolean, string?)   → Guard.md
 Gaxia.Guard.any(_: any): (boolean, string?)   → Guard.md
 Gaxia.Guard.integer(value: any): (boolean, string?)   → Guard.md
 Gaxia.Guard.optional(check: Check): Check   → Guard.md

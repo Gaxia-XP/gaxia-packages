@@ -68,13 +68,15 @@ A. requires and loading · B. packages missing, nil services · C. player data �
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `[NetService] Remote 'X' not registered by server` about 10 s after start | The server registers `X` late (inside `PlayerAdded`, after a wait), never, or with another spelling. For server → client remotes: the server has not fired it yet. | Call `Net.OnServer` / `Net.OnInvoke` once at the **top level** of a Script. For server → client remotes also add `Net.OnServer("X", function() end)` at the top. |
-| `Infinite yield possible on 'ReplicatedStorage.Events.Net:WaitForChild("X")'` (or on `ReplicatedStorage:WaitForChild("X")`) | Your code waits for a remote by hand | Never `WaitForChild` or `Instance.new` remotes. Use `Gaxia.Net.OnClient`, `Gaxia.Net.FireServer`, `Gaxia.Net.InvokeServer`. |
+| `[NetService] Remote 'X' not registered by server` about 10 s after start | The server registers `X` late (inside `PlayerAdded`, after a wait), never, or with another spelling. For server → client remotes: the server has not fired it yet. | Call `Net.OnServer` / `Net.OnInvoke` once at the **top level** of a Script. For server → client remotes also add `Net.DeclareEvent("X")` at the top. |
+| `[NetService] Net.OnClient('X') is still waiting: the server has not created remote 'X'` (then `Infinite yield possible on 'ReplicatedStorage.Events.Net:WaitForChild("X")'`) | The client listens to a server → client remote the server has not created yet (it only calls `Net.FireClient("X", …)` later, or never) | Add `Net.DeclareEvent("X")` at the **top level** of the server Script that fires `X`. |
+| `Infinite yield possible on 'ReplicatedStorage.Events.Net:WaitForChild("X")'` (or on `ReplicatedStorage:WaitForChild("X")`) without the `is still waiting` line | Your code waits for a remote by hand | Never `WaitForChild` or `Instance.new` remotes. Use `Gaxia.Net.OnClient`, `Gaxia.Net.FireServer`, `Gaxia.Net.InvokeServer`. |
 | `Net.OnServer is server-only` / `Net.FireServer is client-only` | A Net function is called on the wrong side | `OnServer`, `OnInvoke`, `FireClient`, `FireAllClients` in a Script; `OnClient`, `FireServer`, `InvokeServer` in a LocalScript. |
 | `[NetService] 'X' is a RemoteEvent, expected RemoteFunction` | One name is used for both kinds | A different name for each: `ShopBuy` (invoke), `ShopAnnounce` (event). |
 | Script Analysis: `Key 'Net' not found in table 'GaxiaServerPackage'` | Net comes from the shared package, not from GaxiaServer | Also require `Gaxia_Packages` in the Script and use `Gaxia.Net` ([04-client-server](start/04-client-server-communication.md)). |
-| `Net.InvokeServer` returns nil | Over the rate limit (default 10/s, burst 20) or a failed validator | Handle `if ok == nil then`. Raise `rate`/`burst` in the `Net.OnInvoke` options if honest clicks hit it. |
-| A server handler runs twice per request | The same name is registered twice (two scripts, or once per player) | Register each name once, at the top level. |
+| `Net.InvokeServer` returns nil | Over the rate limit (default 10/s, burst 20), a failed validator, or the server handler errored (red in the server's Output, ending `(error in the Net.OnInvoke('X') handler; the client got nil)`) | Handle `if ok == nil then`. Fix the red server error at the line it names. Raise `rate`/`burst` in the `Net.OnInvoke` options if honest clicks hit it. |
+| `[NetService] validator 1 of remote 'X' errored (request rejected)` | A function in `validators` errors on what the client sent (for example it indexes a number) | Use `Gaxia.Guard` checks, or check `typeof` first in your own validator. |
+| A server handler runs twice per request, or `[NetService] Net.OnServer('X') registered twice` / `Net.OnInvoke('X') registered twice` | The same name is registered twice (two scripts, or once per player) | Register each name once, at the top level. |
 
 ### E. Coins, shop and Robux
 

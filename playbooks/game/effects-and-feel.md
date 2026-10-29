@@ -74,9 +74,9 @@ VFX.Register("Boom", function(holder: Instance)
 end)
 SFX.Register("Boom", { SoundId = BOOM_SOUND_ID, Volume = 1, PitchVariation = 0.1, RollOffMaxDistance = 100 })
 
--- 3. Create the BoomFx remote now. Without this line, BoomFeel (Step 2) waits 10 seconds for it
--- and then errors when it starts before the first boom. Anything a client sends here is ignored.
-Net.OnServer("BoomFx", function() end)
+-- 3. Create the BoomFx remote now (server -> client only). Without this line, BoomFeel (Step 2)
+-- waits, with a warning, until the first boom. Anything a client sends here is ignored.
+Net.DeclareEvent("BoomFx")
 print("[BoomPad] ready")
 
 -- 4. Explode forever. This loop never ends, so it is the last thing in the script.

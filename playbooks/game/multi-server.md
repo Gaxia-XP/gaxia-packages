@@ -102,9 +102,9 @@ local Net = Gaxia.Net
 local Admin = GaxiaServer.Admin
 local Messages = GaxiaServer.Messages
 local TOPIC = "GlobalAnnouncement"
--- Intentionally empty: it creates the remote now. The client's Net.OnClient("Announcement")
--- waits only 10 seconds for it (playbooks/start/04-client-server-communication.md).
-Net.OnServer("Announcement", function() end)
+-- Create the server -> client remote now, so the client's Net.OnClient("Announcement")
+-- finds it at once (playbooks/start/04-client-server-communication.md).
+Net.DeclareEvent("Announcement")
 
 -- Every server (this one too) receives every published message here.
 local function onAnnouncement(data: any, _sentTimestamp: number)

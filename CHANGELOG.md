@@ -79,6 +79,40 @@ this framework uses a single rolling version until a public release cut.
   error). `EConfig.Enabled` therefore uses its default for a non-boolean override. A nil
   default still returns any override.
 
+### Fixed — hardening (net-guard)
+- **`Net.OnInvoke` handler errors no longer reach the client.** The handler runs in
+  `xpcall`; an error is printed red in the server's Output (the error and its line
+  first, then the handler's stack, then `(error in the Net.OnInvoke('X') handler; the
+  client got nil)`) and the client's `Net.InvokeServer` returns `nil` instead of raising
+  the server's error. Clients already treat `nil` as "rejected".
+- **Validators that error reject the request.** A `validators` function that errors on
+  what a client sent (for example indexing a number) drops the request and warns
+  `[NetService] validator N of remote 'X' errored (request rejected)` (at most once per
+  10 s per remote), instead of erroring inside the remote handler. No AntiCheat flag.
+- **Added `Net.DeclareEvent(name, opts?)`** (server): creates a RemoteEvent that only the
+  server fires, so clients can `Net.OnClient` it at once. Client `FireServer` calls on it
+  are drained (rate-limited by `opts`), so they never queue up. A later `Net.OnServer` on
+  the same name takes over. Replace `Net.OnServer("X", function() end)` stubs with
+  `Net.DeclareEvent("X")` (the playbooks now do).
+- **`Net.OnClient` waits for a remote the server has not created yet** instead of
+  erroring after 10 s: after 5 s it warns once, `[NetService] Net.OnClient('X') is still
+  waiting: … The server must declare it …`, and connects as soon as the server creates
+  the remote. (It still yields the calling script until then, as before.)
+  `FireServer` / `InvokeServer` keep their 10 s limit.
+- **Duplicate registrations warn:** a second `Net.OnServer` (both handlers run) or
+  `Net.OnInvoke` (the new one replaces the old) for the same name prints
+  `[NetService] Net.OnServer('X') registered twice …`.
+- **Behaviour change — `RemoteOpts.validationSeverity`** (`"soft"` | `"hard"`, default
+  `"soft"`): the severity of the `RemoteValidation:X` AntiCheat flag when a validator
+  rejects. Before, a failed validator was always a **hard** flag (escalation at once);
+  now it is soft by default (counted toward the threshold ladder). This also applies to
+  the framework's own validated remotes (Pets). Pass `validationSeverity = "hard"` to keep
+  the old behaviour.
+- **Behaviour change — Guard numeric checks reject NaN and ±inf.** `Guard.number` and
+  `Guard.numberRange` (even with `math.huge` bounds) now reject NaN and ±inf, like
+  `Guard.integer` already did. Before, `Guard.number` accepted both and `numberRange`
+  accepted NaN.
+
 ### Added — pick the packages a game installs
 The framework is split into ~100 packages (`Gaxia_Packages_Server/Packages.lua`). Pick
 the ones a game uses and only those, the packages they need, and Core are installed;

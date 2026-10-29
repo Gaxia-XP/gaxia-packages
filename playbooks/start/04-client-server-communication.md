@@ -9,7 +9,7 @@
 How it works:
 
 - The client never changes the game. It only **asks**: `Gaxia.Net.InvokeServer` (ask and wait for an answer) or `Gaxia.Net.FireServer` (ask, no answer).
-- The server registers each handler once, at the top level of a Script: `Gaxia.Net.OnInvoke` (answers) or `Gaxia.Net.OnServer` (no answer). The client waits up to 10 seconds for a remote the server has not created yet, then errors.
+- The server registers each handler once, at the top level of a Script: `Gaxia.Net.OnInvoke` (answers) or `Gaxia.Net.OnServer` (no answer). A remote only the server fires is created with `Gaxia.Net.DeclareEvent`. The client's `InvokeServer` / `FireServer` wait up to 10 seconds for a remote the server has not created yet, then error; `OnClient` keeps waiting and warns after 5 seconds.
 - The server talks to clients with `Gaxia.Net.FireClient` (one player) or `Gaxia.Net.FireAllClients` (everyone). The client listens with `Gaxia.Net.OnClient`.
 - `Gaxia.Net` works on both sides, so a server Script requires `Gaxia_Packages` too (Step 1 has both require lines). Net creates the remotes for you in `ReplicatedStorage.Events.Net`. Never create a RemoteEvent yourself.
 - Net limits each player to 10 requests per second per remote (burst 20) by default. Extra requests are dropped.
@@ -90,7 +90,7 @@ end
 Net.OnInvoke("PotionBuy", onPotionBuy, { rate = 4, burst = 8 })
 
 -- Create the server -> client remote now, so the client's Net.OnClient finds it (client messages are ignored).
-Net.OnServer("PotionAnnounce", function() end)
+Net.DeclareEvent("PotionAnnounce")
 
 -- One connection for the whole server (not one per player), so it needs no Trove.
 Players.PlayerRemoving:Connect(function(player: Player)
@@ -189,25 +189,25 @@ What it does: it shows one button. A press asks the server and shows the answer 
 |---|---|---|
 | `Net.FireServer("AddCoins", 100)` from the client | Client sends `"PotionBuy", "SpeedPotion", 2`; the server reads the price from `PRICES` | A cheater can send any number. The server must decide prices, amounts and rewards. |
 | Server uses `amount` without checks | Check `typeof`, whole number, `1..MAX_AMOUNT` first | Cheaters send `-5`, `0.5`, `NaN` or `1e300`. |
-| `Net.OnInvoke(...)` inside `Players.PlayerAdded` or after `task.wait` | Call `Net.OnInvoke` / `Net.OnServer` once, at the top level of a Script | Inside `PlayerAdded` it registers again for every player who joins: `Net.OnServer` handlers then run once per registration (double rewards). After a long `task.wait` the client gives up after 10 seconds: `Remote 'PotionBuy' not registered by server`. |
-| The server only calls `Net.FireClient(player, "X", ...)` later; the client calls `Net.OnClient("X", ...)` at start | Also call `Net.OnServer("X", function() end)` at the top of the server Script | Net creates a remote on first use. Without it the client's `Net.OnClient` errors after 10 seconds. |
+| `Net.OnInvoke(...)` inside `Players.PlayerAdded` or after `task.wait` | Call `Net.OnInvoke` / `Net.OnServer` once, at the top level of a Script | Inside `PlayerAdded` it registers again for every player who joins: Output warns `registered twice`, and `Net.OnServer` handlers then run once per registration (double rewards). After a long `task.wait` the client gives up after 10 seconds: `Remote 'PotionBuy' not registered by server`. |
+| The server only calls `Net.FireClient(player, "X", ...)` later; the client calls `Net.OnClient("X", ...)` at start | Also call `Net.DeclareEvent("X")` at the top of the server Script | Net creates a remote on first use. Without it the client's `Net.OnClient` waits until the first `FireClient` and warns `is still waiting` after 5 seconds. |
 | `local ok = Net.FireServer("PotionBuy", ...)` | `local ok, message = Net.InvokeServer("PotionBuy", ...)` | `FireServer` never returns an answer. Use `InvokeServer` with `OnInvoke`. |
 | Same name in `Net.OnServer` in two scripts | One handler per name, named `<Feature><Action>` (`PotionBuy`) | Both handlers run. With `Net.OnInvoke` only the last one works. A name used as both kinds errors: `'X' is a RemoteEvent, expected RemoteFunction`. |
 | `Net.OnServer` / `Net.FireClient` in a LocalScript | Server functions in a Script, client functions in a LocalScript | Net errors: `Net.OnServer is server-only`, `Net.FireServer is client-only`. |
-| Client ignores a `nil` answer | `if ok == nil then ... end` | Requests over the rate limit, or that fail `validators`, return `nil`. |
+| Client ignores a `nil` answer | `if ok == nil then ... end` | Requests over the rate limit, that fail `validators`, or whose server handler errors return `nil` (the handler's error is red in the server's Output). |
 | `Instance.new("RemoteEvent")` in ReplicatedStorage | `Net.OnServer` / `Net.OnInvoke` | Net adds rate limits and AntiCheat reports. Your own remotes have neither. |
 
 ## Change it
 
 - To change the rate limit: change `{ rate = 4, burst = 8 }`. `rate` = requests per second, `burst` = how many may come at once. Each dropped request is a soft AntiCheat flag. 5 drops for the same remote within a few minutes become a HARD action (a kick once the game turns on enforcing with `GaxiaServer.EConfig.Set("AntiCheat.Enforce", true)`, see [config-and-flags](../game/config-and-flags.md)). So never set `rate` lower than an honest player can click, and keep the client `busy` guard from Step 2.
-- To reject malformed requests before your handler runs, add `validators`: one check per argument. A failed check drops the request and reports a **hard** AntiCheat flag (a kick when enforcing is on, as above). So check only what an honest client never sends (types), never ranges or money. This needs the `Guard` package. In `PotionStand`, **replace** the line `Net.OnInvoke("PotionBuy", onPotionBuy, { rate = 4, burst = 8 })` with these lines (never keep both: only the last registration works):
+- To reject malformed requests before your handler runs, add `validators`: one check per argument. A failed check drops the request and reports a **soft** AntiCheat flag (`RemoteValidation:PotionBuy`, counted like the rate-limit flags above). Add `validationSeverity = "hard"` to the options to report a hard flag instead (a kick when enforcing is on). A validator that errors also drops the request, with a warning. Check only what an honest client never sends (types), never ranges or money. This needs the `Guard` package. In `PotionStand`, **replace** the line `Net.OnInvoke("PotionBuy", onPotionBuy, { rate = 4, burst = 8 })` with these lines (never keep both: only the last registration works):
   ```lua
   -- fragment
   assert(Gaxia.IsInstalled("Guard"), "PotionStand needs the Guard package: install it (playbooks/start/01-install-packages.md)")
   local Guard = Gaxia.Guard
   Net.OnInvoke("PotionBuy", onPotionBuy, { rate = 4, burst = 8, validators = { Guard.string, Guard.integer } })
   ```
-  Check Guard with `Gaxia.IsInstalled` (it is a shared package: `GaxiaServer.IsInstalled("Guard")` is always `false`). `Guard.integer` rejects NaN and infinity. `Guard.numberRange` does NOT reject NaN: keep range checks in the handler.
+  Check Guard with `Gaxia.IsInstalled` (it is a shared package: `GaxiaServer.IsInstalled("Guard")` is always `false`). `Guard.number`, `Guard.integer` and `Guard.numberRange` reject NaN and infinity. Keep range checks (`1..MAX_AMOUNT`) in the handler: validators are for types only.
 - To send a message to one player only: `Net.FireClient(player, "PotionAnnounce", ...)`. To everyone except one: `Net.FireOtherClients(player, "PotionAnnounce", ...)`.
 - For a request that needs no answer (for example "I pressed Sprint"): server `Net.OnServer("SprintPress", function(player) ... end)`, client `Net.FireServer("SprintPress")`. The same checks apply.
 - Many small one-way actions that each send one table: the `Command` package (`Gaxia.Command.Register` on the server with a `Guard` schema, `Gaxia.Command.Send` on the client) uses one shared remote. It never replies, so keep `Net.OnInvoke` when the client needs an answer.
