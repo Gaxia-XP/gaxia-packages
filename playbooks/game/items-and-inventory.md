@@ -210,6 +210,7 @@ print("[ToolGiver] ready")
 - To trade: pick `Trade` (it brings `Economy`). This playbook has no trade script: tell the user it needs a server script and a trade window. The flow is `local tradeId = Trade.Request(a, b)`, then `Trade.AddItem(player, tradeId, "Apple", 2)` / `Trade.AddCurrency(player, tradeId, "Coins", 50)`, then `Trade.Confirm(player, tradeId)` by both. Rules:
   - `Trade` has no remotes and no invites, and `Request` does not ask `b`: let `b` accept first through a `Net` remote. A trade is cancelled by itself when either player leaves (`OnComplete` fires with `false`). Only the two players in a trade can `Trade.Cancel(player, tradeId)` it.
   - Check every client value (item name in an allow-list, whole count 1 to 1000). `AddItem` adds to the offer: check `Item.Has(player, item, alreadyOffered + count)`.
+  - Any `AddItem`, `RemoveItem`, `AddCurrency` or `RemoveCurrency` un-confirms **both** players (`Trade.IsConfirmed` is `false` again), so nobody can change the offer after the other one confirmed. Both must `Confirm` again after a change: show "Confirm" again in the trade window on `OnUpdate`.
   - `OnComplete` fires after the trade is removed (`GetTrade` is `nil` there): remember both players in `OnUpdate` to tell them it ended.
 - To sell items for Coins: [shop](shop.md).
 

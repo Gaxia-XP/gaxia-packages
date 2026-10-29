@@ -96,6 +96,7 @@ end
 
 -- ── Building an offer (each change re-opens both confirmations) ──
 
+-- Adds count of itemId to the player's side of the offer. Any change un-confirms BOTH sides (IsConfirmed is false again): both players must Confirm again after it.
 function TradeService.AddItem(player: Player, tradeId: string, itemId: string, count: number): (boolean, string)
 	local trade, offer = sideOf(tradeId, player)
 	if not trade or not offer then
@@ -107,6 +108,7 @@ function TradeService.AddItem(player: Player, tradeId: string, itemId: string, c
 	return true, "ok"
 end
 
+-- Takes count of itemId off the player's side (all of it when count is nil). Any change un-confirms BOTH sides (IsConfirmed is false again): both players must Confirm again after it.
 function TradeService.RemoveItem(player: Player, tradeId: string, itemId: string, count: number?): (boolean, string)
 	local trade, offer = sideOf(tradeId, player)
 	if not trade or not offer or not offer.items[itemId] then
@@ -122,6 +124,7 @@ function TradeService.RemoveItem(player: Player, tradeId: string, itemId: string
 	return true, "ok"
 end
 
+-- Adds amount of currency to the player's side of the offer. Any change un-confirms BOTH sides (IsConfirmed is false again): both players must Confirm again after it.
 function TradeService.AddCurrency(player: Player, tradeId: string, currency: string, amount: number): (boolean, string)
 	local trade, offer = sideOf(tradeId, player)
 	if not trade or not offer then
@@ -133,6 +136,7 @@ function TradeService.AddCurrency(player: Player, tradeId: string, currency: str
 	return true, "ok"
 end
 
+-- Takes amount of currency off the player's side (all of it when amount is nil). Any change un-confirms BOTH sides (IsConfirmed is false again): both players must Confirm again after it.
 function TradeService.RemoveCurrency(player: Player, tradeId: string, currency: string, amount: number?): (boolean, string)
 	local trade, offer = sideOf(tradeId, player)
 	if not trade or not offer or not offer.currencies[currency] then

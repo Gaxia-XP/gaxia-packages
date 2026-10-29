@@ -8,8 +8,12 @@ Time is simulated (60 frames per second), so a 10 second run takes about one sec
 ## Install once
 
 - Node 18 or newer.
-- `lune` 0.10.x on your PATH: `rokit install` (it is in `rokit.toml`), or download it from
-  https://github.com/lune-org/lune/releases, or set `LUNE=/path/to/lune`.
+- `lune` 0.10.x on your PATH. Easiest (Linux x86_64, what CI uses): from the repo root run
+  `bash tools/ci/install-tools.sh /tmp/gaxia-tools && export PATH=/tmp/gaxia-tools/bin:$PATH`
+  (it also installs `luau-lsp` and the Roblox type definitions in `/tmp/gaxia-tools/defs`). Or `rokit install`
+  (it is in `rokit.toml`), or download it from https://github.com/lune-org/lune/releases, or set `LUNE=/path/to/lune`.
+- Cannot install lune? Do not guess the result: say that the headless run was not done and give the user the
+  Studio checks to do instead (AGENTS.md rule 12).
 - Nothing else: no Studio, no rojo, no luau-lsp.
 
 ## Commands (run from the repo root)

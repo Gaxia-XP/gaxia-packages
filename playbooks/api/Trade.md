@@ -27,9 +27,13 @@ local Trade = GaxiaServer.Trade
 - `Trade.GetActiveTrade(player: Player): string?`
 - `Trade.GetTrade(tradeId: string): Trade?`
 - `Trade.AddItem(player: Player, tradeId: string, itemId: string, count: number): (boolean, string)`
+  Adds count of itemId to the player's side of the offer. Any change un-confirms BOTH sides (IsConfirmed is false again): both players must Confirm again after it.
 - `Trade.RemoveItem(player: Player, tradeId: string, itemId: string, count: number?): (boolean, string)`
+  Takes count of itemId off the player's side (all of it when count is nil). Any change un-confirms BOTH sides (IsConfirmed is false again): both players must Confirm again after it.
 - `Trade.AddCurrency(player: Player, tradeId: string, currency: string, amount: number): (boolean, string)`
+  Adds amount of currency to the player's side of the offer. Any change un-confirms BOTH sides (IsConfirmed is false again): both players must Confirm again after it.
 - `Trade.RemoveCurrency(player: Player, tradeId: string, currency: string, amount: number?): (boolean, string)`
+  Takes amount of currency off the player's side (all of it when amount is nil). Any change un-confirms BOTH sides (IsConfirmed is false again): both players must Confirm again after it.
 - `Trade.IsConfirmed(player: Player, tradeId: string): boolean`
 - `Trade.Confirm(player: Player, tradeId: string): (boolean, boolean, string)`
   Returns (ok, executed, message). The swap fires when BOTH sides are confirmed.
