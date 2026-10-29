@@ -8,10 +8,15 @@
 --           and releases (release is in a pcall so a throwing fn still
 --           releases). Read paths (no mutation) do NOT use this lock —
 --           reads hit DataStore directly.
+--           Studio fallback: when MemoryStore is unavailable in Studio (place
+--           not published, or Studio API access off) the lock switches to a
+--           single-server in-memory lock for the rest of the session (one warn).
+--           Live servers never fall back: a MemoryStore error is "lock busy".
 -- Access  : Gaxia.GuildLock  (server)
 -- ─────────────────────────────────────────────────────────────
 local HttpService = game:GetService("HttpService")
 local MemoryStoreService = game:GetService("MemoryStoreService")
+local RunService = game:GetService("RunService")
 
 local Lifecycle = require(script.Parent.ServiceLifecycle)
 
@@ -22,8 +27,39 @@ local DEFAULT_TTL: number = 5
 
 local GuildLock = {}
 
+-- Studio-only single-server fallback (see header). guildId -> holder.
+type LocalHold = { owner: string, expires: number }
+local localLocks: { [string]: LocalHold } = {}
+local useLocal = false
+
 local function map(): MemoryStoreSortedMap
 	return MemoryStoreService:GetSortedMap(MAP_NAME)
+end
+
+-- In Studio, switch to the in-memory lock after the first MemoryStore error.
+-- Returns true when the caller should use the local lock from now on.
+local function fallBackToLocal(err: any): boolean
+	if useLocal then
+		return true
+	end
+	if not RunService:IsStudio() then
+		return false
+	end
+	useLocal = true
+	warn(
+		`[GuildLock] MemoryStore unavailable in Studio ({tostring(err)}); using a single-server lock for this session. Publish the place and enable Studio API access to test the cross-server lock.`
+	)
+	return true
+end
+
+local function localClaim(guildId: string, ownerId: string, ttlSec: number): boolean
+	local now = os.clock()
+	local hold = localLocks[guildId]
+	if hold == nil or hold.expires <= now or hold.owner == ownerId then
+		localLocks[guildId] = { owner = ownerId, expires = now + ttlSec }
+		return true
+	end
+	return false
 end
 
 local function newOwnerId(): string
@@ -32,6 +68,9 @@ end
 
 -- Try to claim the lock for `ownerId`. Returns true if claim succeeded.
 local function tryClaim(guildId: string, ownerId: string, ttlSec: number): boolean
+	if useLocal then
+		return localClaim(guildId, ownerId, ttlSec)
+	end
 	local claimed = false
 	local ok, err = pcall(function()
 		map():UpdateAsync(guildId, function(current: any): string?
@@ -48,12 +87,18 @@ local function tryClaim(guildId: string, ownerId: string, ttlSec: number): boole
 		end, ttlSec)
 	end)
 	if not ok then
+		if fallBackToLocal(err) then
+			return localClaim(guildId, ownerId, ttlSec)
+		end
 		warn(`[GuildLock] UpdateAsync failed for guild '{guildId}': {tostring(err)}`)
 		return false
 	end
 	return claimed
 end
 
+-- Claims the lock for `guildId` (retries 3 times with a short backoff). Returns
+-- (ownerId, nil), or (nil, "lock busy") when another holder has it or MemoryStore
+-- fails on a live server. In Studio without MemoryStore it uses a single-server lock.
 function GuildLock.Acquire(guildId: string, ttlSec: number?): (string?, string?)
 	local ttl = ttlSec or DEFAULT_TTL
 	local ownerId = newOwnerId()
@@ -74,6 +119,13 @@ function GuildLock.Renew(guildId: string, ownerId: string, ttlSec: number): bool
 end
 
 function GuildLock.Release(guildId: string, ownerId: string): ()
+	if useLocal then
+		local hold = localLocks[guildId]
+		if hold and hold.owner == ownerId then
+			localLocks[guildId] = nil
+		end
+		return
+	end
 	-- Use UpdateAsync to atomically CAS-verify ownership AND clear in one shot:
 	-- writing the empty-string sentinel ("") with TTL=1 expires fast and is treated
 	-- as "free" by tryClaim's nil-or-ours check. Returning nil from the transform

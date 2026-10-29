@@ -483,11 +483,12 @@ GaxiaServer.GuildLock.Release(guildId: string, ownerId: string): ()   → GuildL
 GaxiaServer.GuildLock.WithLock(guildId: string, fn: () -> any, ttlSec: number?): (boolean, any)   → GuildLock.md
 GaxiaServer.InviteQueue.Push(kind: InviteKind | string, toUserId: number, item: any, ttlSec: number): boolean   → InviteQueue.md
 GaxiaServer.InviteQueue.DrainFor(kind: InviteKind | string, userId: number): { any }   → InviteQueue.md
+GaxiaServer.InviteQueue.Remove(kind: InviteKind | string, toUserId: number, match: (item: any) -> boolean, ttlSec: number?): number   → InviteQueue.md
 GaxiaServer.Party.SetMaxSize(n: number): ()   → Party.md
 GaxiaServer.Party.Create(leader: any): string?   → Party.md
 GaxiaServer.Party.GetParty(player: any): string?   → Party.md
-GaxiaServer.Party.GetMembers(partyId: string): { any }   → Party.md
-GaxiaServer.Party.GetLeader(partyId: string): any?   → Party.md
+GaxiaServer.Party.GetMembers(partyId: string): { Player }   → Party.md
+GaxiaServer.Party.GetLeader(partyId: string): Player?   → Party.md
 GaxiaServer.Party.IsLeader(player: any): boolean   → Party.md
 GaxiaServer.Party.Join(player: any, partyId: string): (boolean, string)   → Party.md
 GaxiaServer.Party.Leave(player: any): ()   → Party.md

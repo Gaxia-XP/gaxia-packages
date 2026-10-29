@@ -25,6 +25,8 @@ local InviteQueue = GaxiaServer.InviteQueue
 
 - `InviteQueue.Push(kind: InviteKind | string, toUserId: number, item: any, ttlSec: number): boolean`
 - `InviteQueue.DrainFor(kind: InviteKind | string, userId: number): { any }`
+- `InviteQueue.Remove(kind: InviteKind | string, toUserId: number, match: (item: any) -> boolean, ttlSec: number?): number`
+  Removes the queued items for `toUserId` that `match` returns true for (for example a friend request that was just accepted, so it does not come back at the next join). The rest keep waiting, for `ttlSec` (default 7 days) from now. Returns how many were removed: 0 when none matched or MemoryStore failed (warns). `match` runs inside a MemoryStore transform: it must not yield.
 
 ### Types
 

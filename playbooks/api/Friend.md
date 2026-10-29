@@ -27,13 +27,17 @@ local Friend = GaxiaServer.Friend
 - `Friend.IsBlockedByUserId(blockerUserId: number, otherUserId: number): boolean`
   Used by PartyService.Invite without needing the blocker to be in-server. If the blocker is in this server, check; otherwise return false (best-effort across servers).
 - `Friend.SendRequest(from: any, toUserId: number): (boolean, string?)`
+  (false, why) on "invalid sender", "data not loaded", "invalid target", "cannot friend self", "already friends", "request already pending", ...
 - `Friend.AcceptRequest(player: any, fromUserId: number): (boolean, string?)`
+  Accepts the request from `fromUserId`: both become friends, and the request is removed from the queued (cross-server) requests. (false, why) on "invalid player", "data not loaded", "no such request", "max friends reached".
 - `Friend.DeclineRequest(player: any, fromUserId: number): (boolean, string?)`
+  Declines the request from `fromUserId` and removes it from the queued requests.
 - `Friend.Remove(player: any, otherUserId: number): (boolean, string?)`
 - `Friend.Block(player: any, otherUserId: number): (boolean, string?)`
 - `Friend.Unblock(player: any, otherUserId: number): (boolean, string?)`
 - `Friend.SetFavorite(player: any, otherUserId: number, fav: boolean): ()`
 - `Friend.GetList(player: any): { FriendListEntry }`
+  Online friends first, then favorites, then by name. Empty before the data loads.
 - `Friend.GetBlocks(player: any): { BlockListEntry }`
 - `Friend.RefreshPresence(player: any): ()`
 
@@ -59,9 +63,9 @@ export type FriendRecord = { name: string, since: number, favorite: boolean, not
 export type BlockRecord = { name: string?, at: number }
 export type PendingOutRecord = { name: string, at: number }
 export type SocialProfile = {
-    Friends: { [number]: FriendRecord },
-    Blocks: { [number]: BlockRecord },
-    PendingOut: { [number]: PendingOutRecord },
+    Friends: { [string]: FriendRecord },
+    Blocks: { [string]: BlockRecord },
+    PendingOut: { [string]: PendingOutRecord },
     GuildId: string?,
 }
 export type FriendListEntry = {

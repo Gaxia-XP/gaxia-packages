@@ -10,6 +10,8 @@
 --           reserves a server (Gaxia.Teleport); StartMatch teleports every member
 --           to a reserved server with party data. Built on the verified Memory +
 --           Teleport layers, so it degrades gracefully in Studio.
+--           A player who leaves the game leaves their party (PlayerRemoving →
+--           Leave): the leader passes on, an empty party is removed.
 --
 -- Access  : Gaxia.Party  (server)
 --   local pid = Gaxia.Party.Create(leader) ; Gaxia.Party.Join(p2, pid)
@@ -31,8 +33,9 @@ local FriendService   = require(script.Parent.FriendService)
 local POOL_TTL : number = 120
 
 -- ── Types ──
--- Party members / leaders stay `any`: tests pass MockPlayers (StartMatch only
--- teleports the members that are real Player Instances).
+-- Party members / leaders are stored as `any`: tests pass MockPlayers (StartMatch
+-- only teleports the members that are real Player Instances). The getters return
+-- them as Player, which is what a game has.
 type Party = { id: string, leader: any, members: { any } }
 
 -- One queued party in the matchmaking pool (Memory sorted map value).
@@ -60,6 +63,19 @@ local function getMaxSize(): number
 	return maxSizeOverride or partyGet("MaxSize", Config.Party.MaxSize, 4)
 end
 
+-- ── Argument checks (game code and the Party remote share them) ──
+-- A userId: a whole number (NaN, ±inf, fractions and non-numbers are not).
+local function isUserId(v: any): boolean
+	return typeof(v) == "number" and v == v and v % 1 == 0 and math.abs(v) < 2 ^ 53
+end
+local function isPlayerLike(player: any): boolean
+	return (typeof(player) == "Instance" or typeof(player) == "table") and isUserId(player.UserId)
+end
+local MAX_PARTY_ID_LEN = 64
+local function isPartyId(v: any): boolean
+	return typeof(v) == "string" and #v > 0 and #v <= MAX_PARTY_ID_LEN
+end
+
 -- ── Lifecycle ──
 
 -- Runtime override of party size; nil/unset falls back to Config.Party.MaxSize.
@@ -67,8 +83,10 @@ function PartyService.SetMaxSize(n: number): ()
 	maxSizeOverride = math.max(1, n)
 end
 
+-- Makes a party led by `leader` and returns its id; nil when `leader` is already
+-- in a party (or is not a player).
 function PartyService.Create(leader: any): string?
-	if playerParty[leader.UserId] then
+	if not isPlayerLike(leader) or playerParty[leader.UserId] then
 		return nil
 	end
 	seq += 1
@@ -80,26 +98,46 @@ function PartyService.Create(leader: any): string?
 end
 
 function PartyService.GetParty(player: any): string?
+	if not isPlayerLike(player) then
+		return nil
+	end
 	return playerParty[player.UserId]
 end
 
-function PartyService.GetMembers(partyId: string): { any }
+-- The party's members, leader included, in join order. A new list each call
+-- (changing it does not change the party); empty when the party does not exist.
+function PartyService.GetMembers(partyId: string): { Player }
+	local out: { Player } = {}
 	local p = parties[partyId]
-	return p and p.members or {}
+	if p then
+		for i, m in ipairs(p.members) do
+			out[i] = m
+		end
+	end
+	return out
 end
 
-function PartyService.GetLeader(partyId: string): any?
+function PartyService.GetLeader(partyId: string): Player?
 	local p = parties[partyId]
 	return p and p.leader
 end
 
 function PartyService.IsLeader(player: any): boolean
+	if not isPlayerLike(player) then
+		return false
+	end
 	local id = playerParty[player.UserId]
 	local p = id and parties[id]
 	return p ~= nil and p.leader.UserId == player.UserId
 end
 
 function PartyService.Join(player: any, partyId: string): (boolean, string)
+	if not isPlayerLike(player) then
+		return false, "invalid player"
+	end
+	if not isPartyId(partyId) then
+		return false, "no such party"
+	end
 	if playerParty[player.UserId] then
 		return false, "already in a party"
 	end
@@ -116,7 +154,13 @@ function PartyService.Join(player: any, partyId: string): (boolean, string)
 	return true, "ok"
 end
 
+-- Removes `player` from their party. The next member becomes leader when the
+-- leader leaves; the party is removed when it is empty. Called automatically
+-- when a player leaves the game.
 function PartyService.Leave(player: any): ()
+	if not isPlayerLike(player) then
+		return
+	end
 	local id = playerParty[player.UserId]
 	local p = id and parties[id]
 	if not p then
@@ -131,6 +175,7 @@ function PartyService.Leave(player: any): ()
 	end
 	if #p.members == 0 then
 		parties[id] = nil
+		PartyService.OnPartyChanged:Fire(id)
 		return
 	end
 	-- promote a new leader if the leader left
@@ -141,6 +186,9 @@ function PartyService.Leave(player: any): ()
 end
 
 function PartyService.Disband(leader: any): boolean
+	if not isPlayerLike(leader) then
+		return false
+	end
 	local id = playerParty[leader.UserId]
 	local p = id and parties[id]
 	if not p or p.leader.UserId ~= leader.UserId then
@@ -248,6 +296,10 @@ export type PendingInvite = {
 -- multiple invites from different parties without overwriting.
 local pendingByUser: { [number]: { [string]: PendingInvite } } = {}
 
+-- Per-player token bucket of the Party remote (see "Remote guard" below).
+type RemoteBucket = { tokens: number, last: number }
+local remoteBuckets: { [number]: RemoteBucket } = {}
+
 local function inviteCfg(key: string, configured: number?, fallback: number): number
 	return EConfig.Get(`Social.Party.{key}`, configured or fallback)
 end
@@ -287,9 +339,14 @@ local function cleanExpired(userId: number): ()
 	end
 end
 
+-- The leader invites `targetUserId` (same server: OnInvite; else the InviteQueue).
+-- (false, why) on "invalid leader", "invalid target", "cannot invite self", ...
 function PartyService.Invite(leader: any, targetUserId: number): (boolean, string?)
-	if not leader or typeof(leader.UserId) ~= "number" then
+	if not isPlayerLike(leader) then
 		return false, "invalid leader"
+	end
+	if not isUserId(targetUserId) then
+		return false, "invalid target"
 	end
 	if leader.UserId == targetUserId then
 		return false, "cannot invite self"
@@ -354,7 +411,7 @@ function PartyService.Invite(leader: any, targetUserId: number): (boolean, strin
 end
 
 function PartyService.GetPendingInvites(player: any): { PendingInvite }
-	if not player or typeof(player.UserId) ~= "number" then
+	if not isPlayerLike(player) then
 		return {}
 	end
 	cleanExpired(player.UserId)
@@ -373,7 +430,7 @@ function PartyService.GetPendingInvites(player: any): { PendingInvite }
 end
 
 function PartyService.CancelInvite(leader: any, targetUserId: number): ()
-	if not leader or not PartyService.IsLeader(leader) then
+	if not isUserId(targetUserId) or not PartyService.IsLeader(leader) then
 		return
 	end
 	local pid = PartyService.GetParty(leader)
@@ -387,8 +444,11 @@ function PartyService.CancelInvite(leader: any, targetUserId: number): ()
 end
 
 function PartyService.DeclineInvite(player: any, partyId: string): (boolean, string?)
-	if not player or typeof(player.UserId) ~= "number" then
+	if not isPlayerLike(player) then
 		return false, "invalid player"
+	end
+	if not isPartyId(partyId) then
+		return false, "no such invite"
 	end
 	cleanExpired(player.UserId)
 	local pmap = peekPendingMap(player.UserId)
@@ -406,8 +466,11 @@ function PartyService.DeclineInvite(player: any, partyId: string): (boolean, str
 end
 
 function PartyService.AcceptInvite(player: any, partyId: string): (boolean, string?)
-	if not player or typeof(player.UserId) ~= "number" then
+	if not isPlayerLike(player) then
 		return false, "invalid player"
+	end
+	if not isPartyId(partyId) then
+		return false, "no such invite"
 	end
 	cleanExpired(player.UserId)
 	local pmap = peekPendingMap(player.UserId)
@@ -458,10 +521,66 @@ local function hookPlayers(): ()
 	-- used by every other Lib service).
 	Players.PlayerRemoving:Connect(function(player)
 		pendingByUser[player.UserId] = nil
+		remoteBuckets[player.UserId] = nil
+		-- A player who left the game leaves their party (the leader passes on).
+		PartyService.Leave(player)
 	end)
 	for _, p in ipairs(Players:GetPlayers()) do
 		task.spawn(drainOnJoin, p)
 	end
+end
+
+-- ── Remote guard for Events/Party/InviteAction ──
+-- The same rules Net applies to its remotes (RemoteOpts rate / burst /
+-- validators), for this RemoteFunction: a per-player token bucket
+-- (Social.Party.RemoteRate per second, up to RemoteBurst at once), then a check
+-- of every field of the envelope. A refused request returns (false, "rate
+-- limited") or (false, "bad request") before any party code runs.
+local function remoteAllowed(player: Player): boolean
+	local rate = inviteCfg("RemoteRate", Config.Social.Party.RemoteRate, 4)
+	local burst = inviteCfg("RemoteBurst", Config.Social.Party.RemoteBurst, 10)
+	local now = os.clock()
+	local b = remoteBuckets[player.UserId]
+	if not b then
+		b = { tokens = burst, last = now }
+		remoteBuckets[player.UserId] = b
+	end
+	b.tokens = math.min(burst, b.tokens + (now - b.last) * rate)
+	b.last = now
+	if b.tokens < 1 then
+		return false
+	end
+	b.tokens -= 1
+	return true
+end
+
+-- action -> { field -> check }. An action not listed here is "unknown action".
+local ACTION_FIELDS: { [string]: { [string]: (any) -> boolean } } = {
+	invite = { target = isUserId },
+	accept = { partyId = isPartyId },
+	decline = { partyId = isPartyId },
+	cancel = { target = isUserId },
+	pending = {},
+}
+
+-- nil when the envelope may run; else the (false, why) reason.
+local function checkEnvelope(player: Player, e: any): string?
+	if not remoteAllowed(player) then
+		return "rate limited"
+	end
+	if typeof(e) ~= "table" or typeof(e.type) ~= "string" then
+		return "bad envelope"
+	end
+	local fields = ACTION_FIELDS[e.type]
+	if not fields then
+		return "unknown action"
+	end
+	for field, check in pairs(fields) do
+		if not check(e[field]) then
+			return "bad request"
+		end
+	end
+	return nil
 end
 
 -- ── RemoteFunction surface (created in Init) ──
@@ -480,8 +599,9 @@ local function createRemotes(): ()
 	Inbound.Parent = PartyFolder
 
 	Action.OnServerInvoke = function(player: Player, e: any): (boolean, any)
-		if typeof(e) ~= "table" or typeof(e.type) ~= "string" then
-			return false, "bad envelope"
+		local refused = checkEnvelope(player, e)
+		if refused then
+			return false, refused
 		end
 		if e.type == "invite" then
 			return PartyService.Invite(player, e.target)

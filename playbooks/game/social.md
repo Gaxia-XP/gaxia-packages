@@ -10,8 +10,8 @@ Steps 1–3 are independent: do only the ones the user asked for. Always do Step
 
 How it works:
 
-- **Friend**: friends and blocks are saved in the player's data. Both players must be in the same server to accept. **Party**: a party lives in **one server's memory** (not saved). Invites last 60 seconds. Max 4 players.
-- **Guild**: guilds are saved in a DataStore and shared by all servers. Roles: `Owner`, `Officer`, `Member`. Only Officers and the Owner can invite. **Guild needs API access**: publish the place, then *Game Settings → Security → Enable Studio Access to API Services*. Without it every guild change fails with `lock busy`.
+- **Friend**: friends and blocks are saved in the player's data. Both players must be in the same server to accept. Friend and guild changes answer `data not loaded` until the player's data has loaded. **Party**: a party lives in **one server's memory** (not saved). Invites last 60 seconds. Max 4 players.
+- **Guild**: guilds are saved in a DataStore and shared by all servers. Roles: `Owner`, `Officer`, `Member`. Only Officers and the Owner can invite. **Guild needs API access**: publish the place, then *Game Settings → Security → Enable Studio Access to API Services*. Without it every guild change fails with `save failed` (in Studio the guild lock then works for one server only, with a yellow `[GuildLock]` line).
 - All three are **server only**. Players act through chat commands (`GaxiaServer.Chat`); each answer appears in the player's chat. `Chat.ParseArgs({ "player" }, args)` finds a player in this server by name or the start of a name. It returns `nil` for no match, for two matches, and for an empty name.
 
 ## Step 1 — Friends: /friend, /accept
@@ -76,7 +76,6 @@ Create a **Script** in **ServerScriptService** named **PartyCommands**:
 
 ```lua
 -- Script: ServerScriptService/PartyCommands
-local Players = game:GetService("Players")
 local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
 local Gaxia = require(game:GetService("ReplicatedStorage").Gaxia_Packages)
 
@@ -93,10 +92,6 @@ end
 
 Party.OnInvite:Connect(function(toPlayer: Player, _partyId: string, fromName: string)
 	Net.FireClient(toPlayer, "SocialNotice", `{fromName} invited you to a party. Type /partyjoin {fromName}`)
-end)
--- Party does not notice players who leave the game: remove them yourself.
-Players.PlayerRemoving:Connect(function(player: Player)
-	Party.Leave(player)
 end)
 Chat.Register("party", { args = { "player" }, help = "Invite to your party: /party <player>" }, function(caller: Player, args: { string }): string?
 	local target = playerArg(args)
@@ -201,16 +196,15 @@ print("[SocialNotices] ready")
 |---|---|---|
 | Accepting after the sender left the server | Accept while both are in the same server | The sender's list is only updated when the sender is in this server. |
 | Expecting Accept / Decline buttons without `UI.InviteToast` | `local _ = Gaxia.UI.InviteToast` in a LocalScript (see *Change it*) | Without it, invites arrive only as the text toasts from Step 4 and the chat commands. |
-| No `PlayerRemoving` → `Party.Leave` | Keep those lines from Step 2 | Party never removes players who left the game. |
 | `/partyjoin` after 60 seconds | Invite again with `/party` | The answer is `Could not join: no such invite or it expired`. |
-| A friend, party or guild call before the data loads | `Data.IsLoaded` first (as in the commands) | Before it loads, nothing is saved and guild checks see "no guild". |
+| A friend or guild call before the data loads | `Data.IsLoaded` first (as in the commands) | Before it loads, Friend and Guild changes answer `data not loaded`. |
 
 ## Change it
 
 - Accept / Decline buttons for friend requests, party and guild invites (package `UI.InviteToast`): at the end of `SocialNotices`, add `if Gaxia.IsInstalled("UI.InviteToast") then local _ = Gaxia.UI.InviteToast end`. Each invite then shows a second toast (next to the text toast from Step 4) with **Accept** and **Decline**. Only **Decline** declines: a toast left alone goes away after 30 seconds without answering, so the invite stays open and `/accept`, `/partyjoin` and `/guildjoin` keep working until it expires on the server (party invites: 60 seconds).
 - Friend list and guild panels: from a button in a LocalScript, `Gaxia.UI.FriendListPanel.Toggle()` (Friend package) or `Gaxia.UI.GuildPanel.Toggle()` (Guild package). Check `Gaxia.IsInstalled("UI.GuildPanel")` first.
 - List friends: `Friend.GetList(player)` (online first; `{ userId, name, online, ... }`). Remove or block: `Friend.Remove(player, otherUserId)`, `Friend.Block(...)`, `Friend.Unblock(...)`; each returns `ok, reason`.
-- Leave a party: `Party.Leave(player)`. Party size: `Party.SetMaxSize(6)` once at server start. Private server for a party: `Party.StartMatch(partyId, PLACE_ID)` ([multi-server](multi-server.md); not in Studio).
+- Leave a party: `Party.Leave(player)` (a player who leaves the game leaves their party by itself; the next member becomes leader). Party size: `Party.SetMaxSize(6)` once at server start. Private server for a party: `Party.StartMatch(partyId, PLACE_ID)` ([multi-server](multi-server.md); not in Studio).
 - Matchmaking between servers (MemoryStore, published place): each server calls `Party.QueueForMatch(partyId, "Duel", PLACE_ID)`; one server calls `Party.PollMatch("Duel", 4)` every few seconds. It returns `{ parties, accessCode, placeId }` or `nil`, and fires `Party.OnMatchFound`.
 - Show a guild: `Guild.GetGuild(player)` (`{ Name, Tag, Id, ... }` or `nil`), `Guild.RoleOf(player)`. Roles: `Guild.Promote(owner, userId)`, `Guild.Demote(owner, userId)`, `Guild.Kick(officer, userId)`, `Guild.Transfer(owner, newOwnerUserId)`, `Guild.Disband(owner)`. The Owner cannot `Guild.Leave`: transfer or disband first.
 

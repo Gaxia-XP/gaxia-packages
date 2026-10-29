@@ -24,14 +24,17 @@ local Guild = GaxiaServer.Guild
 ### Functions
 
 - `Guild.Create(leader: any, name: string, tag: string): (boolean, string)`
+  Creates a guild with `leader` as Owner. Returns (true, guildId) or (false, why): "invalid leader", "data not loaded", "already in a guild", "bad name", "name too short", "tag too short", "lock busy", "save failed".
 - `Guild.GetGuild(player: any): GuildData?`
 - `Guild.GetById(guildId: string): GuildData?`
 - `Guild.GetMembers(guildId: string): { GuildMemberEntry }`
 - `Guild.IsMember(player: any, guildId: string?): boolean`
 - `Guild.RoleOf(player: any): GuildRole?`
 - `Guild.Invite(officer: any, targetUserId: number): (boolean, string?)`
+  Officer or Owner invites `targetUserId`. (false, why) on "invalid actor", "data not loaded", "invalid target", "officer required", "guild full", ...
 - `Guild.GetPendingInvites(player: any): { GuildPendingInvite }`
 - `Guild.AcceptInvite(player: any, guildId: string): (boolean, string?)`
+  Joins `guildId` from a pending invite. (false, why) on "invalid player", "data not loaded", "no such invite", "already in a guild", "guild full", ...
 - `Guild.DeclineInvite(player: any, guildId: string): (boolean, string?)`
 - `Guild.Kick(actor: any, targetUserId: number): (boolean, string?)`
 - `Guild.Promote(owner: any, userId: number): (boolean, string?)`

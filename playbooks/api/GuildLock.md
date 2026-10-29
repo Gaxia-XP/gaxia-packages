@@ -24,6 +24,7 @@ local GuildLock = GaxiaServer.GuildLock
 ### Functions
 
 - `GuildLock.Acquire(guildId: string, ttlSec: number?): (string?, string?)`
+  Claims the lock for `guildId` (retries 3 times with a short backoff). Returns (ownerId, nil), or (nil, "lock busy") when another holder has it or MemoryStore fails on a live server. In Studio without MemoryStore it uses a single-server lock.
 - `GuildLock.Renew(guildId: string, ownerId: string, ttlSec: number): boolean`
 - `GuildLock.Release(guildId: string, ownerId: string): ()`
 - `GuildLock.WithLock(guildId: string, fn: () -> any, ttlSec: number?): (boolean, any)`

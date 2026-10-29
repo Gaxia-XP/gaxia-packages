@@ -178,6 +178,54 @@ this framework uses a single rolling version until a public release cut.
   `Migrate` now returns `false` and `OnMigrated` does not fire in that case. Steps still run
   in version order whatever order they were registered in.
 
+### Fixed — hardening (social)
+- **Guilds and friend lists now save with real UserIds.** `GuildData.Members` and
+  `profile.Social.Friends` / `Blocks` / `PendingOut` were keyed by number UserId; a
+  DataStore rejects such sparse number keys, so with real (large) UserIds
+  `Guild.Create` failed with `save failed` and an accepted friend made the whole player
+  profile fail to save (ProfileService "critical state"). Guild records are now saved
+  with string member keys (in memory and in `Guild.GetGuild` / `GetById`, `Members` is
+  still keyed by number UserId). **Changed:** `profile.Social` maps are keyed by
+  `tostring(userId)` (`FriendService.SocialProfile` type); number keys from older data
+  are converted when the profile is read. `Friend.GetList` / `GetBlocks` still return
+  number `userId`s.
+- **Party: a player who leaves the game leaves their party** (`PlayerRemoving` →
+  `Party.Leave`): the next member becomes leader and an empty party is removed (it now
+  also fires `OnPartyChanged`). Games that call `Party.Leave` themselves on
+  `PlayerRemoving` keep working (the second call does nothing).
+- **Party: `GetMembers` returns `{ Player }`** (was `{ any }`) and `GetLeader` returns
+  `Player?`. **Changed:** `GetMembers` returns a new list each call, so changing it no
+  longer changes the party.
+- **Friend: accepting or declining a request removes it from the queued
+  (cross-server) requests**, so it no longer comes back at the player's next join
+  (where it could be accepted again after an unfriend). Blocking a user also removes
+  their queued request. New `InviteQueue.Remove(kind, toUserId, match, ttlSec?)`.
+- **Guild: every change waits for the player's data.** `Create`, `Invite`,
+  `AcceptInvite`, `Kick`, `Promote`, `Demote`, `Transfer`, `Leave`, `Disband`,
+  `SetDescription`, `VaultDeposit` and `VaultWithdraw` return `false, "data not loaded"`
+  until `Data.IsLoaded(player)`. Before, an early `Create` skipped the "already in a
+  guild" check and could leave a guild the player's profile did not point to. Friend
+  changes (`SendRequest`, `AcceptRequest`, `DeclineRequest`, `Remove`, `Block`,
+  `Unblock`, `SetFavorite`) do the same; `GetList` / `GetBlocks` are empty until then.
+- **Guild: failure reasons no longer carry a script position** (`"guild full"`, not
+  `"…GuildService:510: guild full"`).
+- **GuildLock: Studio fallback.** When MemoryStore is unavailable in Studio (place not
+  published, or Studio API access off) the lock warns once and uses a single-server
+  in-memory lock for the session, instead of every guild change failing with
+  `lock busy`. Live servers keep failing closed (`lock busy`).
+- **Friend / Guild / Party remotes check their arguments and are rate-limited**
+  (`Events/Friend/Action`, `Events/Guild/Action`, `Events/Party/InviteAction`), with the
+  rules `Net` applies to its own remotes (RemoteOpts `rate` / `burst` / `validators`): a
+  per-player token bucket (`Config.Social.<Friend|Guild|Party>.RemoteRate` = 4 per
+  second, `RemoteBurst` = 10) and a check of every envelope field. A refused request
+  returns `false, "rate limited"` / `false, "bad request"` / `false, "unknown action"`.
+  Before, a string userId errored inside the Friend and Party handlers, and NaN or
+  fractional vault counts reached `Guild.VaultDeposit` / `VaultWithdraw`. The public
+  functions check their arguments too: a userId must be a whole number (`"invalid
+  target"`), vault counts a whole number of 1 or more (`"bad count"`).
+- Harness: `--memorystore fail` (every MemoryStore call errors) and
+  `harness.join(name, userId)` in scenarios.
+
 ### Added — pick the packages a game installs
 The framework is split into ~100 packages (`Gaxia_Packages_Server/Packages.lua`). Pick
 the ones a game uses and only those, the packages they need, and Core are installed;

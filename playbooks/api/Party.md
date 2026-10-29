@@ -26,12 +26,15 @@ local Party = GaxiaServer.Party
 - `Party.SetMaxSize(n: number): ()`
   Runtime override of party size; nil/unset falls back to Config.Party.MaxSize.
 - `Party.Create(leader: any): string?`
+  Makes a party led by `leader` and returns its id; nil when `leader` is already in a party (or is not a player).
 - `Party.GetParty(player: any): string?`
-- `Party.GetMembers(partyId: string): { any }`
-- `Party.GetLeader(partyId: string): any?`
+- `Party.GetMembers(partyId: string): { Player }`
+  The party's members, leader included, in join order. A new list each call (changing it does not change the party); empty when the party does not exist.
+- `Party.GetLeader(partyId: string): Player?`
 - `Party.IsLeader(player: any): boolean`
 - `Party.Join(player: any, partyId: string): (boolean, string)`
 - `Party.Leave(player: any): ()`
+  Removes `player` from their party. The next member becomes leader when the leader leaves; the party is removed when it is empty. Called automatically when a player leaves the game.
 - `Party.Disband(leader: any): boolean`
 - `Party.QueueForMatch(partyId: string, matchType: string, placeId: number): (boolean, string)`
 - `Party.Unqueue(partyId: string, matchType: string): ()`
@@ -39,6 +42,7 @@ local Party = GaxiaServer.Party
   Pull oldest queued parties until `neededPlayers` is reached; if a full match forms, remove those parties from the pool, reserve a server, and return it.
 - `Party.StartMatch(partyId: string, placeId: number): (boolean, any)`
 - `Party.Invite(leader: any, targetUserId: number): (boolean, string?)`
+  The leader invites `targetUserId` (same server: OnInvite; else the InviteQueue). (false, why) on "invalid leader", "invalid target", "cannot invite self", ...
 - `Party.GetPendingInvites(player: any): { PendingInvite }`
 - `Party.CancelInvite(leader: any, targetUserId: number): ()`
 - `Party.DeclineInvite(player: any, partyId: string): (boolean, string?)`

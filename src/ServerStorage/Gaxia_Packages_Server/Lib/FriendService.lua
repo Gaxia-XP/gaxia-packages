@@ -10,6 +10,11 @@
 --           Block is bidirectional-ish (we drop the friendship + clear
 --           outbound pending on our side; the other side still has us in
 --           their list until they refresh/leave).
+--           profile.Social maps are keyed by tostring(userId): DataStores
+--           reject tables with sparse number keys. Number keys from older
+--           sessions are converted when the profile is read.
+--           Changes refuse with "data not loaded" until the player's profile
+--           has loaded; a userId argument must be a whole number.
 --
 -- Access  : Gaxia.Friend  (server)
 --   Friend.SendRequest(player, toUserId)
@@ -45,17 +50,18 @@ local InviteQueue     = require(script.Parent.InviteQueue)
 -- Player parameters stay `any`: tests pass MockPlayers and the offline paths pass
 -- a `{ UserId = n }` shim — only .UserId and .Name are ever read.
 
--- profile.Social.Friends[userId]
+-- profile.Social.Friends[tostring(userId)]
 export type FriendRecord = { name: string, since: number, favorite: boolean, note: string }
--- profile.Social.Blocks[userId]
+-- profile.Social.Blocks[tostring(userId)]
 export type BlockRecord = { name: string?, at: number }
--- profile.Social.PendingOut[userId] (requests this player sent)
+-- profile.Social.PendingOut[tostring(userId)] (requests this player sent)
 export type PendingOutRecord = { name: string, at: number }
--- profile.Social (GuildService also keeps the player's GuildId here)
+-- profile.Social (GuildService also keeps the player's GuildId here). The maps
+-- are keyed by tostring(userId) so the profile can be saved.
 export type SocialProfile = {
-	Friends: { [number]: FriendRecord },
-	Blocks: { [number]: BlockRecord },
-	PendingOut: { [number]: PendingOutRecord },
+	Friends: { [string]: FriendRecord },
+	Blocks: { [string]: BlockRecord },
+	PendingOut: { [string]: PendingOutRecord },
 	GuildId: string?,
 }
 -- One row of GetList
@@ -100,17 +106,70 @@ local inboundCache: { [number]: { [number]: boolean } } = {}
 -- or for MockPlayer in tests). Mirrors social.PendingOut on the sender side.
 local outboundIndex: { [number]: { [number]: boolean } } = {}
 
+-- Per-player token bucket of the Friend remote (see "Remote guard" below);
+-- declared here so the PlayerRemoving hook can clear it.
+type RemoteBucket = { tokens: number, last: number }
+local remoteBuckets: { [number]: RemoteBucket } = {}
+
+-- ── Argument checks ──
+-- A userId: a whole number (NaN, ±inf, fractions and non-numbers are not).
+local function isUserId(v: any): boolean
+	return typeof(v) == "number" and v == v and v % 1 == 0 and math.abs(v) < 2 ^ 53
+end
+
+local function isPlayerLike(player: any): boolean
+	return (typeof(player) == "Instance" or typeof(player) == "table") and isUserId(player.UserId)
+end
+
+-- nil when `player` may change their friend data; else why not.
+local function actorProblem(player: any): string?
+	if not isPlayerLike(player) then
+		return "invalid player"
+	end
+	if not DataManager.IsLoaded(player) then
+		return "data not loaded"
+	end
+	return nil
+end
+
 -- ── Profile shape helpers ──
+local function uidKey(userId: number): string
+	return tostring(userId)
+end
+
+-- Re-key one map to tostring(userId) in place (older data used number keys,
+-- which a DataStore cannot save).
+local function stringKeys(map: { [any]: any }): ()
+	local moved: { [number]: any } = {}
+	for k, v in pairs(map) do
+		if typeof(k) == "number" then
+			moved[k] = v
+		end
+	end
+	for k, v in pairs(moved) do
+		map[k] = nil
+		map[uidKey(k)] = v
+	end
+end
+
+-- Fill in and re-key a raw profile.Social table (any player's, also offline shims).
+local function normalizeSocial(social: any): SocialProfile
+	social.Friends = if typeof(social.Friends) == "table" then social.Friends else {}
+	social.Blocks = if typeof(social.Blocks) == "table" then social.Blocks else {}
+	social.PendingOut = if typeof(social.PendingOut) == "table" then social.PendingOut else {}
+	stringKeys(social.Friends)
+	stringKeys(social.Blocks)
+	stringKeys(social.PendingOut)
+	return social
+end
+
 local function getSocial(player: any): SocialProfile
 	local social = DataManager.Get(player, "Social")
 	if typeof(social) ~= "table" then
 		social = { Friends = {}, Blocks = {}, PendingOut = {} }
 		DataManager.Set(player, "Social", social)
 	end
-	social.Friends = social.Friends or {}
-	social.Blocks = social.Blocks or {}
-	social.PendingOut = social.PendingOut or {}
-	return social
+	return normalizeSocial(social)
 end
 local function writeSocial(player: any, social: SocialProfile): ()
 	DataManager.Set(player, "Social", social)
@@ -159,12 +218,18 @@ end
 
 -- ── Public: IsBlocked / IsBlockedByUserId ──
 function Friend.IsBlocked(player: any, otherUserId: number): boolean
+	if not isPlayerLike(player) or not isUserId(otherUserId) then
+		return false
+	end
 	local social = getSocial(player)
-	return social.Blocks[otherUserId] ~= nil
+	return social.Blocks[uidKey(otherUserId)] ~= nil
 end
 -- Used by PartyService.Invite without needing the blocker to be in-server. If the
 -- blocker is in this server, check; otherwise return false (best-effort across servers).
 function Friend.IsBlockedByUserId(blockerUserId: number, otherUserId: number): boolean
+	if not isUserId(blockerUserId) or not isUserId(otherUserId) then
+		return false
+	end
 	local Players = game:GetService("Players")
 	local blocker = Players:GetPlayerByUserId(blockerUserId)
 	if not blocker then
@@ -174,21 +239,31 @@ function Friend.IsBlockedByUserId(blockerUserId: number, otherUserId: number): b
 end
 
 -- ── Public: SendRequest ──
+-- (false, why) on "invalid sender", "data not loaded", "invalid target",
+-- "cannot friend self", "already friends", "request already pending", ...
 function Friend.SendRequest(from: any, toUserId: number): (boolean, string?)
-	if not from or typeof(from.UserId) ~= "number" then
+	if not isPlayerLike(from) then
 		return false, "invalid sender"
+	end
+	local problem = actorProblem(from)
+	if problem then
+		return false, problem
+	end
+	if not isUserId(toUserId) then
+		return false, "invalid target"
 	end
 	if from.UserId == toUserId then
 		return false, "cannot friend self"
 	end
 	local social = getSocial(from)
-	if social.Blocks[toUserId] then
+	local toKey = uidKey(toUserId)
+	if social.Blocks[toKey] then
 		return false, "you have blocked this user — unblock first"
 	end
-	if social.Friends[toUserId] then
+	if social.Friends[toKey] then
 		return false, "already friends"
 	end
-	if social.PendingOut[toUserId] then
+	if social.PendingOut[toKey] then
 		return false, "request already pending"
 	end
 	local maxFriends = fget("MaxFriends", Config.Social.Friend.MaxFriends, 200)
@@ -223,8 +298,8 @@ function Friend.SendRequest(from: any, toUserId: number): (boolean, string?)
 		targetBlocksMe = Friend.IsBlocked(targetPlayer, from.UserId)
 	else
 		local targetSocialRaw = DataManager.Get({ UserId = toUserId } :: any, "Social")
-		if typeof(targetSocialRaw) == "table" and typeof(targetSocialRaw.Blocks) == "table" then
-			targetBlocksMe = targetSocialRaw.Blocks[from.UserId] ~= nil
+		if typeof(targetSocialRaw) == "table" then
+			targetBlocksMe = normalizeSocial(targetSocialRaw).Blocks[uidKey(from.UserId)] ~= nil
 		end
 	end
 	if targetBlocksMe then
@@ -238,7 +313,7 @@ function Friend.SendRequest(from: any, toUserId: number): (boolean, string?)
 	end
 
 	-- Record outgoing pending.
-	social.PendingOut[toUserId] = { name = targetName, at = os.time() }
+	social.PendingOut[toKey] = { name = targetName, at = os.time() }
 	writeSocial(from, social)
 	outboundIndex[from.UserId] = outboundIndex[from.UserId] or {}
 	outboundIndex[from.UserId][toUserId] = true
@@ -274,7 +349,7 @@ local function findInboundFrom(me: any, senderUserId: number): boolean
 	local sender = Players:GetPlayerByUserId(senderUserId)
 	if sender then
 		local senderSocial = getSocial(sender)
-		if senderSocial.PendingOut[me.UserId] ~= nil then
+		if senderSocial.PendingOut[uidKey(me.UserId)] ~= nil then
 			return true
 		end
 	end
@@ -286,7 +361,26 @@ local function findInboundFrom(me: any, senderUserId: number): boolean
 	return inbox ~= nil and inbox[senderUserId] ~= nil
 end
 
+-- Remove the request from `senderUserId` to `me` from the cross-server queue, so
+-- it does not come back at `me`'s next join (best-effort: yields on MemoryStore).
+local function dropQueuedRequest(me: any, senderUserId: number): ()
+	local ttl = fget("InviteQueueTTLDays", Config.Social.Friend.InviteQueueTTLDays, 7) * 86400
+	InviteQueue.Remove("friend", me.UserId, function(item: any): boolean
+		return typeof(item) == "table" and item.fromUserId == senderUserId
+	end, ttl)
+end
+
+-- Accepts the request from `fromUserId`: both become friends, and the request is
+-- removed from the queued (cross-server) requests. (false, why) on
+-- "invalid player", "data not loaded", "no such request", "max friends reached".
 function Friend.AcceptRequest(player: any, fromUserId: number): (boolean, string?)
+	local problem = actorProblem(player)
+	if problem then
+		return false, problem
+	end
+	if not isUserId(fromUserId) then
+		return false, "no such request"
+	end
 	if not findInboundFrom(player, fromUserId) then
 		return false, "no such request"
 	end
@@ -305,9 +399,10 @@ function Friend.AcceptRequest(player: any, fromUserId: number): (boolean, string
 	local senderName = (sender and sender.Name) or lookupName(fromUserId) or "?"
 
 	-- Add to my list.
-	social.Friends[fromUserId] =
+	social.Friends[uidKey(fromUserId)] =
 		{ name = senderName, since = os.time(), favorite = false, note = "" }
 	writeSocial(player, social)
+	local myKey = uidKey(player.UserId)
 
 	-- Add to sender's list + clear their PendingOut[me]. Take the sender's
 	-- profile via getSocial when we have a Player instance (fires Signals); fall
@@ -315,25 +410,24 @@ function Friend.AcceptRequest(player: any, fromUserId: number): (boolean, string
 	-- (no Player instance) — same shape Data.Get/Set needs.
 	if sender then
 		local senderSocial = getSocial(sender)
-		senderSocial.Friends[player.UserId] =
+		senderSocial.Friends[myKey] =
 			{ name = player.Name, since = os.time(), favorite = false, note = "" }
-		senderSocial.PendingOut[player.UserId] = nil
+		senderSocial.PendingOut[myKey] = nil
 		writeSocial(sender, senderSocial)
 		Friend.OnAccepted:Fire(sender, player.UserId)
 	else
 		local shim: any = { UserId = fromUserId }
 		local senderSocialRaw = DataManager.Get(shim, "Social")
 		if typeof(senderSocialRaw) == "table" then
-			senderSocialRaw.Friends = senderSocialRaw.Friends or {}
-			senderSocialRaw.PendingOut = senderSocialRaw.PendingOut or {}
-			senderSocialRaw.Friends[player.UserId] = {
+			local senderSocial = normalizeSocial(senderSocialRaw)
+			senderSocial.Friends[myKey] = {
 				name = player.Name,
 				since = os.time(),
 				favorite = false,
 				note = "",
 			}
-			senderSocialRaw.PendingOut[player.UserId] = nil
-			DataManager.Set(shim, "Social", senderSocialRaw)
+			senderSocial.PendingOut[myKey] = nil
+			DataManager.Set(shim, "Social", senderSocial)
 		end
 	end
 	-- Clear both same-server outbound mirror and cross-server inbound cache.
@@ -343,11 +437,20 @@ function Friend.AcceptRequest(player: any, fromUserId: number): (boolean, string
 	if inboundCache[player.UserId] then
 		inboundCache[player.UserId][fromUserId] = nil
 	end
+	dropQueuedRequest(player, fromUserId)
 	Friend.OnAccepted:Fire(player, fromUserId)
 	return true, nil
 end
 
+-- Declines the request from `fromUserId` and removes it from the queued requests.
 function Friend.DeclineRequest(player: any, fromUserId: number): (boolean, string?)
+	local problem = actorProblem(player)
+	if problem then
+		return false, problem
+	end
+	if not isUserId(fromUserId) then
+		return false, "no such request"
+	end
 	if not findInboundFrom(player, fromUserId) then
 		return false, "no such request"
 	end
@@ -355,7 +458,7 @@ function Friend.DeclineRequest(player: any, fromUserId: number): (boolean, strin
 	local sender = Players:GetPlayerByUserId(fromUserId)
 	if sender then
 		local senderSocial = getSocial(sender)
-		senderSocial.PendingOut[player.UserId] = nil
+		senderSocial.PendingOut[uidKey(player.UserId)] = nil
 		writeSocial(sender, senderSocial)
 	end
 	if outboundIndex[fromUserId] then
@@ -364,21 +467,29 @@ function Friend.DeclineRequest(player: any, fromUserId: number): (boolean, strin
 	if inboundCache[player.UserId] then
 		inboundCache[player.UserId][fromUserId] = nil
 	end
+	dropQueuedRequest(player, fromUserId)
 	return true, nil
 end
 
 function Friend.Remove(player: any, otherUserId: number): (boolean, string?)
-	local social = getSocial(player)
-	if not social.Friends[otherUserId] then
+	local problem = actorProblem(player)
+	if problem then
+		return false, problem
+	end
+	if not isUserId(otherUserId) then
 		return false, "not friends"
 	end
-	social.Friends[otherUserId] = nil
+	local social = getSocial(player)
+	if not social.Friends[uidKey(otherUserId)] then
+		return false, "not friends"
+	end
+	social.Friends[uidKey(otherUserId)] = nil
 	writeSocial(player, social)
 	local Players = game:GetService("Players")
 	local other = Players:GetPlayerByUserId(otherUserId)
 	if other then
 		local s = getSocial(other)
-		s.Friends[player.UserId] = nil
+		s.Friends[uidKey(player.UserId)] = nil
 		writeSocial(other, s)
 		Friend.OnRemoved:Fire(other, player.UserId)
 	end
@@ -387,6 +498,13 @@ function Friend.Remove(player: any, otherUserId: number): (boolean, string?)
 end
 
 function Friend.Block(player: any, otherUserId: number): (boolean, string?)
+	local problem = actorProblem(player)
+	if problem then
+		return false, problem
+	end
+	if not isUserId(otherUserId) then
+		return false, "invalid target"
+	end
 	if player.UserId == otherUserId then
 		return false, "cannot block self"
 	end
@@ -399,10 +517,11 @@ function Friend.Block(player: any, otherUserId: number): (boolean, string?)
 	if count >= maxBlocks then
 		return false, "max blocks reached"
 	end
-	social.Blocks[otherUserId] = { name = lookupName(otherUserId), at = os.time() }
+	local otherKey = uidKey(otherUserId)
+	social.Blocks[otherKey] = { name = lookupName(otherUserId), at = os.time() }
 	-- Block implies remove friendship + drop pending both ways.
-	social.Friends[otherUserId] = nil
-	social.PendingOut[otherUserId] = nil
+	social.Friends[otherKey] = nil
+	social.PendingOut[otherKey] = nil
 	writeSocial(player, social)
 	-- Mirror PendingOut clear into the module-level outbound index, and drop any
 	-- inbound from the blocked user so a stale request can't be accepted later.
@@ -425,24 +544,30 @@ function Friend.Block(player: any, otherUserId: number): (boolean, string?)
 	local otherShim: any = { UserId = otherUserId }
 	local otherSocialRaw = DataManager.Get(otherShim, "Social")
 	if typeof(otherSocialRaw) == "table" then
-		if typeof(otherSocialRaw.Friends) == "table" then
-			otherSocialRaw.Friends[player.UserId] = nil
-		end
-		if typeof(otherSocialRaw.PendingOut) == "table" then
-			otherSocialRaw.PendingOut[player.UserId] = nil
-		end
-		DataManager.Set(otherShim, "Social", otherSocialRaw)
+		local otherSocial = normalizeSocial(otherSocialRaw)
+		otherSocial.Friends[uidKey(player.UserId)] = nil
+		otherSocial.PendingOut[uidKey(player.UserId)] = nil
+		DataManager.Set(otherShim, "Social", otherSocial)
 	end
+	-- A queued request from the blocked user must not come back at our next join.
+	dropQueuedRequest(player, otherUserId)
 	Friend.OnBlocked:Fire(player, otherUserId)
 	return true, nil
 end
 
 function Friend.Unblock(player: any, otherUserId: number): (boolean, string?)
-	local social = getSocial(player)
-	if not social.Blocks[otherUserId] then
+	local problem = actorProblem(player)
+	if problem then
+		return false, problem
+	end
+	if not isUserId(otherUserId) then
 		return false, "not blocked"
 	end
-	social.Blocks[otherUserId] = nil
+	local social = getSocial(player)
+	if not social.Blocks[uidKey(otherUserId)] then
+		return false, "not blocked"
+	end
+	social.Blocks[uidKey(otherUserId)] = nil
 	writeSocial(player, social)
 	-- Unblocking releases any outstanding "wait before retrying" cooldown so the
 	-- legitimate re-request flow isn't blocked by the rate limiter. Clear BOTH
@@ -456,18 +581,29 @@ function Friend.Unblock(player: any, otherUserId: number): (boolean, string?)
 end
 
 function Friend.SetFavorite(player: any, otherUserId: number, fav: boolean): ()
+	if actorProblem(player) or not isUserId(otherUserId) then
+		return
+	end
 	local social = getSocial(player)
-	local rec = social.Friends[otherUserId]
+	local rec = social.Friends[uidKey(otherUserId)]
 	if rec then
 		rec.favorite = fav and true or false
 		writeSocial(player, social)
 	end
 end
 
+-- Online friends first, then favorites, then by name. Empty before the data loads.
 function Friend.GetList(player: any): { FriendListEntry }
-	local social = getSocial(player)
 	local list: { FriendListEntry } = {}
-	for uid, rec in pairs(social.Friends) do
+	if actorProblem(player) then
+		return list
+	end
+	local social = getSocial(player)
+	for key, rec in pairs(social.Friends) do
+		local uid = tonumber(key)
+		if uid == nil then
+			continue
+		end
 		local pres = presenceFor(uid)
 		table.insert(list, {
 			userId = uid,
@@ -491,18 +627,30 @@ function Friend.GetList(player: any): { FriendListEntry }
 end
 
 function Friend.GetBlocks(player: any): { BlockListEntry }
-	local social = getSocial(player)
 	local list: { BlockListEntry } = {}
-	for uid, rec in pairs(social.Blocks) do
-		table.insert(list, { userId = uid, name = rec.name, at = rec.at })
+	if actorProblem(player) then
+		return list
+	end
+	local social = getSocial(player)
+	for key, rec in pairs(social.Blocks) do
+		local uid = tonumber(key)
+		if uid then
+			table.insert(list, { userId = uid, name = rec.name, at = rec.at })
+		end
 	end
 	return list
 end
 
 function Friend.RefreshPresence(player: any): ()
+	if actorProblem(player) then
+		return
+	end
 	local social = getSocial(player)
-	for uid in pairs(social.Friends) do
-		presenceCache[uid] = nil -- force recompute on next GetList
+	for key in pairs(social.Friends) do
+		local uid = tonumber(key)
+		if uid then
+			presenceCache[uid] = nil -- force recompute on next GetList
+		end
 	end
 end
 
@@ -528,10 +676,72 @@ local function hookPlayers(): ()
 		inboundCache[p.UserId] = nil
 		outboundIndex[p.UserId] = nil
 		presenceCache[p.UserId] = nil
+		remoteBuckets[p.UserId] = nil
 	end)
 	for _, p in ipairs(Players:GetPlayers()) do
 		task.spawn(drainOnJoin, p)
 	end
+end
+
+-- ── Remote guard for Events/Friend/Action ──
+-- The same rules Net applies to its remotes (RemoteOpts rate / burst /
+-- validators), for this RemoteFunction: a per-player token bucket
+-- (Social.Friend.RemoteRate per second, up to RemoteBurst at once), then a check
+-- of every field of the envelope. A refused request returns (false, "rate
+-- limited") or (false, "bad request") before any friend code runs.
+local function remoteAllowed(player: Player): boolean
+	local rate = fget("RemoteRate", Config.Social.Friend.RemoteRate, 4)
+	local burst = fget("RemoteBurst", Config.Social.Friend.RemoteBurst, 10)
+	local now = os.clock()
+	local b = remoteBuckets[player.UserId]
+	if not b then
+		b = { tokens = burst, last = now }
+		remoteBuckets[player.UserId] = b
+	end
+	b.tokens = math.min(burst, b.tokens + (now - b.last) * rate)
+	b.last = now
+	if b.tokens < 1 then
+		return false
+	end
+	b.tokens -= 1
+	return true
+end
+
+local function optionalBoolean(v: any): boolean
+	return v == nil or typeof(v) == "boolean"
+end
+
+-- action -> { field -> check }. An action not listed here is "unknown action".
+local ACTION_FIELDS: { [string]: { [string]: (any) -> boolean } } = {
+	send = { to = isUserId },
+	accept = { from = isUserId },
+	decline = { from = isUserId },
+	remove = { other = isUserId },
+	block = { other = isUserId },
+	unblock = { other = isUserId },
+	favorite = { other = isUserId, fav = optionalBoolean },
+	list = {},
+	blocks = {},
+}
+
+-- nil when the envelope may run; else the (false, why) reason.
+local function checkEnvelope(player: Player, envelope: any): string?
+	if not remoteAllowed(player) then
+		return "rate limited"
+	end
+	if typeof(envelope) ~= "table" or typeof(envelope.type) ~= "string" then
+		return "bad envelope"
+	end
+	local fields = ACTION_FIELDS[envelope.type]
+	if not fields then
+		return "unknown action"
+	end
+	for field, check in pairs(fields) do
+		if not check(envelope[field]) then
+			return "bad request"
+		end
+	end
+	return nil
 end
 
 -- ── RemoteFunction surface (created in Init) ──
@@ -550,8 +760,9 @@ local function createRemotes(): ()
 	Inbound.Parent = FriendFolder
 
 	Action.OnServerInvoke = function(player: Player, envelope: any): (boolean, any)
-		if typeof(envelope) ~= "table" or typeof(envelope.type) ~= "string" then
-			return false, "bad envelope"
+		local refused = checkEnvelope(player, envelope)
+		if refused then
+			return false, refused
 		end
 		local t = envelope.type
 		if t == "send" then
