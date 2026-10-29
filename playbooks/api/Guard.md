@@ -24,8 +24,11 @@ local Guard = Gaxia.Guard
 
 ### Functions
 
+- `Guard.number(value: any): (boolean, string?)`
+  A finite number (rejects NaN and ±inf).
 - `Guard.any(_: any): (boolean, string?)`
 - `Guard.integer(value: any): (boolean, string?)`
+  A whole number (rejects floats, NaN and ±inf).
 - `Guard.optional(check: Check): Check`
   nil OR matches `check`.
 - `Guard.literal(literal: any): Check`
@@ -33,7 +36,7 @@ local Guard = Gaxia.Guard
 - `Guard.union(...: Check): Check`
   Matches at least one of the given checks.
 - `Guard.numberRange(min: number, max: number): Check`
-  Number within [min, max].
+  Finite number within [min, max] (rejects NaN and ±inf, even with a math.huge bound).
 - `Guard.array(check: Check): Check`
   Array (sequential) where every element matches `check`.
 - `Guard.map(keyCheck: Check, valueCheck: Check): Check`
@@ -45,7 +48,6 @@ local Guard = Gaxia.Guard
 
 ### Fields
 
-- `Guard.number = prim("number")`
 - `Guard.string = prim("string")`
 - `Guard.boolean = prim("boolean")`
 - `Guard.table = prim("table")`
