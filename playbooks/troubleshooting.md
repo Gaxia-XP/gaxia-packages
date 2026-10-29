@@ -85,6 +85,7 @@ A. requires and loading · B. packages missing, nil services · C. player data �
 
 | Symptom | Cause | Fix |
 |---|---|---|
+| A chat command (`/givecoins Bob 10`) gives 2×, 3×, … the amount, or its reply shows several times, only when several players are in the server | A Gaxia bug: a command typed in chat runs once for each player in the server (the F2 admin panel runs it once) | Put the `isRepeat` guard from [admin-and-chat-commands](game/admin-and-chat-commands.md) Step 2 at the top of every command handler. Run built-in commands such as `/give` from the F2 panel. Test with **Clients and Servers**, 2 players. |
 | Coins change but the player list does not | Coins were changed with `Data.Set` | Use `Economy.Add` / `Spend` / `Set`, and sync `Economy.OnTransaction` to `GaxiaServer.Player.SetLeaderstat` ([currency-and-leaderstats](game/currency-and-leaderstats.md)). |
 | `GaxiaServer.Player.SetLeaderstat` does nothing, with a yellow `[PlayerService] SetLeaderstat` warning | The value is `nil`, or of another type than the column (a string into a number column) | Pass a value of the column's type: `GaxiaServer.Player.SetLeaderstat(player, "Coins", Economy.Get(player, "Coins"))`. |
 | `Economy.Add` returns false | Data not loaded yet, or the call was refused (Output shows a yellow `[Economy] Add refused: …` warning with the reason and your script line) | Wait for the data. Pass `(player, currency, amount)` in that order, with a whole amount from 1 to `Economy.MaxTransaction`; use `Economy.Spend` to take Coins. |

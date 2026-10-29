@@ -12,6 +12,7 @@ How it works:
 - The place creator gets `owner` automatically in a place owned by a **user**. In a group-owned place nobody does: use `STAFF` (Step 1).
 - Admin saves roles in a DataStore, so the place must be **published**. Unpublished, every staff command answers "Permission denied.".
 - `GaxiaServer.Admin.Register` makes a staff command (chat and F2 panel); `GaxiaServer.Chat.Register` one for **everyone**. A handler gets the typed words as strings (`/givecoins Bob 100` → `{ "Bob", "100" }`) and returns the chat line shown to the caller.
+- **Known Gaxia bug:** a command typed in chat runs once for **each player in the server** (3 players: `/givecoins Bob 10` gives 30). The F2 panel runs it once. So every handler in this playbook starts with `if isRepeat(...) then return ... end`. Copy that guard into **every** command you write.
 
 ## Step 1 — Give your staff their roles
 
@@ -78,12 +79,34 @@ local Admin = GaxiaServer.Admin
 local Chat = GaxiaServer.Chat
 local Economy = GaxiaServer.Economy
 
+-- Chat runs a typed command once for EACH player in the server (a Gaxia bug, see "Common mistakes").
+-- isRepeat lets only the first run (same player, same command, same words) in 1 second do anything.
+local lastRun: { [string]: number } = {}
+local function isRepeat(caller: Player, name: string, args: { string }): boolean
+	local key = `{caller.UserId} {name} {table.concat(args, " ")}`
+	local now = os.clock()
+	local last = lastRun[key]
+	if last ~= nil and now - last < 1 then
+		return true
+	end
+	lastRun[key] = now
+	task.delay(1, function()
+		if lastRun[key] == now then
+			lastRun[key] = nil
+		end
+	end)
+	return false
+end
+
 -- /givecoins <player> <amount> — for admin and owner. In admin commands "me" means yourself.
 Admin.Register("givecoins", {
 	role = "admin",
 	args = { "player", "number" }, -- the input boxes shown in the F2 panel
 	help = "Give Coins: /givecoins <player> <amount>",
-}, function(_caller: Player, args: { string }): (string?, boolean?)
+}, function(caller: Player, args: { string }): (string?, boolean?)
+	if isRepeat(caller, "givecoins", args) then
+		return nil, false -- the same chat message again: do nothing, say nothing
+	end
 	local parsed = Chat.ParseArgs({ "player", "number" }, args)
 	if parsed == nil or parsed[1] == nil or parsed[2] == nil then
 		return "Usage: /givecoins <player> <amount> (the player must be in this server)", true
@@ -109,6 +132,9 @@ end
 
 -- One Output line per admin command, from chat or from the F2 panel.
 Admin.OnCommand:Connect(function(caller: Player, name: string, _args: { string }, success: boolean, message: string?)
+	if success and message == nil then
+		return -- a repeat that isRepeat stopped
+	end
 	print(`[StaffCommands] {caller.Name} ran /{name}: {if success then "ok" else "FAILED"} — {message or ""}`)
 end)
 
@@ -116,6 +142,7 @@ print("[StaffCommands] ready")
 ```
 
 What it does: `/givecoins Bob 100` gives Bob 100 Coins. Players below `admin` get "Permission denied.".
+`isRepeat` stops the extra runs, so Bob gets 100, not 100 × the number of players.
 An admin handler always returns two values: the message, then `true` (failed: red in the panel, `success = false`) or `false` (worked).
 
 ## Step 3 — Add chat commands for everyone: /rules and /coins
@@ -134,13 +161,39 @@ local Data = GaxiaServer.Data
 local Economy = GaxiaServer.Economy
 
 local RULES = "Rules: be kind, no cheating, have fun!"
+
+-- Chat runs a typed command once for EACH player in the server (a Gaxia bug, see "Common mistakes").
+-- isRepeat lets only the first run (same player, same command, same words) in 1 second do anything.
+local lastRun: { [string]: number } = {}
+local function isRepeat(caller: Player, name: string, args: { string }): boolean
+	local key = `{caller.UserId} {name} {table.concat(args, " ")}`
+	local now = os.clock()
+	local last = lastRun[key]
+	if last ~= nil and now - last < 1 then
+		return true
+	end
+	lastRun[key] = now
+	task.delay(1, function()
+		if lastRun[key] == now then
+			lastRun[key] = nil
+		end
+	end)
+	return false
+end
+
 -- /rules — no roles, so everyone can use it.
-Chat.Register("rules", { help = "Show the game rules" }, function(_caller: Player, _args: { string }): string?
+Chat.Register("rules", { help = "Show the game rules" }, function(caller: Player, args: { string }): string?
+	if isRepeat(caller, "rules", args) then
+		return nil -- the same chat message again: no second reply
+	end
 	return RULES
 end)
 
 -- /coins [player] — without a name (or with "me") it shows your own Coins.
 Chat.Register("coins", { args = { "player" }, help = "Show Coins: /coins [player]" }, function(caller: Player, args: { string }): string?
+	if isRepeat(caller, "coins", args) then
+		return nil
+	end
 	local target = caller
 	if args[1] ~= nil and args[1]:lower() ~= "me" then
 		local parsed = Chat.ParseArgs({ "player" }, args)
@@ -158,6 +211,7 @@ end)
 
 -- One Output line per typed command. Admin commands typed in chat also show "ran" here,
 -- even when they failed: their real result is in the [StaffCommands] line.
+-- With N players in the server you see N lines for one typed command (the Gaxia bug above).
 Chat.OnCommand:Connect(function(caller: Player, name: string, _args: { string }, success: boolean)
 	print(`[ChatCommands] {caller.Name} typed /{name} ({if success then "ran" else "unknown or denied"})`)
 end)
@@ -184,6 +238,7 @@ Agent: check your scripts against Steps 1–3. The user runs these in Studio. No
 5. Type `/rules`, then `/coins`. Chat shows the rules, then `<YourName> has <total> Coins`.
 6. Press **F2**. The panel opens; the **Commands** tab lists `givecoins`.
 7. Test as a normal player: **Test** tab → **Clients and Servers** → 1 player → **Start**. In the player window type `/givecoins me 5`. Chat shows `Permission denied.` (test players have UserIds -1, -2, …, so they are never the owner).
+8. Test with **2 players at once** (this is the only check that finds a command running twice). In `StaffRoles`, add `[-1] = "owner",` to `STAFF` (Player1 has UserId -1). **Test** tab → **Clients and Servers** → **2** players → **Start**. In Player1's window type `/rules`, then `/givecoins Player2 10`, then `/coins Player2`. Each reply shows **once**. Player2 has exactly **10** more Coins. Output shows exactly **one** `[StaffCommands] Player1 ran /givecoins: ok` line. Then remove `[-1] = "owner",` from `STAFF` and add `-1` to `REMOVED`.
 
 ## Common mistakes
 
@@ -197,6 +252,8 @@ Agent: check your scripts against Steps 1–3. The user runs these in Studio. No
 | A command named `help`, `kick`, `ban`, `give`, `role`, …, or one name in both `Chat.Register` and `Admin.Register` | A new name, such as `givecoins` | The later one replaces the other, with no warning. |
 | Only deleting someone's `STAFF` line, or only `/role <player> default` | Delete the `STAFF` line **and** add the UserId to `REMOVED` | The role is saved in a DataStore, and a `STAFF` line gives it back on every join. |
 | "Permission denied." for your own staff command in Studio | Publish the place, then Play | Admin cannot start in an unpublished place. |
+| A command handler without `if isRepeat(caller, "<name>", args) then return ... end` at the top | Copy `isRepeat` from Step 2 into your script and call it first in **every** handler | Gaxia runs a chat command once per player in the server. With 5 players, `/givecoins Bob 10` would give 50. |
+| Using the built-in `/give` (items) in chat | Use the F2 panel (**Players** tab or **Commands** tab) for `/give` | Built-in commands have no `isRepeat` guard: in chat they run once per player. The F2 panel runs them once. |
 | Testing "normal player" behaviour alone in **Play** as the place owner | **Clients and Servers** test players | The owner may run everything and is never auto-kicked. |
 
 ## Change it
@@ -204,6 +261,7 @@ Agent: check your scripts against Steps 1–3. The user runs these in Studio. No
 - **Built-in staff commands** (lowest role): moderator: `/kick <player> [reason]`, `/teleport <player> <toPlayer>` (alias `/tp`), `/heal <player>`, `/respawn <player>`.
   admin: `/speed <player> <number>` (alias `/sp`), `/ban <player> [reason]` (permanent), `/unban <userId>`, `/give <player> <itemId> [count]` (without the `Item` package it answers "/give needs the Item package").
   owner: `/role <player> <role>` (only roles below your own; it cannot demote another owner: use `REMOVED`).
+  Built-in commands typed in **chat** run once per player in the server (the Gaxia bug above). Use the **F2 panel** for them, most of all `/give`.
 - **AntiCheatAdmin commands:** `/acflags <player>` (moderator); `/acclear <player>`, `/acban <player> <reason> [seconds or 30m/1h/2d]`, `/acunban <userId>`, `/ac <on|off|status|reset> [Detector]`, `/flag <set|get|clear> <key> [value]` (admin). The `/acban` reason can be several words; a number at the end is the seconds: `/acban Bob speed hacking 3600`. See [anticheat-and-bans](anticheat-and-bans.md).
 - **Everyone:** `/help` lists all command names, `/help <name>` shows one. `/credits`. Nobody can kick, ban or change the role of themselves, the place owner, or an equal or higher role.
 - To let moderators use `/givecoins`: change `role = "admin"` to `role = "moderator"`.
