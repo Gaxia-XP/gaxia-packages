@@ -89,42 +89,23 @@ What it does: a new player gets a Cat, equipped (multiplier 1.05). Every 10 seco
 
 ## Step 2 — Make the pet panel show, and add a Pets button
 
-The panel draws into a ScreenGui `Gaxia_UI` with a folder `Overlays`. Gaxia does not create them: this script does (or reuses a `Gaxia_UI` you made in StarterGui for [show-values-on-screen](show-values-on-screen.md)). It also moves the panel from the top-left corner to the middle, and adds a **Pets** button (phones have no **P** key).
+The panel opens in the middle of the screen, inside `PlayerGui.Gaxia_UI`: Gaxia makes that ScreenGui (with its `HUD` and `Overlays` folders) by itself. This script adds a **Pets** button to its `HUD` folder (phones have no **P** key).
 
 Create a **LocalScript** in **StarterPlayer → StarterPlayerScripts** named **PetPanel**:
 
 ```lua
 -- LocalScript: StarterPlayer/StarterPlayerScripts/PetPanel
-local Players = game:GetService("Players")
-local StarterGui = game:GetService("StarterGui")
 local Gaxia = require(game:GetService("ReplicatedStorage").Gaxia_Packages)
 
 assert(Gaxia.IsInstalled("UI.PetController"), "PetPanel needs the Pet package: install it (playbooks/start/01-install-packages.md)")
 
 local PetController = Gaxia.UI.PetController
-local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
+-- 1. PlayerGui.Gaxia_UI.HUD: Gaxia's layer for things that stay on the screen.
+-- Gaxia makes it the first time it is asked for (and keeps it after the player dies).
+local hud = Gaxia.UI.UIController.HUD()
+assert(hud, "PetPanel: PlayerGui.Gaxia_UI has no HUD folder")
 
--- 1. The ScreenGui the pet panel draws into: PlayerGui.Gaxia_UI with a folder Overlays.
--- A Gaxia_UI made in Studio (in StarterGui) is copied here by Roblox: use that copy, never make a second one.
-local uiRoot = if StarterGui:FindFirstChild("Gaxia_UI") then playerGui:WaitForChild("Gaxia_UI") else playerGui:FindFirstChild("Gaxia_UI") or Instance.new("ScreenGui")
-uiRoot.Name = "Gaxia_UI"
-if uiRoot:IsA("ScreenGui") then
-	uiRoot.ResetOnSpawn = false -- keep it after the player dies
-end
-uiRoot.Parent = playerGui
-local overlays = uiRoot:FindFirstChild("Overlays") or Instance.new("Folder")
-overlays.Name = "Overlays"
-overlays.Parent = uiRoot
-
--- 2. The pet panel is a Frame named "MenuTemplate". Move it to the middle of the screen.
-overlays.ChildAdded:Connect(function(child: Instance)
-	if child:IsA("GuiObject") and child.Name == "MenuTemplate" then
-		child.AnchorPoint = Vector2.new(0.5, 0.5)
-		child.Position = UDim2.fromScale(0.5, 0.5)
-	end
-end)
-
--- 3. A blue Pets button on the left of the screen.
+-- 2. A blue Pets button on the left of the screen.
 local button = Instance.new("TextButton")
 button.Text = "Pets"
 button.TextSize = 20
@@ -132,7 +113,7 @@ button.Size = UDim2.fromOffset(110, 44)
 button.AnchorPoint = Vector2.new(0, 0.5)
 button.Position = UDim2.new(0, 12, 0.5, 0)
 button.BackgroundColor3 = Color3.fromRGB(70, 140, 245)
-button.Parent = uiRoot
+button.Parent = hud
 button.Activated:Connect(function()
 	PetController.Toggle()
 end)
@@ -200,7 +181,7 @@ What it does: holding **E** at the egg buys one egg at the `Pets.EggCost` price.
 
 | Wrong | Right | Why |
 |---|---|---|
-| Skipping Step 2 | Keep the `PetPanel` LocalScript | Without `PlayerGui.Gaxia_UI` and its `Overlays` folder, **P** shows nothing (the panel waits 5 seconds, then is never shown). |
+| Skipping Step 2 | Keep the `PetPanel` LocalScript | Phones and tablets have no **P** key: without the **Pets** button they cannot open the panel. |
 | A new pet or egg: `Pet.GrantPet(player, "pet_Unicorn")`, `Pet.BuyEgg(player, "GoldenEgg")` | Only the 8 pet ids above and `"BasicEgg"` | An unknown pet warns `GrantPet: unknown petId` and returns `nil`. An unknown egg returns `false, "unknown egg"`. |
 | `Economy.Add(player, "Coins", 20)` and expecting pets to help | `math.floor(20 * Pet.GetCoinMultiplier(player))` | Pets only boost Quest and Idle Coins by themselves. Your rewards must multiply. |
 | Calling `Pet.BuyEgg` from server code without the two `Net.FireClient` lines | Send `PetHatch` and `PetSync` like Step 3 | Only the panel's own button refreshes the panel. Otherwise an open panel shows old pets. |

@@ -24,11 +24,11 @@ local UIController = Gaxia.UI.UIController
 ### Functions
 
 - `UIController.GetActiveScreen(): ScreenGui?`
-  Returns the cloned ScreenGui in PlayerGui (Roblox auto-clones from StarterGui).
+  Returns PlayerGui.Gaxia_UI, creating it (ResetOnSpawn off, with the HUD and Overlays folders) the first time any Gaxia UI module asks. A Gaxia_UI made in StarterGui is reused: it waits up to 5 s for Roblox to copy it into PlayerGui. Nil only when something that is not a ScreenGui is named Gaxia_UI.
 - `UIController.HUD(): Folder?`
-  Container for persistent on-screen elements (health bars, text labels).
+  Container for persistent on-screen elements (health bars, text labels): the Folder PlayerGui.Gaxia_UI.HUD, created on demand. Nil only when a non-Folder named HUD is already in Gaxia_UI.
 - `UIController.Overlays(): Folder?`
-  Container for modal / temporary UI (menus, dialogs, inventory).
+  Container for modal / temporary UI (menus, dialogs, inventory): the Folder PlayerGui.Gaxia_UI.Overlays, created on demand. Nil only when a non-Folder named Overlays is already in Gaxia_UI.
 - `UIController.CloneTemplate(templateName: TemplateName | string, parent: Instance?): GuiObject?`
   Builds a fresh instance of the named template via the code-first Templates module, parents it (default = active ScreenGui), and flips Visible=true so callers can stage further without an extra step. The legacy name "CloneTemplate" is preserved so existing call sites (NotificationService / HealthBarController / MenuController / InventoryController) keep working — semantics are identical from their perspective.
 

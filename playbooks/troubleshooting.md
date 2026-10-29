@@ -115,8 +115,7 @@ Flags look like `[AntiCheat] observe mode — would take HARD action against <Na
 | Symptom | Cause | Fix |
 |---|---|---|
 | `Toast.Show("text")` type error, or no toast | `Show` takes one table | `Toast.Show({ Title = "Shop", Text = "Bought!", Variant = "success", Duration = 4 })` |
-| `Gaxia.UI.NotificationService.Notify` or `MenuController` shows nothing | They need `PlayerGui.Gaxia_UI`, which Gaxia does not create | Use `Gaxia.UI.Toast` and `Gaxia.UI.Router` ([ui](game/ui.md)). |
-| `[HUDController] no HUD parent for 'X'` | `Gaxia.UI.HUDController.AddText` needs `StarterGui/Gaxia_UI/HUD` | Create a ScreenGui `Gaxia_UI` with a Folder `HUD` in StarterGui ([show-values-on-screen](game/show-values-on-screen.md)). |
+| `[UIController] PlayerGui.Gaxia_UI is a …, not a ScreenGui`, `[HUDController] no HUD parent for 'X'`, or `NotificationService` / `MenuController` / the pet panel shows nothing | Your own object is named `Gaxia_UI` (in StarterGui or PlayerGui), or a `HUD` / `Overlays` in it is not a Folder | Rename yours. Gaxia makes `PlayerGui.Gaxia_UI` (a ScreenGui with the Folders `HUD` and `Overlays`) by itself; a ScreenGui `Gaxia_UI` you made in StarterGui is reused. |
 | Your assert `state 'X' not found` | `Gaxia.State.Get` waited and gave up: the server Script that calls `State.Create("X")` is missing or crashed | Add or fix that Script; call `State.Create` at its top level. |
 | A label stays `...` / `Coins: ...` | The client binds another key than the server sets, or the data is not loaded | Build the key the same way on both sides: `"Coins_" .. player.Name`. |
 | Error about an invalid attribute name from `state:Set` | The key has a space, `-` or starts with `RBX` (negative Studio UserIds) | Letters, digits and `_` only: `"Coins_" .. player.Name`. |

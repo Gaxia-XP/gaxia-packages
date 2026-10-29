@@ -307,6 +307,9 @@ function Templates.MenuTemplate(parent: Instance?): Frame
 	}) :: ScrollingFrame
 	local menu = make("Frame", {
 		Name = "MenuTemplate",
+		-- Centred on the screen (it used to open in the top-left corner).
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
 		Size = UDim2.fromOffset(600, 450),
 		BackgroundColor3 = C.BG_PANEL_ALT,
 		BorderSizePixel = 0,

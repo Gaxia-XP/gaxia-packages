@@ -166,7 +166,7 @@ ServerStorage/
         └── ExploitSignatureScanner
 
 StarterGui/
-└── Gaxia_UI/                    ← ScreenGui (auto-cloned to PlayerGui)
+└── Gaxia_UI/                    ← ScreenGui (ไม่ต้องสร้างเอง: UIController สร้าง PlayerGui.Gaxia_UI + HUD + Overlays ให้อัตโนมัติ; ถ้าสร้างไว้ใน StarterGui จะใช้อันนั้น)
     ├── HUD/                     ← persistent HUD elements
     └── Overlays/                ← modal popups
     -- (Templates ย้ายมาเป็น code-first Luau module ที่
