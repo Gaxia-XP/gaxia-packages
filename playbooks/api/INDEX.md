@@ -611,6 +611,7 @@ Gaxia.UI.Templates.LoadingScreenTemplate(parent: Instance?): Frame   → UI.Temp
 Gaxia.UI.Templates.ConfirmDialogTemplate(parent: Instance?): Frame   → UI.Templates.md
 Gaxia.UI.NotificationService.Notify(title: string, message: string, duration: number?, notifType: (NotificationType | string)?): ()   → UI.NotificationService.md
 Gaxia.UI.Toast.Show(opt: ToastOpts): ()   → UI.Toast.md
+Gaxia.UI.Toast.ShowAction(opt: ToastActionOpts): ()   → UI.Toast.md
 Gaxia.UI.Toast.SetMaxVisible(n: number): ()   → UI.Toast.md
 Gaxia.UI.Toast.Clear(): ()   → UI.Toast.md
 Gaxia.UI.Toast.Stats(): ToastStats   → UI.Toast.md
@@ -627,10 +628,11 @@ Gaxia.UI.LoadingScreenController.SetProgress(alpha: number): ()   → UI.Loading
 Gaxia.UI.LoadingScreenController.SetStatus(text: string): ()   → UI.LoadingScreenController.md
 Gaxia.UI.StateBinding.Bind(gui: Instance, property: string, state: any, key: string, transform: ((value: any) -> any)?): Unbind   → UI.StateBinding.md
 Gaxia.UI.StateBinding.BindText(label: Instance, state: any, key: string, format: ((value: any) -> string)?): Unbind   → UI.StateBinding.md
-Gaxia.UI.Responsive.ComputeScale(viewport: Vector2, ref: Vector2?): number   → UI.Responsive.md
+Gaxia.UI.Responsive.ComputeScale(viewport: Vector2, ref: Vector2?, touch: boolean?): number   → UI.Responsive.md
 Gaxia.UI.Responsive.ClassifyDevice(viewportX: number, touch: boolean, tenFoot: boolean): DeviceClass   → UI.Responsive.md
 Gaxia.UI.Responsive.GetViewport(): Vector2   → UI.Responsive.md
 Gaxia.UI.Responsive.GetDeviceClass(): DeviceClass   → UI.Responsive.md
+Gaxia.UI.Responsive.GetScale(): number   → UI.Responsive.md
 Gaxia.UI.Responsive.Apply(gui: Instance): UIScale   → UI.Responsive.md
 Gaxia.UI.Responsive.OnChanged(fn: () -> ()): RBXScriptConnection?   → UI.Responsive.md
 Gaxia.UI.Responsive.SafeArea(): SafeAreaInsets   → UI.Responsive.md

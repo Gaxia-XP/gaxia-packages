@@ -8,6 +8,33 @@ this framework uses a single rolling version until a public release cut.
 
 ## Unreleased
 
+### Fixed — hardening (ui-root)
+- **`PlayerGui.Gaxia_UI` is created on demand.** `UIController.GetActiveScreen` / `HUD` /
+  `Overlays` now find or create the ScreenGui (ResetOnSpawn off, with the `HUD` and
+  `Overlays` folders) in one place, so `NotificationService`, `MenuController`,
+  `HUDController`, `HealthBarController`, `InventoryController` and the pet panel draw
+  without the game making it first. Before, they waited 5 s and showed nothing. A
+  `Gaxia_UI` made in StarterGui is still reused (it waits up to 5 s for Roblox's copy) and
+  gets any missing folder. The pets, ui, show-values-on-screen and troubleshooting
+  playbooks no longer create `Gaxia_UI` themselves.
+- **`Toast.ShowAction`** (new): a toast with Accept / Decline buttons (`AcceptText`,
+  `DeclineText`, `OnAccept`, `OnDecline`, `Duration` default 15 s). Exactly one callback
+  runs; a timeout or `Toast.Clear` declines.
+- **`UI.InviteToast` works:** friend requests, guild and party invites show an action toast
+  whose buttons answer the service. Behaviour change: requiring it no longer blocks up to
+  ~60 s waiting for the remotes (each service is wired on its own thread), so
+  `Gaxia.UI.InviteToast` now loads through the loader too, also when Friend / Guild /
+  Party are not installed.
+- **`Components.Slider`** keeps its UserInputService connections in a Trove that is cleaned
+  when the slider (or a parent) is destroyed; the handle has a new `Destroy()`.
+- **`Responsive`:** `Apply` disconnects its viewport / camera listeners when the gui or its
+  UIScale is destroyed, follows a new `CurrentCamera`, and no longer stacks listeners when
+  called twice. Behaviour change: on touch screens the scale from `Apply` is at least
+  0.75 (was 0.5) so buttons stay tappable; `ComputeScale(viewport, ref?, touch?)` takes
+  the new optional `touch` flag and `GetScale()` (new) applies it for this device.
+- **`MenuTemplate`** is centred (AnchorPoint 0.5, 0.5 at Position 0.5, 0.5), so
+  `MenuController` menus and the pet panel open in the middle instead of the top-left.
+
 ### Added — pick the packages a game installs
 The framework is split into ~100 packages (`Gaxia_Packages_Server/Packages.lua`). Pick
 the ones a game uses and only those, the packages they need, and Core are installed;

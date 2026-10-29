@@ -23,14 +23,16 @@ local Responsive = Gaxia.UI.Responsive
 
 ### Functions
 
-- `Responsive.ComputeScale(viewport: Vector2, ref: Vector2?): number`
-  Uniform scale that fits `viewport` to the reference resolution, clamped.
+- `Responsive.ComputeScale(viewport: Vector2, ref: Vector2?, touch: boolean?): number`
+  Uniform scale that fits `viewport` to the reference resolution (1280x720), clamped to 0.5-1.6. Pass `touch = true` for a touch screen: the scale is then at least 0.75 so buttons stay big enough to tap.
 - `Responsive.ClassifyDevice(viewportX: number, touch: boolean, tenFoot: boolean): DeviceClass`
   Classify a device from viewport width + input capabilities.
 - `Responsive.GetViewport(): Vector2`
 - `Responsive.GetDeviceClass(): DeviceClass`
+- `Responsive.GetScale(): number`
+  The scale for this device right now: ComputeScale of the current viewport, with the touch minimum (0.75) on touch screens.
 - `Responsive.Apply(gui: Instance): UIScale`
-  Attach (or reuse) a UIScale on `gui` fitted to the viewport, auto-updating.
+  Attach (or reuse) a UIScale on `gui` fitted to the viewport (GetScale), auto-updating while the viewport or camera changes. The listeners are disconnected when `gui` or the UIScale is destroyed, so it is safe on UI that closes (Router screens). Calling it again on the same gui replaces the old listeners.
 - `Responsive.OnChanged(fn: () -> ()): RBXScriptConnection?`
 - `Responsive.SafeArea(): SafeAreaInsets`
   Safe-area insets (top/bottom/left/right) from the topbar / notch via GuiInset.

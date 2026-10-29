@@ -200,13 +200,14 @@ print("[SocialNotices] ready")
 | Wrong | Right | Why |
 |---|---|---|
 | Accepting after the sender left the server | Accept while both are in the same server | The sender's list is only updated when the sender is in this server. |
-| Relying on `UI.InviteToast` for Accept / Decline buttons | Toasts from Step 4 plus the chat commands | Today `UI.InviteToast` only warns `accept/decline unavailable`. It has no buttons. |
+| Expecting Accept / Decline buttons without `UI.InviteToast` | `local _ = Gaxia.UI.InviteToast` in a LocalScript (see *Change it*) | Without it, invites arrive only as the text toasts from Step 4 and the chat commands. |
 | No `PlayerRemoving` → `Party.Leave` | Keep those lines from Step 2 | Party never removes players who left the game. |
 | `/partyjoin` after 60 seconds | Invite again with `/party` | The answer is `Could not join: no such invite or it expired`. |
 | A friend, party or guild call before the data loads | `Data.IsLoaded` first (as in the commands) | Before it loads, nothing is saved and guild checks see "no guild". |
 
 ## Change it
 
+- Accept / Decline buttons for friend requests, party and guild invites (package `UI.InviteToast`): at the end of `SocialNotices`, add `if Gaxia.IsInstalled("UI.InviteToast") then local _ = Gaxia.UI.InviteToast end`. Each invite then shows a toast with **Accept** and **Decline**; an invite left alone for 15 seconds is declined. The chat commands keep working.
 - Friend list and guild panels: from a button in a LocalScript, `Gaxia.UI.FriendListPanel.Toggle()` (Friend package) or `Gaxia.UI.GuildPanel.Toggle()` (Guild package). Check `Gaxia.IsInstalled("UI.GuildPanel")` first.
 - List friends: `Friend.GetList(player)` (online first; `{ userId, name, online, ... }`). Remove or block: `Friend.Remove(player, otherUserId)`, `Friend.Block(...)`, `Friend.Unblock(...)`; each returns `ok, reason`.
 - Leave a party: `Party.Leave(player)`. Party size: `Party.SetMaxSize(6)` once at server start. Private server for a party: `Party.StartMatch(partyId, PLACE_ID)` ([multi-server](multi-server.md); not in Studio).

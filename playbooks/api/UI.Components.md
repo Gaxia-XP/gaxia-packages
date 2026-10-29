@@ -38,7 +38,7 @@ Exported types (use them in annotations: `local x: Module.TypeName`).
 
 ```lua
 export type Toggle = { Instance: GuiObject, Get: () -> boolean, Set: (v: boolean) -> () }
-export type Slider = { Instance: GuiObject, Get: () -> number, Set: (v: number) -> () }
+export type Slider = { Instance: GuiObject, Get: () -> number, Set: (v: number) -> (), Destroy: () -> () }
 export type Dropdown = { Instance: GuiObject, Get: () -> string, Set: (v: string) -> () }
 export type Tabs = { Instance: GuiObject, GetActive: () -> number, Select: (i: number) -> () }
 export type ScrollList = { Instance: ScrollingFrame, SetItems: (items: { any }) -> (), Refresh: () -> () }

@@ -16,7 +16,7 @@ Which package does what (use these, in a LocalScript):
 | UI that fits phones and TVs | `Gaxia.UI.Responsive` | Fixed pixel sizes only |
 | One place for colours, fonts, spacing | `Gaxia.Theme` | `Color3.fromRGB` in every script |
 
-`NotificationService`, `MenuController` and `UIController` need a `PlayerGui.Gaxia_UI` ScreenGui that Gaxia does not create, so they show nothing. `Templates` start hidden and use the old look. UI code is client code: it asks the server through `Gaxia.Net` ([start/04](../start/04-client-server-communication.md)).
+`NotificationService`, `MenuController` and `UIController` draw into `PlayerGui.Gaxia_UI`, which Gaxia makes by itself the first time one of them needs it; they use the old template look, so this page uses the kit above. `Templates` start hidden. UI code is client code: it asks the server through `Gaxia.Net` ([start/04](../start/04-client-server-communication.md)).
 
 ## Step 1 — Create the server side of the gift button
 
@@ -124,7 +124,7 @@ local function makePanel(name: string, titleText: string, height: number): Frame
 	panel.Size = UDim2.fromOffset(320, height)
 	panel.BackgroundColor3 = Theme.Color("Background")
 	local uiScale = Instance.new("UIScale") -- fit phones and TVs, computed when the screen opens
-	uiScale.Scale = Responsive.ComputeScale(Responsive.GetViewport())
+	uiScale.Scale = Responsive.GetScale() -- never below 0.75 on touch screens, so buttons stay tappable
 	uiScale.Parent = panel
 	addLabel(panel, titleText, UDim2.fromOffset(0, 6), UDim2.new(1, 0, 0, 40))
 	return panel
@@ -172,7 +172,7 @@ notify("Welcome", "Press Menu to claim a gift", "info")
 print("[GameMenu] ready")
 ```
 
-What it does: **Menu** opens the `MainMenu` screen. **Settings** opens a second screen on top; **Back** returns. Each Slider keeps 2 small input connections after its screen closes (a framework limit); opening Settings many times is still fine.
+What it does: **Menu** opens the `MainMenu` screen. **Settings** opens a second screen on top; **Back** returns.
 
 ## Check that it works
 
@@ -186,11 +186,9 @@ What it does: **Menu** opens the `MainMenu` screen. **Settings** opens a second 
 
 | Wrong | Right | Why |
 |---|---|---|
-| `Gaxia.UI.NotificationService.Notify(...)`, `Gaxia.UI.MenuController.Open(...)` | `Toast.Show({ ... })`; `Router.Register` + `Router.Push` | They draw into `PlayerGui.Gaxia_UI`, which Gaxia does not create. They wait, then show nothing. |
 | `Toast.Show("Saved!")` | `Toast.Show({ Text = "Saved!" })` | Show takes one table. `Text` is required; `Title`, `Variant`, `Duration` are optional. |
 | `Router.Push("MainMenu")` on every click | `toggleMenu` (as above) | Each Push adds one more copy on top. |
 | The builder returns a panel made once at the top of the script | Build a new panel inside the builder | `Router.Pop` destroys the screen and the panel in it. The next Push would show nothing. |
-| `Responsive.Apply(panel)` inside a Router builder | A `UIScale` with `Responsive.ComputeScale(...)` (as in `makePanel`) | `Apply` keeps a camera connection forever. Use it only on UI that lives forever. |
 | A ScreenGui without `ResetOnSpawn = false` | `hud.ResetOnSpawn = false` | The default `true` deletes the UI when the character respawns. This script runs once, so it never comes back. |
 | `local ok, message = Net.InvokeServer(...)` | `pcall(Net.InvokeServer, ...)` (as in `claimGift`) | InvokeServer throws when the server errors. `claiming` stays `true` and the button stops working. |
 
@@ -209,7 +207,7 @@ What it does: **Menu** opens the `MainMenu` screen. **Settings** opens a second 
   Net.OnServer("SaveNotifications", function(player: Player, on: any) GaxiaServer.Settings.Set(player, "Notifications", on) end, { rate = 2, burst = 4 })
   ```
   In GameMenu, add `Net.FireServer("SaveNotifications", on)` after `notificationsOn = on`. After the `local notificationsOn = true` line, add (the answer comes once the data has loaded): `task.spawn(function() local saved = Net.InvokeServer("LoadSettings"); if typeof(saved) == "table" and typeof(saved.Notifications) == "boolean" then notificationsOn = saved.Notifications end end)`.
-- Phones: `makePanel` shrinks the panel on small screens (down to half size). For bigger buttons on phones, write `uiScale.Scale = math.max(1, Responsive.ComputeScale(Responsive.GetViewport()))`. Phone-only layout: `if Responsive.GetDeviceClass() == "Phone" then ... end` (also `"Tablet"`, `"Desktop"`, `"Console"`).
+- Phones: `makePanel` shrinks the panel on small screens (down to half size; on touch screens only down to 0.75). For full-size buttons on phones, write `uiScale.Scale = math.max(1, Responsive.GetScale())`. To keep the size right when the window is resized while the screen is open, write `Responsive.Apply(panel)` instead of the two `uiScale` lines (its listener is removed when the screen closes). Phone-only layout: `if Responsive.GetDeviceClass() == "Phone" then ... end` (also `"Tablet"`, `"Desktop"`, `"Console"`).
 - Different colours everywhere: change the `Theme.SetTheme` line at the top. It must run before any widget is made: existing widgets keep their colours. `Theme.SetTheme({ Color = { Primary = ..., Background = ..., Danger = ... } })`. Names: `Background`, `BackgroundDeep`, `Surface`, `Primary`, `Success`, `Danger`, `Warning`, `Text`, `TextMuted`.
 - Slide a screen in (package `UI.Motion`): in `toggleMenu`, write `local panel = Router.Push("MainMenu")`, then `if panel and panel:IsA("GuiObject") then Gaxia.UI.Motion.SlideIn(panel, "Up") end`. Not `Motion.Pop`: it overwrites the panel's UIScale.
 

@@ -98,7 +98,7 @@ export type GaxiaPackage = {
 		AdminPanel : typeof(require(script.Client.UI.AdminPanel)),
 		FriendListPanel : typeof(require(script.Client.UI.FriendListPanel)),
 		GuildPanel : typeof(require(script.Client.UI.GuildPanel)),
-		InviteToast : typeof(require(script.Client.UI.InviteToast)), -- `true`; requiring it wires the invite listeners (waits for their remotes)
+		InviteToast : typeof(require(script.Client.UI.InviteToast)), -- `true`; requiring it wires the invite toasts (does not wait for their remotes)
 		PetController : typeof(require(script.Client.UI.PetController)),
 		Templates : typeof(require(script.Client.UI.Templates)),
 	},

@@ -37,98 +37,91 @@ end
 
 local Toast = require(script.Parent.Toast)
 
+local REMOTE_WAIT : number = 10
+
 local function waitRemote(folderName: string, name: string): Instance?
-	local Events = ReplicatedStorage:WaitForChild("Events", 10)
+	local Events = ReplicatedStorage:WaitForChild("Events", REMOTE_WAIT)
 	if not Events then
 		return nil
 	end
-	local folder = Events:WaitForChild(folderName, 10)
+	local folder = Events:WaitForChild(folderName, REMOTE_WAIT)
 	if not folder then
 		return nil
 	end
-	return folder:WaitForChild(name, 10)
+	return folder:WaitForChild(name, REMOTE_WAIT)
 end
 
-local FriendInbound = waitRemote("Friend", "Inbound") :: RemoteEvent?
-local FriendAction = waitRemote("Friend", "Action") :: RemoteFunction?
-local GuildInbound = waitRemote("Guild", "Inbound") :: RemoteEvent?
-local GuildAction = waitRemote("Guild", "Action") :: RemoteFunction?
-local PartyInbound = waitRemote("Party", "InviteInbound") :: RemoteEvent?
-local PartyAction = waitRemote("Party", "InviteAction") :: RemoteFunction?
-
-local function show(text: string, onAccept: () -> (), onDecline: () -> ()): ()
-	-- Feature-detect a future ShowAction(text, acceptLabel, onAccept, declineLabel, onDecline)
-	-- (not part of Toast's API yet, hence the `any` index).
-	if Toast and typeof((Toast :: any).ShowAction) == "function" then
-		(Toast :: any).ShowAction(text, "Accept", onAccept, "Decline", onDecline)
+-- Sends one answer to the service. A refused accept shows an error toast; a failed call warns.
+local function answer(action: RemoteFunction, envelope: { [string]: any }): ()
+	local okCall, ok, reason = pcall(function()
+		return action:InvokeServer(envelope)
+	end)
+	if not okCall then
+		warn(`[InviteToast] {action:GetFullName()} failed: {tostring(ok)}`)
 		return
 	end
-	-- Fallback: surface the invite so dev/QA can see it, even without buttons.
-	-- The Accept/Decline closures are intentionally still captured here so a
-	-- future ShowAction wire-up needs zero code change at the call sites.
-	warn(`[InviteToast] {text} (accept/decline unavailable — Toast.ShowAction not implemented)`)
-	-- Reference the closures so strict-mode doesn't flag them unused.
-	local _ = onAccept
-	local _ = onDecline
+	if ok == false and envelope.type == "accept" then
+		Toast.Show({ Text = `Could not accept: {tostring(reason)}`, Variant = "error" })
+	end
 end
 
-if FriendInbound and FriendAction then
-	FriendInbound.OnClientEvent:Connect(function(msg)
-		if typeof(msg) ~= "table" then
-			return
+local function show(text: string, action: RemoteFunction, accept: { [string]: any }, decline: { [string]: any }): ()
+	Toast.ShowAction({
+		Title = "Invite",
+		Text = text,
+		Variant = "info",
+		AcceptText = "Accept",
+		DeclineText = "Decline",
+		OnAccept = function()
+			answer(action, accept)
+		end,
+		OnDecline = function()
+			answer(action, decline)
+		end,
+	})
+end
+
+-- Wires one service: waits for its Inbound / Action remotes on its own thread,
+-- then turns each matching message into an action toast.
+local function listen(folderName: string, inboundName: string, actionName: string, onMessage: (msg: { [string]: any }, action: RemoteFunction) -> ()): ()
+	task.spawn(function()
+		local inbound = waitRemote(folderName, inboundName)
+		local action = waitRemote(folderName, actionName)
+		if not (inbound and inbound:IsA("RemoteEvent") and action and action:IsA("RemoteFunction")) then
+			return -- that package is not installed / not running: no invites from it
 		end
-		if msg.type == "request" then
-			local from = msg.from
-			show(`{tostring(msg.fromName or "?")} sent you a friend request`, function()
-				(FriendAction :: RemoteFunction):InvokeServer({ type = "accept", from = from })
-			end, function()
-				(FriendAction :: RemoteFunction):InvokeServer({ type = "decline", from = from })
-			end)
-		end
+		local actionFn = action :: RemoteFunction
+		(inbound :: RemoteEvent).OnClientEvent:Connect(function(msg: any)
+			if typeof(msg) == "table" then
+				onMessage(msg, actionFn)
+			end
+		end)
 	end)
 end
 
-if GuildInbound and GuildAction then
-	GuildInbound.OnClientEvent:Connect(function(msg)
-		if typeof(msg) ~= "table" then
-			return
-		end
-		if msg.type == "invite" then
-			local guildId = msg.guildId
-			show(
-				`{tostring(msg.fromName or "?")} invited you to {tostring(msg.name or "a guild")}`,
-				function()
-					(GuildAction :: RemoteFunction):InvokeServer({
-						type = "accept",
-						guildId = guildId,
-					})
-				end,
-				function()
-					(GuildAction :: RemoteFunction):InvokeServer({
-						type = "decline",
-						guildId = guildId,
-					})
-				end
-			)
-		end
-	end)
-end
+listen("Friend", "Inbound", "Action", function(msg, action)
+	if msg.type == "request" then
+		local from = msg.from
+		show(`{tostring(msg.fromName or "?")} sent you a friend request`, action,
+			{ type = "accept", from = from }, { type = "decline", from = from })
+	end
+end)
 
-if PartyInbound and PartyAction then
-	PartyInbound.OnClientEvent:Connect(function(msg)
-		if typeof(msg) ~= "table" then
-			return
-		end
-		if msg.type == "invite" then
-			local partyId = msg.partyId
-			show(`{tostring(msg.fromName or "?")} invited you to a party`, function()
-				(PartyAction :: RemoteFunction):InvokeServer({ type = "accept", partyId = partyId })
-			end, function()
-				(PartyAction :: RemoteFunction):InvokeServer({ type = "decline", partyId = partyId })
-			end)
-		end
-	end)
-end
+listen("Guild", "Inbound", "Action", function(msg, action)
+	if msg.type == "invite" then
+		local guildId = msg.guildId
+		show(`{tostring(msg.fromName or "?")} invited you to {tostring(msg.name or "a guild")}`, action,
+			{ type = "accept", guildId = guildId }, { type = "decline", guildId = guildId })
+	end
+end)
+
+listen("Party", "InviteInbound", "InviteAction", function(msg, action)
+	if msg.type == "invite" then
+		local partyId = msg.partyId
+		show(`{tostring(msg.fromName or "?")} invited you to a party`, action,
+			{ type = "accept", partyId = partyId }, { type = "decline", partyId = partyId })
+	end
+end)
 
 return true
 ```
