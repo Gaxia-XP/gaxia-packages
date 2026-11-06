@@ -607,7 +607,10 @@ local function exactSchema(fields: FieldValidators): (any) -> boolean
 	end
 end
 
-local EMPTY_SCHEMA = exactSchema({})
+-- Same as exactSchema({}) (a table with no keys), written out so nothing runs at require time (R4).
+local function EMPTY_SCHEMA(payload: any): boolean
+	return typeof(payload) == "table" and next(payload) == nil
+end
 
 local function isCurrentPlayer(context: any, _payload: any): boolean
 	local player = context.player
