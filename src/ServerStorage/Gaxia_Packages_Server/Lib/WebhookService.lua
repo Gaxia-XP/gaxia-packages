@@ -5,7 +5,8 @@
 -- Purpose : Outbound webhooks (Discord-first, but any JSON to any URL). A
 --           per-channel queue throttles + retries (HTTP 429 aware) so reports
 --           are reliable and never block game logic. Auto-reports player Bans
---           and AntiCheat hard actions with zero wiring when a channel is set.
+--           and AntiCheat enforcement decisions with zero wiring when a
+--           channel is set.
 --
 -- SERVER-ONLY. Webhook URLs are secrets: they live in Config.Webhook.Channels
 -- or are set from a server Script with Webhook.SetChannel (both ServerStorage-side,
@@ -18,7 +19,7 @@
 --   Gaxia.Webhook.Send("ShopStock", { content = "Stock updated" })   -- raw JSON
 --   Gaxia.Webhook.SendUrl("https://discord.com/api/webhooks/...", { content = "ad-hoc" })
 --
--- Lifecycle: Start wires the auto-reports (Ban, AntiCheat, Guild signals) for
+-- Lifecycle: Start wires the auto-reports (Ban, AntiCheat/Enforcement, Guild signals) for
 --            each Config.Webhook.AutoReport source whose package is installed. The
 --            channel and its URL are looked up when the event fires, so a channel
 --            set later (SetChannel, or Config from a game Script) still reports.
@@ -39,6 +40,10 @@ local Types        = require(script.Parent.Parent.Types)
 -- (looked up with Lifecycle.Find in Start).
 type BanApi = { OnBan: Signal.Signal<number, any>, OnUnban: Signal.Signal<number> }
 type AntiCheatApi = { OnAction: Signal.Signal<Player, string, Types.ActionKind> }
+-- (player, reason, kind, source, decision, applied, strikeCount)
+type EnforcementApi = {
+	OnDecision: Signal.Signal<Player, string, string, string?, string, boolean, number>,
+}
 type GuildApi = {
 	OnCreate: Signal.Signal<string, number>,
 	OnDisband: Signal.Signal<string, number>,
@@ -396,6 +401,7 @@ end
 local function autoSubscribe(): ()
 	local BanService: BanApi? = Lifecycle.Find("Ban")
 	local AntiCheat: AntiCheatApi? = Lifecycle.Find("AntiCheat")
+	local Enforcement: EnforcementApi? = Lifecycle.Find("Enforcement")
 	local GuildService: GuildApi? = Lifecycle.Find("Guild")
 
 	if BanService then
@@ -427,7 +433,40 @@ local function autoSubscribe(): ()
 		end)
 	end
 
-	if AntiCheat then
+	-- AntiCheatEnforcement (when installed) owns the hard decisions, so report its
+	-- decisions; AntiCheat.OnAction is only the candidate stream then. Without it,
+	-- report AntiCheat's own hard/observe actions as before.
+	if Enforcement then
+		Enforcement.OnDecision:Connect(
+			function(
+				player: any,
+				reason: string,
+				kind: string,
+				source: string?,
+				decision: string,
+				applied: boolean,
+				strikeCount: number
+			)
+				-- "observe" = a hard candidate while Config.AntiCheat.Enforce is false.
+				if kind ~= "hard" and kind ~= "observe" then return end
+				local acCh = autoChannel("AntiCheat")
+				if not acCh then return end
+				Webhook.Discord(acCh, {
+					title = if applied
+						then "⚠️ AntiCheat Enforcement Applied"
+						else "👁️ AntiCheat Candidate Observed",
+					color = if applied then RED else ORANGE,
+					fields = {
+						{ name = "Player", value = (typeof(player) == "Instance" and player.Name or tostring(player)), inline = true },
+						{ name = "Decision", value = decision, inline = true },
+						{ name = "Source", value = source or "server", inline = true },
+						{ name = "Strikes", value = tostring(strikeCount), inline = true },
+						{ name = "Reason", value = reason or "—", inline = false },
+					},
+				})
+			end
+		)
+	elseif AntiCheat then
 		AntiCheat.OnAction:Connect(function(player: any, reason: string, kind: string)
 			-- "observe" = would have been "hard" but Config.AntiCheat.Enforce is false.
 			if kind ~= "hard" and kind ~= "observe" then return end

@@ -23,8 +23,8 @@ local AntiCheat = GaxiaServer.AntiCheat
 
 ### Functions
 
-- `AntiCheat.Flag(player: Player, reason: string, severity: (Types.Severity | string)?)`
-  Flag a player from game code (or a detector that kept the module instead of its host). Never tied to a detector's enabled switch: the master switch, the whitelists and the thresholds apply as for every flag.
+- `AntiCheat.Flag(player: Player, reason: string, severity: (Types.Severity | string)?, source: Types.EvidenceSource?)`
+  Flag a player from game code (or a detector that kept the module instead of its host). Never tied to a detector's enabled switch: the master switch, the whitelists and the thresholds apply as for every flag. `source` must name a trusted source ("server" for something the server observed itself, "transport", "trap") for the flag to count toward an action; "client", "client_liveness" and an omitted or unknown source are journal-only: AntiCheat.Flag(player, "Speed", "soft", "server")
 - `AntiCheat.IsEnabled(): boolean`
 - `AntiCheat.IsEnforcing(): boolean`
   False in observe mode (Config.AntiCheat.Enforce / flag "AntiCheat.Enforce"): hard actions are published as "observe" and detectors must not change game state (e.g. BackpackGuard keeps the tool).
@@ -33,7 +33,7 @@ local AntiCheat = GaxiaServer.AntiCheat
 - `AntiCheat.IsDetectorEnabled(name: string): boolean`
 - `AntiCheat.SetDetectorEnabled(name: string, on: boolean): ()`
 - `AntiCheat.ClearOverrides(): ()`
-  Drop runtime overrides so enable-state falls back to the Config defaults.
+  Drop runtime overrides so enable-state falls back to the Config defaults. Also clears the enforcement overrides, so `/ac reset` truly reverts to the Config defaults (observe mode) instead of re-enabling the master switch with a stale enforce / punish setting.
 - `AntiCheat.GetDetectorNames(): { string }`
   Names of every registered detector (for /ac list + admin tooling).
 - `AntiCheat.Whitelist(player: Player, reason: string, duration: number?)`
@@ -49,10 +49,10 @@ local AntiCheat = GaxiaServer.AntiCheat
 
 Connect with `:Connect(function(...) end)`; the parameters are the payload types, in order.
 
-- `AntiCheat.OnFlag` — `Signal<Player, string, Types.Severity | string, number>`
-  (player, reason, severity, count) — fires every flag; consumers may dedupe.
-- `AntiCheat.OnAction` — `Signal<Player, string, Types.ActionKind>`
-  (player, reason, kind) — fires when a threshold is hit; kind "observe" = a would-be "hard" action while Config.AntiCheat.Enforce is false.
+- `AntiCheat.OnFlag` — `Signal<Player, string, Types.Severity | string, number, Types.EvidenceSource>`
+  (player, reason, severity, count, source) — fires every flag; consumers may dedupe.
+- `AntiCheat.OnAction` — `Signal<Player, string, Types.ActionKind, number, Types.EvidenceSource>`
+  (player, reason, kind, count, source) — fires when trusted evidence reaches a threshold; kind "observe" = a would-be "hard" action while Config.AntiCheat.Enforce is false. A candidate, not proof that anyone was punished: AntiCheatEnforcement decides that.
 
 ### Types
 
@@ -61,11 +61,12 @@ Exported types (use them in annotations: `local x: Module.TypeName`).
 ```lua
 export type Severity = Types.Severity
 export type ActionKind = Types.ActionKind
+export type EvidenceSource = Types.EvidenceSource
 export type Flag = Types.AntiCheatFlag
 export type Snapshot = Types.AntiCheatSnapshot
 export type DetectorHost = Types.DetectorHost
 export type Host = {
-    Flag: (player: Player, reason: string, severity: (Types.Severity | string)?) -> (),
+    Flag: (player: Player, reason: string, severity: (Types.Severity | string)?, source: Types.EvidenceSource?) -> (),
     IsEnforcing: () -> boolean,
     IsDetectorEnabled: (name: string) -> boolean,
     IsEnabled: () -> boolean,
@@ -74,8 +75,8 @@ export type Host = {
     ClearFlags: (player: Player, reason: string?) -> (),
     GetDetector: (name: string) -> any?,
     GetDetectorNames: () -> { string },
-    OnFlag: Signal.Signal<Player, string, Types.Severity | string, number>,
-    OnAction: Signal.Signal<Player, string, Types.ActionKind>,
+    OnFlag: Signal.Signal<Player, string, Types.Severity | string, number, Types.EvidenceSource>,
+    OnAction: Signal.Signal<Player, string, Types.ActionKind, number, Types.EvidenceSource>,
 }
 export type Detector = {
     Name: string,
@@ -93,6 +94,7 @@ export type DetectorAccess = {
     HumanoidState: typeof(require(script.HumanoidStateGuard))?,
     NoClip: typeof(require(script.NoClipDetector))?,
     RemoteRate: typeof(require(script.RemoteRateLimiter))?,
+    RemoteTrap: typeof(require(script.RemoteTrap))?,
     Speed: typeof(require(script.SpeedDetector))?,
     Stat: typeof(require(script.StatGuard))?,
     Teleport: typeof(require(script.TeleportDetector))?,
@@ -289,6 +291,24 @@ local RemoteRate = GaxiaServer.AntiCheat.RemoteRate   -- nil if this detector is
 
 - `RemoteRate.Name = "RemoteRate"`
 
+## `GaxiaServer.AntiCheat.RemoteTrap`
+
+- Runs: **server only (Script / server ModuleScript); an AntiCheat detector**
+- Source: `src/ServerStorage/Gaxia_Packages_Server/AntiCheat/RemoteTrap.lua`
+
+Get it:
+
+```lua
+local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
+local RemoteTrap = GaxiaServer.AntiCheat.RemoteTrap   -- nil if this detector is not loaded
+```
+
+### Fields
+
+- `RemoteTrap.Name = "RemoteTrap"`
+
+_Game code does not call this detector: the AntiCheat orchestrator runs it. Tune it in `GaxiaServer.Config.AntiCheat` (its section has Enabled, Severity and thresholds) and turn it on or off with `GaxiaServer.AntiCheat.SetDetectorEnabled`._
+
 ## `GaxiaServer.AntiCheat.Speed`
 
 - Runs: **server only (Script / server ModuleScript); an AntiCheat detector**
@@ -408,7 +428,7 @@ export type ClientAntiCheat = {}
 	Module : ClientAntiCheat
 	Location: ReplicatedStorage.Gaxia_Packages.Client.ClientAntiCheat
 	Purpose : Lightweight client-side detection of common executor artefacts.
-	          Reports findings to the server via Events.AntiCheat_Report —
+	          Reports findings through the bounded AntiCheat.Report Net RPC —
 	          server treats these as HINTS, never as ground truth.
 
 	Sampling cadence is intentionally slow (every 5s) — the client is a
@@ -434,44 +454,53 @@ if not RunService:IsClient() then
 end
 
 -- ── Services ──
-local Players          = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
 
 local LocalPlayer = Players.LocalPlayer
 
 -- ── Constants ──
-local SAMPLE_INTERVAL : number = 5    -- seconds between full scans
-local REPORT_COOLDOWN : number = 30   -- seconds; same kind re-reportable only after this
+local SAMPLE_INTERVAL: number = 5 -- seconds between full scans
+local REPORT_COOLDOWN: number = 30 -- seconds; same kind re-reportable only after this
+local REPORT_RPC: string = "AntiCheat.Report"
+local HEARTBEAT_RPC: string = "AntiCheat.Heartbeat"
 
 -- Executor / debugger globals to look for in _G and shared.
 local EXECUTOR_GLOBALS: { [string]: string } = {
-	syn               = "Synapse",
-	["secure_call"]   = "Synapse",
-	getsynasm         = "Synapse",
-	["KRNL_LOADED"]   = "Krnl",
-	getexecutorname   = "ExecutorMarker",
-	identifyexecutor  = "ExecutorMarker",
+	syn = "Synapse",
+	["secure_call"] = "Synapse",
+	getsynasm = "Synapse",
+	["KRNL_LOADED"] = "Krnl",
+	getexecutorname = "ExecutorMarker",
+	identifyexecutor = "ExecutorMarker",
 	is_synapse_function = "Synapse",
 }
 
 -- Module
 local ClientAntiCheat = {}
 
-local reportRemote: RemoteEvent? = nil
 local lastSentByKind: { [string]: number } = {}
 local seenForeignGuis: { [Instance]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+local netService: any? = nil
 
 -- ── Helpers ──
 
--- Wait for the report channel; only resolve once so subsequent calls are O(1).
-local function getRemote(): RemoteEvent?
-	if reportRemote then return reportRemote end
-	local events = ReplicatedStorage:WaitForChild("Events", 10)
-	if not events then return nil end
-	local remote = events:WaitForChild("AntiCheat_Report", 5)
-	if remote and remote:IsA("RemoteEvent") then
-		reportRemote = remote
-		return reportRemote
+-- Resolve Net only from the background loops below. ClientAntiCheat may be
+-- lazy-required through the package loader's non-yielding __index path, while
+-- NetService itself can wait for replicated remotes during its first require.
+local function getNet(): any?
+	if netService then
+		return netService
+	end
+	local packageRoot = script.Parent.Parent
+	local shared = packageRoot:FindFirstChild("Shared")
+	local netModule = shared and shared:FindFirstChild("NetService")
+	if not netModule or not netModule:IsA("ModuleScript") then
+		return nil
+	end
+	local ok, loaded = pcall(require, netModule)
+	if ok then
+		netService = loaded
+		return netService
 	end
 	return nil
 end
@@ -480,13 +509,18 @@ end
 local function report(kind: string, payload: any?): ()
 	local now = os.clock()
 	local last = lastSentByKind[kind]
-	if last and (now - last) < REPORT_COOLDOWN then return end
+	if last and (now - last) < REPORT_COOLDOWN then
+		return
+	end
 	lastSentByKind[kind] = now
 
-	local remote = getRemote()
-	if remote then
-		-- pcall in case the remote was destroyed mid-burst.
-		pcall(function() remote:FireServer(kind, payload) end)
+	local Net = getNet()
+	if Net then
+		-- Client evidence is telemetry only. Net gives it the same bounded,
+		-- replay-protected transport as every other client-to-server request.
+		pcall(function()
+			Net.Client.Fire(REPORT_RPC, { kind = kind, payload = payload })
+		end)
 	end
 end
 
@@ -500,7 +534,7 @@ local function scanGlobals(): ()
 		-- Whitelist common dev keys you might use legitimately. Default policy:
 		-- never write to _G; treat any presence as suspicious.
 		report("GlobalPollution", `_G.{tostring(key)}`)
-		break  -- one report is enough; pollution = pollution
+		break -- one report is enough; pollution = pollution
 	end
 	for key, _ in pairs(shared) do
 		report("GlobalPollution", `shared.{tostring(key)}`)
@@ -544,26 +578,12 @@ end
 -- so we only flag ScreenGuis NOT tagged Gaxia_Packages AND with names matching
 -- known executor patterns.
 local FOREIGN_GUI_NAME_PATTERNS: { string } = {
-	"^Syn", "Synapse", "^Krnl", "Executor", "^Dex$", "^DARK_DEX$",
+	"^Syn",
+	"Synapse",
+	"^Krnl",
+	"Executor",
+	"^Dex$",
+	"^DARK_DEX$",
 }
-
-local function scanForeignGui(): ()
-	local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-	if not playerGui then return end
-	for _, child in ipairs(playerGui:GetChildren()) do
-		if child:IsA("ScreenGui") and not seenForeignGuis[child] then
-			seenForeignGuis[child] = true
-			local name = child.Name
-			for _, pattern in ipairs(FOREIGN_GUI_NAME_PATTERNS) do
-				if name:match(pattern) then
-					report("ScreenGuiInjection", `Name='{name}'`)
-					break
-				end
-			end
-		end
-	end
-end
-
--- Aggregate sampler. Each branch is pcall-isolated so one detector crashing
 -- … (truncated: read the source file)
 ```

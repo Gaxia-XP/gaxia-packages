@@ -59,7 +59,7 @@ local function hookValue(player: Player, stat: Instance)
 		-- pathway. Even decreases are flagged because the only legitimate
 		-- writers should always update EXPECTED_ATTR first.
 		if orchestratorRef then
-			orchestratorRef.Flag(player, "StatTamper", Config.AntiCheat.Stat.Severity)
+			orchestratorRef.Flag(player, "StatTamper", Config.AntiCheat.Stat.Severity, "server")
 		end
 		-- Re-sync to current so the player keeps moving forward; the flag is
 		-- what the orchestrator acts on, not the stat itself.

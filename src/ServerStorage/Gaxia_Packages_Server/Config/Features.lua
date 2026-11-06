@@ -21,8 +21,8 @@
 -- Worth listing when your game uses them (they have work to do before first use):
 --   "Monetization"   binds MarketplaceService.ProcessReceipt — REQUIRED if you sell
 --                    developer products, or receipts are never granted
---   "Settings"       creates the client settings remote (Events/Gaxia_Settings)
---   "Party"          creates the party invite remotes + joins pending invites
+--   "Settings"       registers the Settings.Read / Settings.Set Net RPCs
+--   "Party"          registers the Party.* Net RPCs + joins pending invites
 --   "Analytics"      starts the event funnel (Economy/Level/Quest → sink)
 --   "Event"          starts the timed-event scheduler loop
 --   "Cooldown"       starts the cooldown sweep loop

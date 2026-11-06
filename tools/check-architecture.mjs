@@ -38,7 +38,7 @@ const SHARED = 'src/ReplicatedStorage/Gaxia_Packages'
 
 // Third-party / deprecated modules this tool does not police.
 const EXEMPT = [
-  /\/Lib\/DataManager\/ProfileService\.lua$/,
+  /\/(Packages|ServerPackages)\//, // Wally-installed libraries (Observers, ProfileStore)
   /\/Shared\/(Promise|Signal|Trove|Spring)\.lua$/,
   /\/Shared\/(Janitor|Component)\//,
   /\/Shared\/(Maid|ComponentLegacy)\.lua$/,
@@ -48,7 +48,7 @@ const LIB_UTILITIES = new Set(['ServiceLifecycle', 'EffectiveConfig'])
 // Nested requires that are deliberately lazy: [file suffix, require-arg regex].
 const LAZY_ALLOW = [
   [/\/AntiCheat\/init\.lua$/, /^script\.\w+$/], // DETECTORS table closures
-  [/\/Lib\/DataManager\/init\.lua$/, /ProfileService$/], // loads on first profile load
+  [/\/Lib\/DataManager\/init\.lua$/, /ProfileStore$/], // loads on first profile load
   [/\/Lib\/ServiceLifecycle\.lua$/, /^script\.Parent\.Parent$/], // Find: loads the server loader if nothing has yet (installs its resolver)
 ]
 // Non-static requires that are deliberate: [file suffix, require-arg regex].
@@ -56,7 +56,7 @@ const DYNAMIC_ALLOW = [
   [/\/AntiCheat\/init\.lua$/, /^child$/], // game-added detector modules (discovered by name)
 ]
 // Never required at the top of a Lib/AntiCheat module (side effects or deprecated).
-const KEEP_LAZY = /(ProfileService|PerformanceMonitor|Maid|Janitor|ComponentLegacy|ReplicatedState)$/
+const KEEP_LAZY = /(ProfileStore|PerformanceMonitor|Maid|Janitor|ComponentLegacy|ReplicatedState)$/
 // Calls allowed at module top level (pure: they create values, not effects).
 const PURE_GLOBAL_CALLS = new Set(['require', 'setmetatable', 'typeof', 'type', 'tostring', 'tonumber', 'select', 'newproxy', 'assert'])
 const PURE_NAMESPACES = new Set(['table', 'math', 'string', 'utf8', 'buffer', 'bit32', 'Vector3', 'Vector2', 'CFrame', 'Color3',
@@ -246,7 +246,7 @@ function checkFile(file, ctx) {
   if (defineName) ctx.defineNames.set(defineName, file)
   const base = path.basename(file).replace(/\.luau?$/, '')
   const moduleName = base === 'init' ? path.basename(path.dirname(file)) : base
-  if (ctx.complete && file.includes('/Lib/') && !LIB_UTILITIES.has(moduleName) && !defineName && !file.includes('/Lib/DataManager/ProfileService')) {
+  if (ctx.complete && file.includes('/Lib/') && !LIB_UTILITIES.has(moduleName) && !defineName) {
     report(file, null, 'R11', `${moduleName} is a Lib service but never calls Lifecycle.Define`)
   }
 }

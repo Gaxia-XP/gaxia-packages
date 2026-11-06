@@ -27,6 +27,8 @@ If something is not on these pages, it does not exist — do not guess names.
 | [Serializer](Core.Serializer.md) | Gaxia.Serializer |
 | [Signal — events](Core.Signal.md) | Gaxia.Signal |
 | [Trove — cleanup](Core.Trove.md) | Gaxia.Trove |
+| [Shared/NetProtocol](Core.NetProtocol.md) | Gaxia.NetProtocol |
+| [Shared/RemoteObfuscator](Core.RemoteObfuscator.md) | Gaxia.RemoteObfuscator |
 
 ## Packages
 
@@ -36,10 +38,10 @@ If something is not on these pages, it does not exist — do not guess names.
 
 | Package | Boot | What it is |
 |---|---|---|
-| [Data](Data.md) | yes | Player save data (ProfileService): Get / Set / Save, session locking, auto-save. |
+| [Data](Data.md) | yes | Player save data (ProfileStore, Wally): Get / Set / Save, session locking, auto-save. |
 | [Migration](Migration.md) |  | Schema versioning for saved profiles: register upgrade steps per version. |
 | [Player](Player.md) | yes | Player lifecycle: joined / left signals, character helpers, leaderstats. |
-| [Settings](Settings.md) | yes | Per-player settings saved in the profile, with a client remote to read and change them. |
+| [Settings](Settings.md) | yes | Per-player settings saved in the profile, with Net RPCs (Settings.Read / Settings.Set) and a client module to read and change them. |
 | [Memory](Memory.md) |  | Cross-server short-lived storage over MemoryStoreService (sorted maps, queues). |
 | [Messages](Messages.md) |  | Cross-server messaging over MessagingService with JSON payloads. |
 | [Teleport](Teleport.md) |  | Hardened TeleportService wrapper: retries, reserved servers, teleport data. |
@@ -115,7 +117,7 @@ If something is not on these pages, it does not exist — do not guess names.
 |---|---|---|
 | [AntiCheat](AntiCheat.md) | yes | Server-side cheat detectors plus the client-side checks (observe mode by default). |
 | [Journal](Journal.md) | yes | Records AntiCheat flags and actions (ring buffer, optional sink). |
-| [Ban](Ban.md) | yes | Saved bans and an auto-escalation policy for AntiCheat actions. |
+| [Ban](Ban.md) | yes | Saved bans, and AntiCheat enforcement (GaxiaServer.Enforcement): the only automatic kick / ban decisions, from trusted evidence only. |
 | [Chat](Chat.md) | yes | Slash-command chat parser with typed arguments, and client replies. |
 | [Admin](Admin.md) | yes | Role-gated admin commands and the in-game admin panel (F2). |
 | [AntiCheatAdmin](AntiCheatAdmin.md) | yes | Moderator AntiCheat commands: /acflags /acclear /acban /acunban /ac /flag. |
@@ -131,6 +133,7 @@ If something is not on these pages, it does not exist — do not guess names.
 | [Effects](Effects.md) |  | Pooled particle / beam / trail bursts. |
 | [Dialog](Dialog.md) |  | Branching NPC dialog with typewriter text and choices. |
 | [Cutscene](Cutscene.md) |  | Sequenced cutscenes: camera tweens, dialog, fades. |
+| [Prompt](Prompt.md) |  | Tracks the active ProximityPrompt, manual hold controls (touch buttons) and a highlight on its model (Gaxia.Prompt). |
 | [Tooltip](Tooltip.md) |  | Hover tooltips with delay and cursor follow. |
 | [DebugConsole](DebugConsole.md) |  | On-screen developer overlay (F3). |
 
@@ -169,6 +172,8 @@ If something is not on these pages, it does not exist — do not guess names.
 | [Raycaster](Raycaster.md) |  | Builder-style RaycastParams wrapper. |
 | [Random](Random.md) |  | Seeded RNG streams, weighted choice, shuffle. |
 | [Pool](Pool.md) |  | Object pool for reusable instances. |
+| [Central](Central.md) |  | Named periodic tasks on one Heartbeat connection: Register, Pause, Resume, Cancel (Gaxia.Central). |
+| [Observers](Observers.md) |  | sleitnick/observers (Wally): observe tags, attributes, properties, players and characters (Gaxia.Observers). |
 | [Scheduler](Scheduler.md) |  | After / Every / Debounce / Throttle / Stopwatch. |
 | [Guard](Guard.md) |  | Runtime schema validation (t-style). |
 | [Symbol](Symbol.md) |  | Unique reference-comparable identifiers. |

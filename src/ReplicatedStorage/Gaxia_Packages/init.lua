@@ -57,6 +57,8 @@ export type GaxiaPackage = {
 	Random     : typeof(require(script.Shared.Random)),
 	Pool       : typeof(require(script.Shared.Pool)),
 	Scheduler  : typeof(require(script.Shared.Scheduler)),
+	Central    : typeof(require(script.Shared.CentralManager)),
+	Observers  : typeof(require(script.Shared.Observers)),
 	Guard      : typeof(require(script.Shared.Guard)),
 	Serializer : typeof(require(script.Shared.Serializer)),
 	Component  : typeof(require(script.Shared.Component)),
@@ -114,6 +116,7 @@ export type GaxiaPackage = {
 	Dialog   : typeof(require(script.Client.DialogSystem)),
 	Tooltip  : typeof(require(script.Client.TooltipSystem)),
 	Cutscene : typeof(require(script.Client.CutsceneSystem)),
+	Prompt   : typeof(require(script.Client.PromptManager)),
 
 	-- ── Convenience helpers ──
 	Tween : (instance: Instance, info: TweenInfo, props: { [string]: any }) -> Tween,
@@ -141,6 +144,7 @@ local CLIENT_KEY_MAP : { [string]: string } = {
 	Dialog       = "DialogSystem",
 	Tooltip      = "TooltipSystem",
 	Cutscene     = "CutsceneSystem",
+	Prompt       = "PromptManager",
 }
 
 -- Maps short shared-side keys to their full ModuleScript names. Lets callers
@@ -152,6 +156,7 @@ local SHARED_KEY_MAP : { [string]: string } = {
 	Bench      = "PerformanceBenchmark",
 	TestRunner = "TestRunner",
 	MockPlayer = "MockPlayer",
+	Central    = "CentralManager",
 }
 
 -- Deprecated vendored modules: they still resolve (game code may use them) but

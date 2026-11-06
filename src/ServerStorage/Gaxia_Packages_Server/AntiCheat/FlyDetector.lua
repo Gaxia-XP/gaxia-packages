@@ -54,7 +54,7 @@ function FlyDetector.Sample(player: Player, snapshot: Snapshot): Flag?
 		streaks[player.UserId] = streak
 		if streak >= STREAK_REQUIRED then
 			streaks[player.UserId] = 0
-			return { reason = "Fly", severity = FLY_SEVERITY }
+			return { reason = "Fly", severity = FLY_SEVERITY, source = "server" }
 		end
 	else
 		streaks[player.UserId] = 0

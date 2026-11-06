@@ -140,6 +140,8 @@ export type AntiCheatConfig = {
     NoClip: { RaycastInterval: number, Enabled: boolean?, Severity: Severity },
     Teleport: { MaxDelta: number, WhitelistGraceSeconds: number, Enabled: boolean?, Severity: Severity },
     RemoteRate: { Enabled: boolean?, Severity: Severity },
+    -- Optional: RemoteTrap (honeypot / wrong-direction remotes) always flags "hard".
+    RemoteTrap: { Enabled: boolean? }?,
     Stat: { Enabled: boolean?, Severity: Severity },
     ToolDupe: { Enabled: boolean?, Severity: Severity },
     Animation: { Enabled: boolean?, Severity: Severity },
@@ -159,6 +161,15 @@ export type AntiCheatConfig = {
     }?,
 
     FlagDecay: { Interval: number, Amount: number }?,
+
+    -- What AntiCheatEnforcement may do with a "hard" candidate once Enforce is true.
+    -- A disabled action falls through to the next lower enabled one (PermBan →
+    -- TempBan → Kick); with none enabled the decision is only journaled.
+    Enforcement: {
+        -- One automatic action per player per reason within this window.
+        ActionCooldownSeconds: number,
+        Actions: { Kick: boolean, TempBan: boolean, PermBan: boolean },
+    },
 
     -- ExemptRole = false turns the role exemption off (only the place creator is exempt).
     BanPolicy: {
@@ -198,6 +209,8 @@ export type AntiCheatConfig = {
 	NoClip: { RaycastInterval: number, Enabled: boolean?, Severity: Severity },
 	Teleport: { MaxDelta: number, WhitelistGraceSeconds: number, Enabled: boolean?, Severity: Severity },
 	RemoteRate: { Enabled: boolean?, Severity: Severity },
+	-- Optional: RemoteTrap (honeypot / wrong-direction remotes) always flags "hard".
+	RemoteTrap: { Enabled: boolean? }?,
 	Stat: { Enabled: boolean?, Severity: Severity },
 	ToolDupe: { Enabled: boolean?, Severity: Severity },
 	Animation: { Enabled: boolean?, Severity: Severity },
@@ -218,6 +231,15 @@ export type AntiCheatConfig = {
 
 	FlagDecay: { Interval: number, Amount: number }?,
 
+	-- What AntiCheatEnforcement may do with a "hard" candidate once Enforce is true.
+	-- A disabled action falls through to the next lower enabled one (PermBan →
+	-- TempBan → Kick); with none enabled the decision is only journaled.
+	Enforcement: {
+		-- One automatic action per player per reason within this window.
+		ActionCooldownSeconds: number,
+		Actions: { Kick: boolean, TempBan: boolean, PermBan: boolean },
+	},
+
 	-- ExemptRole = false turns the role exemption off (only the place creator is exempt).
 	BanPolicy: {
 		KickAt: number,
@@ -233,7 +255,9 @@ local AntiCheat: AntiCheatConfig = {
 	-- OBSERVE MODE while false: detectors run and flags are recorded (OnFlag, the
 	-- Journal, warnings), but a would-be HARD action is published as
 	-- OnAction(player, reason, "observe") instead of "hard" — nobody is kicked or
-	-- banned and BackpackGuard does not destroy tools. The detectors did not load at
+	-- banned (AntiCheatEnforcement only acts on "hard") and BackpackGuard does not
+	-- destroy tools. Client / client-liveness evidence is never enforceable,
+	-- whatever this says. The detectors did not load at
 	-- all between 2026-07-17 and this fix, so play-test with a NON-creator account
 	-- (the creator is always exempt) and check the "would take hard action" warnings
 	-- before setting this to true.
@@ -260,7 +284,15 @@ local AntiCheat: AntiCheatConfig = {
 	-- Flag-count decay: prevents long legit sessions from slowly accumulating flags
 	FlagDecay = { Interval = 60, Amount = 1 },
 
-	-- Auto-escalation via BanService on repeat HARD actions.
+	-- Kick only by default: automatic temp/perm bans are opt-in (a ban outlives the
+	-- server, so a false positive costs far more than a kick).
+	Enforcement = {
+		ActionCooldownSeconds = 60,
+		Actions = { Kick = true, TempBan = false, PermBan = false },
+	},
+
+	-- Strike ladder AntiCheatEnforcement applies to repeat HARD actions (strikes
+	-- per user for the server's lifetime; RemoteTrap evidence only ever kicks).
 	-- ExemptRole and above (+ place creator always) skip auto-kick/auto-ban.
 	BanPolicy = { KickAt = 1, TempBanAt = 2, PermBanAt = 3, TempBanSeconds = 3600, ExemptRole = "admin" },
 
@@ -726,7 +758,7 @@ return {
 		RequestCooldownSec = 10,
 		OnlineCacheSec     = 60,
 		InviteQueueTTLDays = 7,
-		RemoteRate         = 4,  -- Events/Friend/Action requests per second per player
+		RemoteRate         = 4,  -- Friend.* Net RPC requests per second per player
 		RemoteBurst        = 10, -- requests allowed at once before RemoteRate applies
 	},
 	Guild = {
@@ -740,13 +772,13 @@ return {
 		CreateCost         = 0,
 		VaultLockTTLSec    = 5,
 		InviteQueueTTLDays = 7,
-		RemoteRate         = 4,  -- Events/Guild/Action requests per second per player
+		RemoteRate         = 4,  -- Guild.* Net RPC requests per second per player
 		RemoteBurst        = 10, -- requests allowed at once before RemoteRate applies
 	},
 	Party = {
 		InviteTTL   = 60, -- seconds; ephemeral RAM-only invites
 		MaxPending  = 10, -- per target player across all parties
-		RemoteRate  = 4,  -- Events/Party/InviteAction requests per second per player
+		RemoteRate  = 4,  -- Party.* Net RPC requests per second per player
 		RemoteBurst = 10, -- requests allowed at once before RemoteRate applies
 	},
 }

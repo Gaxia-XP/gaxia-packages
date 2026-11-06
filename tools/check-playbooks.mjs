@@ -167,6 +167,11 @@ function buildTree(file, blocks, dir) {
   fs.rmSync(dir, { recursive: true, force: true })
   fs.mkdirSync(dir, { recursive: true })
   fs.cpSync(path.join(ROOT, 'src'), path.join(dir, 'src'), { recursive: true })
+  // Wally libraries (`wally install`) that default.project.json mounts in the package roots.
+  for (const w of ['Packages', 'ServerPackages']) {
+    if (!fs.existsSync(path.join(ROOT, w))) throw new Error(`${w}/ is missing: run \`wally install\` first`)
+    fs.cpSync(path.join(ROOT, w), path.join(dir, w), { recursive: true })
+  }
   const project = JSON.parse(fs.readFileSync(path.join(ROOT, 'default.project.json'), 'utf8'))
   const placed = []
   for (const b of blocks) {

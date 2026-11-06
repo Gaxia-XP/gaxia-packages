@@ -3,7 +3,7 @@
 	Module : ClientAntiCheat
 	Location: ReplicatedStorage.Gaxia_Packages.Client.ClientAntiCheat
 	Purpose : Lightweight client-side detection of common executor artefacts.
-	          Reports findings to the server via Events.AntiCheat_Report —
+	          Reports findings through the bounded AntiCheat.Report Net RPC —
 	          server treats these as HINTS, never as ground truth.
 
 	Sampling cadence is intentionally slow (every 5s) — the client is a
@@ -29,44 +29,53 @@ if not RunService:IsClient() then
 end
 
 -- ── Services ──
-local Players          = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
 
 local LocalPlayer = Players.LocalPlayer
 
 -- ── Constants ──
-local SAMPLE_INTERVAL : number = 5    -- seconds between full scans
-local REPORT_COOLDOWN : number = 30   -- seconds; same kind re-reportable only after this
+local SAMPLE_INTERVAL: number = 5 -- seconds between full scans
+local REPORT_COOLDOWN: number = 30 -- seconds; same kind re-reportable only after this
+local REPORT_RPC: string = "AntiCheat.Report"
+local HEARTBEAT_RPC: string = "AntiCheat.Heartbeat"
 
 -- Executor / debugger globals to look for in _G and shared.
 local EXECUTOR_GLOBALS: { [string]: string } = {
-	syn               = "Synapse",
-	["secure_call"]   = "Synapse",
-	getsynasm         = "Synapse",
-	["KRNL_LOADED"]   = "Krnl",
-	getexecutorname   = "ExecutorMarker",
-	identifyexecutor  = "ExecutorMarker",
+	syn = "Synapse",
+	["secure_call"] = "Synapse",
+	getsynasm = "Synapse",
+	["KRNL_LOADED"] = "Krnl",
+	getexecutorname = "ExecutorMarker",
+	identifyexecutor = "ExecutorMarker",
 	is_synapse_function = "Synapse",
 }
 
 -- Module
 local ClientAntiCheat = {}
 
-local reportRemote: RemoteEvent? = nil
 local lastSentByKind: { [string]: number } = {}
 local seenForeignGuis: { [Instance]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+local netService: any? = nil
 
 -- ── Helpers ──
 
--- Wait for the report channel; only resolve once so subsequent calls are O(1).
-local function getRemote(): RemoteEvent?
-	if reportRemote then return reportRemote end
-	local events = ReplicatedStorage:WaitForChild("Events", 10)
-	if not events then return nil end
-	local remote = events:WaitForChild("AntiCheat_Report", 5)
-	if remote and remote:IsA("RemoteEvent") then
-		reportRemote = remote
-		return reportRemote
+-- Resolve Net only from the background loops below. ClientAntiCheat may be
+-- lazy-required through the package loader's non-yielding __index path, while
+-- NetService itself can wait for replicated remotes during its first require.
+local function getNet(): any?
+	if netService then
+		return netService
+	end
+	local packageRoot = script.Parent.Parent
+	local shared = packageRoot:FindFirstChild("Shared")
+	local netModule = shared and shared:FindFirstChild("NetService")
+	if not netModule or not netModule:IsA("ModuleScript") then
+		return nil
+	end
+	local ok, loaded = pcall(require, netModule)
+	if ok then
+		netService = loaded
+		return netService
 	end
 	return nil
 end
@@ -75,13 +84,18 @@ end
 local function report(kind: string, payload: any?): ()
 	local now = os.clock()
 	local last = lastSentByKind[kind]
-	if last and (now - last) < REPORT_COOLDOWN then return end
+	if last and (now - last) < REPORT_COOLDOWN then
+		return
+	end
 	lastSentByKind[kind] = now
 
-	local remote = getRemote()
-	if remote then
-		-- pcall in case the remote was destroyed mid-burst.
-		pcall(function() remote:FireServer(kind, payload) end)
+	local Net = getNet()
+	if Net then
+		-- Client evidence is telemetry only. Net gives it the same bounded,
+		-- replay-protected transport as every other client-to-server request.
+		pcall(function()
+			Net.Client.Fire(REPORT_RPC, { kind = kind, payload = payload })
+		end)
 	end
 end
 
@@ -95,7 +109,7 @@ local function scanGlobals(): ()
 		-- Whitelist common dev keys you might use legitimately. Default policy:
 		-- never write to _G; treat any presence as suspicious.
 		report("GlobalPollution", `_G.{tostring(key)}`)
-		break  -- one report is enough; pollution = pollution
+		break -- one report is enough; pollution = pollution
 	end
 	for key, _ in pairs(shared) do
 		report("GlobalPollution", `shared.{tostring(key)}`)
@@ -139,12 +153,19 @@ end
 -- so we only flag ScreenGuis NOT tagged Gaxia_Packages AND with names matching
 -- known executor patterns.
 local FOREIGN_GUI_NAME_PATTERNS: { string } = {
-	"^Syn", "Synapse", "^Krnl", "Executor", "^Dex$", "^DARK_DEX$",
+	"^Syn",
+	"Synapse",
+	"^Krnl",
+	"Executor",
+	"^Dex$",
+	"^DARK_DEX$",
 }
 
 local function scanForeignGui(): ()
 	local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-	if not playerGui then return end
+	if not playerGui then
+		return
+	end
 	for _, child in ipairs(playerGui:GetChildren()) do
 		if child:IsA("ScreenGui") and not seenForeignGuis[child] then
 			seenForeignGuis[child] = true
@@ -181,29 +202,20 @@ task.spawn(function()
 end)
 
 -- ── Heartbeat ──
--- Periodic ping on System_Heartbeat — proves this module is alive and the
+-- Periodic ping on AntiCheat.Heartbeat proves this module is alive and the
 -- channel is intact. HeartbeatGuard (server) flags players whose pings stop
--- (= ClientAntiCheat deleted, RemoteEvent removed, or script blocked).
--- WHY a separate loop: we re-resolve the RemoteEvent each iteration so a
--- deleted-then-recreated event still works, and we pcall the FireServer so a
--- nil/destroyed remote doesn't kill the loop.
-local HEARTBEAT_INTERVAL : number = 5
+-- (= ClientAntiCheat deleted or script blocked). The report is intentionally
+-- telemetry-only: silence is never enough to punish a player automatically.
+local HEARTBEAT_INTERVAL: number = 5
 
 task.spawn(function()
 	task.wait(SAMPLE_INTERVAL) -- align with first sampler pass
-	local hbRemote: RemoteEvent? = nil
 	while true do
-		if not hbRemote or hbRemote.Parent == nil then
-			local events = ReplicatedStorage:FindFirstChild("Events")
-			local found = events and events:FindFirstChild("System_Heartbeat")
-			if found and found:IsA("RemoteEvent") then
-				hbRemote = found
-			else
-				hbRemote = nil
-			end
-		end
-		if hbRemote then
-			pcall(function() hbRemote:FireServer() end)
+		local Net = getNet()
+		if Net then
+			pcall(function()
+				Net.Client.Fire(HEARTBEAT_RPC, {})
+			end)
 		end
 		task.wait(HEARTBEAT_INTERVAL)
 	end

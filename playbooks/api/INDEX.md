@@ -49,9 +49,14 @@ Gaxia.Net.DeclareEvent(name: string, opts: RemoteOpts?): RemoteEvent   → Core.
 Gaxia.Net.FireClient(player: Player, name: string, ...: any): ()   → Core.NetService.md
 Gaxia.Net.FireAllClients(name: string, ...: any): ()   → Core.NetService.md
 Gaxia.Net.FireOtherClients(exceptPlayer: Player, name: string, ...: any): ()   → Core.NetService.md
+Gaxia.Net.Server.GetMetrics(name: string?): { [string]: any }   → Core.NetService.md
 Gaxia.Net.OnClient(name: string, handler: (...any) -> ()): RemoteEvent   → Core.NetService.md
 Gaxia.Net.FireServer(name: string, ...: any): ()   → Core.NetService.md
 Gaxia.Net.InvokeServer(name: string, ...: any): ...any   → Core.NetService.md
+Gaxia.Net.Server.RegisterEvent(name: string, definition: RpcDefinition): RegistrationHandle   → Core.NetService.md
+Gaxia.Net.Server.RegisterFunction(name: string, definition: RpcDefinition): RegistrationHandle   → Core.NetService.md
+Gaxia.Net.Client.Fire(name: string, payload: any, requestId: string?): ()   → Core.NetService.md
+Gaxia.Net.Client.Invoke(name: string, payload: any, requestId: string?): RpcResult   → Core.NetService.md
 Gaxia.Flags.Set(name: string, value: any): ()   → Core.Flags.md
 Gaxia.Flags.Get(name: string, default: any?): any   → Core.Flags.md
 Gaxia.Flags.IsEnabled(name: string): boolean   → Core.Flags.md
@@ -98,6 +103,18 @@ Trove.Clean(self: TroveInternal)   → Core.Trove.md
 Trove.WrapClean(self: TroveInternal)   → Core.Trove.md
 Trove.AttachToInstance(self: TroveInternal, instance: Instance)   → Core.Trove.md
 Trove.Destroy(self: TroveInternal)   → Core.Trove.md
+Gaxia.NetProtocol.GetBudget(name: string?): Budget   → Core.NetProtocol.md
+Gaxia.NetProtocol.IsBudgetName(value: any): boolean   → Core.NetProtocol.md
+Gaxia.NetProtocol.IsValidNonce(value: any): boolean   → Core.NetProtocol.md
+Gaxia.NetProtocol.NewReplayWindow(capacity: number?): ReplayWindow   → Core.NetProtocol.md
+Gaxia.NetProtocol.RememberNonce(window: ReplayWindow, nonce: number): boolean   → Core.NetProtocol.md
+Gaxia.NetProtocol.IsValidRequestId(value: any): boolean   → Core.NetProtocol.md
+Gaxia.NetProtocol.NewRequestCache(capacity: number?, ttlSeconds: number?): RequestCache   → Core.NetProtocol.md
+Gaxia.NetProtocol.GetCached(cache: RequestCache, requestId: string, now: number?): any   → Core.NetProtocol.md
+Gaxia.NetProtocol.PutCached(cache: RequestCache, requestId: string, value: any, now: number?): ()   → Core.NetProtocol.md
+Gaxia.NetProtocol.ValidatePayload(value: any, budgetName: string?): (boolean, string?)   → Core.NetProtocol.md
+Gaxia.RemoteObfuscator.Encode(key: number, value: any, nonce: number?): { any }   → Core.RemoteObfuscator.md
+Gaxia.RemoteObfuscator.Decode(key: number, envelope: any, limits: DecodeLimits?): any   → Core.RemoteObfuscator.md
 GaxiaServer.Data.Get(player: Player, key: string?): any   → Data.md
 GaxiaServer.Data.Set(player: Player, key: string, value: any): boolean   → Data.md
 GaxiaServer.Data.WaitFor(player: Player, timeout: number?): any   → Data.md
@@ -126,6 +143,9 @@ GaxiaServer.Settings.RegisterSetting(key: string, validator: (value: any) -> boo
 GaxiaServer.Settings.Get(player: Player, key: string): any   → Settings.md
 GaxiaServer.Settings.GetAll(player: Player): { [string]: any }   → Settings.md
 GaxiaServer.Settings.Set(player: Player, key: string, value: any): boolean   → Settings.md
+Gaxia.Settings.Get(key: string): any   → Settings.md
+Gaxia.Settings.GetAll(): { [string]: any }   → Settings.md
+Gaxia.Settings.Set(key: string, value: any): boolean   → Settings.md
 GaxiaServer.Memory.IsUsingFallback(): boolean   → Memory.md
 GaxiaServer.Memory.MapSet(mapName: string, key: string, value: any, ttl: number, sortKey: number?): boolean   → Memory.md
 GaxiaServer.Memory.MapGet(mapName: string, key: string): any   → Memory.md
@@ -512,7 +532,7 @@ GaxiaServer.Party.OnPartyChanged : Signal<string>   → Party.md
 GaxiaServer.Party.OnMatchFound : Signal<string, { PoolEntry }, string?>   → Party.md
 GaxiaServer.Party.OnInvite : Signal<Player, string, string>   → Party.md
 GaxiaServer.Party.OnInviteResponded : Signal<Player, number, boolean>   → Party.md
-GaxiaServer.AntiCheat.Flag(player: Player, reason: string, severity: (Types.Severity | string)?)   → AntiCheat.md
+GaxiaServer.AntiCheat.Flag(player: Player, reason: string, severity: (Types.Severity | string)?, source: Types.EvidenceSource?)   → AntiCheat.md
 GaxiaServer.AntiCheat.IsEnabled(): boolean   → AntiCheat.md
 GaxiaServer.AntiCheat.IsEnforcing(): boolean   → AntiCheat.md
 GaxiaServer.AntiCheat.SetEnabled(on: boolean): ()   → AntiCheat.md
@@ -525,8 +545,8 @@ GaxiaServer.AntiCheat.GetFlagCount(player: Player, reason: string): number   →
 GaxiaServer.AntiCheat.ClearFlags(player: Player, reason: string?)   → AntiCheat.md
 GaxiaServer.AntiCheat.RegisterDetector(detector: Detector)   → AntiCheat.md
 GaxiaServer.AntiCheat.GetDetector(name: string): any?   → AntiCheat.md
-GaxiaServer.AntiCheat.OnFlag : Signal<Player, string, Types.Severity | string, number>   → AntiCheat.md
-GaxiaServer.AntiCheat.OnAction : Signal<Player, string, Types.ActionKind>   → AntiCheat.md
+GaxiaServer.AntiCheat.OnFlag : Signal<Player, string, Types.Severity | string, number, Types.EvidenceSource>   → AntiCheat.md
+GaxiaServer.AntiCheat.OnAction : Signal<Player, string, Types.ActionKind, number, Types.EvidenceSource>   → AntiCheat.md
 GaxiaServer.AntiCheat.Animation.Allow(id: string)   → AntiCheat.md
 GaxiaServer.AntiCheat.Combat.RegisterDamage(victim: Player | Humanoid, amount: number): ()   → AntiCheat.md
 GaxiaServer.AntiCheat.RemoteRate.Wrap(remote: RemoteEvent): RemoteEvent   → AntiCheat.md
@@ -546,6 +566,11 @@ GaxiaServer.Ban.IsEscalationExempt(userId: number): boolean   → Ban.md
 GaxiaServer.Ban.ResetStrikes(userId: number): ()   → Ban.md
 GaxiaServer.Ban.OnBan : Signal<number, Ban>   → Ban.md
 GaxiaServer.Ban.OnUnban : Signal<number>   → Ban.md
+GaxiaServer.Enforcement.GetMode(): "observe" | "enforce"   → Ban.md
+GaxiaServer.Enforcement.SetMode(mode: "observe" | "enforce"): ()   → Ban.md
+GaxiaServer.Enforcement.GetStrikes(userId: number): number   → Ban.md
+GaxiaServer.Enforcement.ResetStrikes(userId: number): ()   → Ban.md
+GaxiaServer.Enforcement.OnDecision : Signal<Player, string, Types.ActionKind, Types.EvidenceSource, Decision, boolean, number>   → Ban.md
 GaxiaServer.Chat.ParseArgs(typeList: { string }, argList: { string }): { any }?   → Chat.md
 GaxiaServer.Chat.Register(name: string, opts: CmdOpts, handler: CommandHandler): ()   → Chat.md
 GaxiaServer.Chat.SetRoleResolver(fn: Types.PlayerRoleResolver): ()   → Chat.md
@@ -602,6 +627,12 @@ Gaxia.Dialog.Show(config: DialogConfig): Promise<number>   → Dialog.md
 Gaxia.Cutscene.IsPlaying(): boolean   → Cutscene.md
 Gaxia.Cutscene.Stop(): ()   → Cutscene.md
 Gaxia.Cutscene.Play(steps: { CutsceneStep }): Promise<boolean>   → Cutscene.md
+Gaxia.Prompt.SetCurrentPrompt(self: PromptManager, prompt: ProximityPrompt?): ()   → Prompt.md
+Gaxia.Prompt.GetCurrentPrompt(self: PromptManager): ProximityPrompt?   → Prompt.md
+Gaxia.Prompt.ManualHoldCurrent(self: PromptManager): ()   → Prompt.md
+Gaxia.Prompt.ManualStopHoldCurrent(self: PromptManager): ()   → Prompt.md
+Gaxia.Prompt.Clear(self: PromptManager): ()   → Prompt.md
+Gaxia.Prompt.Destroy(self: PromptManager): ()   → Prompt.md
 Gaxia.Tooltip.SetDelay(seconds: number): ()   → Tooltip.md
 Gaxia.Tooltip.Attach(target: GuiObject, text: string | () -> string): ()   → Tooltip.md
 Gaxia.Tooltip.Detach(target: GuiObject): ()   → Tooltip.md
@@ -829,6 +860,11 @@ Gaxia.Raycaster.Quick(origin: Vector3, direction: Vector3, ignoreList: { Instanc
 Gaxia.Random.new(seed: number?): Stream   → Random.md
 Gaxia.Random.Stream(name: string, seed: number?): Stream   → Random.md
 Gaxia.Pool.new<T>(factory: () -> T, reset: ((obj: any) -> ())?): PoolObject<T>   → Pool.md
+CentralManager.Register(self: InternalCentralManager, options: TaskOptions, callback: Callback): TaskHandle   → Central.md
+CentralManager.Cancel(self: InternalCentralManager, name: string): boolean   → Central.md
+CentralManager.Pause(self: InternalCentralManager, name: string): boolean   → Central.md
+CentralManager.Resume(self: InternalCentralManager, name: string): boolean   → Central.md
+CentralManager.Destroy(self: InternalCentralManager): ()   → Central.md
 Gaxia.Scheduler.After(delaySec: number, fn: () -> ()): () -> ()   → Scheduler.md
 Gaxia.Scheduler.Every(intervalSec: number, fn: () -> ()): () -> ()   → Scheduler.md
 Gaxia.Scheduler.Debounce<A...>(fn: (A...) -> (), waitSec: number): (A...) -> ()   → Scheduler.md

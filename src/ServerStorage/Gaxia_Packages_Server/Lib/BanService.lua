@@ -2,24 +2,26 @@
 -- ─────────────────────────────────────────────────────────────
 -- BanService.lua
 -- Location: ServerStorage/Gaxia_Packages_Server/Lib/BanService
--- Purpose : Persistent bans + an auto-escalation policy. AntiCheat only Kicked
---           (in-memory, cleared on leave) so cheaters rejoined instantly. This
---           persists bans (DataStore, pcall-guarded + session cache so Studio
---           works without API), gates them on PlayerAdded, and escalates repeat
---           hard AntiCheat actions: warn/kick → temp-ban → perm-ban (thresholds
---           in Config.AntiCheat.BanPolicy; strikes count per server lifetime,
---           so they survive a rejoin to the same server). Exempt from ALL auto-action: the
---           place creator + roles >= BanPolicy.ExemptRole (escalation only
---           warns; stale creator bans self-heal at the join gate). The role
---           lookup is installed by AdminCommands (SetRoleResolver); without it
---           only the place creator is exempt.
+-- Purpose : Persistent bans and the join gate used by moderation. AntiCheat only
+--           Kicked (in-memory, cleared on leave) so cheaters rejoined instantly.
+--           This persists bans (DataStore, pcall-guarded + session cache so
+--           Studio works without API) and gates them on PlayerAdded. The
+--           automatic policy for repeat hard AntiCheat actions (kick → temp-ban
+--           → perm-ban, Config.AntiCheat.BanPolicy) lives only in
+--           AntiCheatEnforcement, which this module starts and which asks
+--           IsEscalationExempt before any automatic action. Exempt from ALL
+--           auto-action: the place creator + roles >= BanPolicy.ExemptRole
+--           (stale creator bans self-heal at the join gate). The role lookup is
+--           installed by AdminCommands (SetRoleResolver); without it only the
+--           place creator is exempt.
 --
 -- Access  : Gaxia.Ban  (server)
 --   Gaxia.Ban.Ban(userId, "Exploiting", 3600)   -- 1h temp ban (nil = permanent)
 --   local banned, reason = Gaxia.Ban.IsBanned(userId)
 --
 -- Lifecycle: Init connects the PlayerAdded ban gate (before players are
---            admitted) + the leave cleanup; Start subscribes to AntiCheat.OnAction.
+--            admitted) + the leave cleanup; Start starts AntiCheatEnforcement
+--            (the escalation policy) when its module is installed.
 -- ─────────────────────────────────────────────────────────────
 local Players           = game:GetService("Players")
 local DataStoreService  = game:GetService("DataStoreService")
@@ -31,10 +33,9 @@ local Signal    = require(Shared.Signal)
 local Lifecycle = require(script.Parent.ServiceLifecycle)
 local Config    = require(script.Parent.Parent.Config)
 local Types     = require(script.Parent.Parent.Types)
--- The AntiCheat orchestrator is a soft dependency (its package may not be
--- installed): Start subscribes to its OnAction signal if it is, which never
--- starts AntiCheat. Manual bans work without it.
-type AntiCheatApi = { OnAction: Signal.Signal<Player, string, Types.ActionKind> }
+-- AntiCheatEnforcement requires this module, so it is a soft dependency here:
+-- found by name (Lifecycle.Find), never required. Manual bans work without it.
+type EnforcementApi = { ResetStrikes: (userId: number) -> () }
 
 -- Store name comes from Config so operators can namespace bans per-game
 -- (Config.Admin.Stores.Bans, "override to namespace bans/roles per game").
@@ -261,7 +262,7 @@ local function gate(player: Player): ()
 	player:Kick(`[Banned] {reason}`)
 end
 
--- ── Auto-escalation policy (repeat hard AntiCheat actions) ──
+-- ── Automatic-action exemption (asked by AntiCheatEnforcement) ──
 
 -- Role lookup for the escalation exemption, installed by AdminCommands' Init
 -- (BanService never requires AdminCommands: AdminCommands depends on this module).
@@ -303,61 +304,27 @@ local function isEscalationExempt(userId: number): boolean
 	return false
 end
 
--- Public: AntiCheat.OnAction has TWO enforcing consumers — escalate() here and
--- the bootstrap's default hard-action kick. Both must answer "is this user
--- machine-punishable?" identically, or the exemption only stops the ban while
--- the other consumer still kicks the creator out of their own game.
+-- Public: AntiCheatEnforcement, the one owner of automatic AntiCheat action,
+-- calls this before every automatic kick/ban. Manual Ban() deliberately remains
+-- a low-level administrator API.
 function BanService.IsEscalationExempt(userId: number): boolean
 	return isEscalationExempt(userId)
 end
 
--- userId → strikes this server. Kept for the server's lifetime (NOT cleared on
--- leave): with the default policy (KickAt 1, TempBanAt 2, PermBanAt 3) a cheater
--- who rejoins the same server after a kick is temp-banned on the next hard
--- action, then perm-banned. Clearing on leave meant kick → rejoin → kick forever.
--- One small number per flagged user, so it stays bounded by the server's lifetime.
-local strikes: { [number]: number } = {}
-
 -- Forget a user's auto-escalation strikes in this server (the next hard action
 -- starts again at KickAt). Unban calls it; /acclear calls it with ClearFlags.
+-- The strikes live in AntiCheatEnforcement; nothing to reset until it started.
 function BanService.ResetStrikes(userId: number): ()
-	strikes[userId] = nil
-end
--- Players already kicked/banned by escalate() whose disconnect is still pending.
--- Kick is asynchronous, so several hard actions arriving in the same frame used to
--- add several strikes (KickAt=1 → TempBanAt=2 → PermBanAt=3 inside one frame):
--- three simultaneous flags meant a permanent ban. One punishment per session
--- (cleared on leave, so the next session can be punished again).
-local punished: { [number]: boolean } = {}
-local function escalate(player: Player, reason: string): ()
-	local uid = player.UserId
-	if punished[uid] then return end
-	if isEscalationExempt(uid) then
-		warn(`[BanService] escalation exempt for {player.Name} ({uid}) — would have acted on: {reason}`)
+	if Lifecycle.GetStateByName("Enforcement") ~= "initialized" then
 		return
 	end
-	strikes[uid] = (strikes[uid] or 0) + 1
-	local n = strikes[uid]
-	local policy = Config.AntiCheat.BanPolicy
-	local kickAt    : number = policy.KickAt or 1
-	local tempBanAt : number = policy.TempBanAt or 2
-	local permBanAt : number = policy.PermBanAt or 3
-	local tempSecs  : number = policy.TempBanSeconds or 3600
-	if n >= permBanAt then
-		punished[uid] = true
-		BanService.Ban(uid, `Auto: {reason} x{n}`)
-	elseif n >= tempBanAt then
-		punished[uid] = true
-		BanService.Ban(uid, `Auto: {reason} x{n}`, tempSecs)
-	elseif n >= kickAt then
-		punished[uid] = true
-		player:Kick(`[AntiCheat] {reason}`)
+	local Enforcement: EnforcementApi? = Lifecycle.Find("Enforcement")
+	if Enforcement then
+		Enforcement.ResetStrikes(userId)
 	end
 end
 
 local function onPlayerRemoving(p: Player): ()
-	-- strikes[p.UserId] is kept on purpose (see strikes above).
-	punished[p.UserId] = nil
 	-- Evict the ban cache so a rejoin re-reads the store: bans/unbans issued on
 	-- ANOTHER server while this one held a warm entry must take effect here too.
 	-- Only when a real store exists — without one (Studio, no API access) the
@@ -382,16 +349,13 @@ Lifecycle.Define(BanService, {
 		Players.PlayerRemoving:Connect(onPlayerRemoving)
 	end,
 	Start = function()
-		-- Escalate repeat hard AntiCheat actions ("observe" = not enforced: ignored).
-		local AntiCheat: AntiCheatApi? = Lifecycle.Find("AntiCheat")
-		if AntiCheat == nil then
-			return
+		-- The escalation policy for repeat hard AntiCheat actions moved to
+		-- AntiCheatEnforcement; start it with Ban, so a game that starts Ban keeps
+		-- the policy as before ("observe" candidates are never enforced).
+		local Enforcement = Lifecycle.Find("Enforcement")
+		if Enforcement ~= nil then
+			Lifecycle.Ensure(Enforcement)
 		end
-		AntiCheat.OnAction:Connect(function(player: Player, reason: string, kind: string)
-			if kind == "hard" then
-				escalate(player, reason)
-			end
-		end)
 	end,
 })
 

@@ -39,3 +39,30 @@ CI (`.github/workflows/checks.yml`) runs these checks on every push and pull req
 `bash tools/ci/install-tools.sh <dir>` (use the same script to get them locally).
 
 See [playbooks/framework/change-the-framework.md](playbooks/framework/change-the-framework.md). The headless harness (`run-game.mjs`: boot the framework and a game's scripts with no Studio) is described in [tools/harness/README.md](tools/harness/README.md).
+
+### Wally libraries
+
+Third-party libraries that Gaxia does not implement itself come from [Wally](https://wally.run), such as
+**Observers** (`Gaxia.Observers`) and **ProfileStore** (the storage behind `DataManager`). Restore them before
+`rojo serve`, `rojo build` or the headless harness, or Rojo stops with "could not be turned into a Roblox
+Instance" for `Packages`:
+
+```sh
+rokit install      # or: aftman install (adds wally next to rojo, lune, stylua, selene)
+wally install      # creates Packages/ and ServerPackages/ from wally.lock
+```
+
+`Packages/` (mapped to `Gaxia_Packages.Packages`) and `ServerPackages/` (mapped to
+`Gaxia_Packages_Server.ServerPackages`) are generated and ignored by Git; `wally.lock` pins the versions.
+Licences: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+### Anti-cheat and networking hardening
+
+[ANTICHEAT_HARDENING_PLAN.md](ANTICHEAT_HARDENING_PLAN.md) is the threat model and plan behind `NetProtocol`,
+`RemoteObfuscator`, `RemoteTrap`, `AntiCheatEnforcement` and the server-side checks in the social and admin
+services. [tests/hardening.README.md](tests/hardening.README.md) describes the offline checks (no Studio, no
+cloud services):
+
+```sh
+python scripts/test-hardening-local.py --luau /path/to/luau
+```

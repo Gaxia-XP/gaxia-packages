@@ -6,8 +6,10 @@ the file-push vs Studio-edit conflict).
 
 ## What the project maps (and what it leaves alone)
 `default.project.json` maps **only the Gaxia framework** instances:
-- `ReplicatedStorage.Gaxia_Packages` (ModuleScript from `init.lua`; children `Shared`, `Client`, `Features`)
-- `ServerStorage.Gaxia_Packages_Server` (ModuleScript from `init.lua`; children `Types`, `Config`, `Lib`, `AntiCheat`)
+- `ReplicatedStorage.Gaxia_Packages` (ModuleScript from `init.lua`; children `Shared`, `Client`, `Features`,
+  plus `Packages` from the Wally `Packages/` folder)
+- `ServerStorage.Gaxia_Packages_Server` (ModuleScript from `init.lua`; children `Types`, `Config`, `Lib`, `AntiCheat`,
+  plus `ServerPackages` from the Wally `ServerPackages/` folder)
 - `ServerScriptService.Gaxia_ServerBootstrap`
 - `StarterPlayer.StarterPlayerScripts.Gaxia_ClientBootstrap`
 
@@ -20,16 +22,23 @@ the `Gaxia_Packages` **ModuleScript itself**, with `Shared/` and `Client/` as it
 (same for `Gaxia_Packages_Server` and `AntiCheat`). Require the package directly —
 `require(ReplicatedStorage.Gaxia_Packages)` — there is no child called `init`.
 
+`Packages/` and `ServerPackages/` are created by `wally install` and are not in Git. The project maps
+them by `$path`, so `rojo serve` / `rojo build` / `rojo sourcemap` fail until `wally install` has run once.
+
 ## One-time setup
 ```sh
 # 1. install the toolchain (rokit reads rokit.toml)
-rokit install            # or: aftman install  (if you use aftman)
+rokit install
 
-# 2. VERIFY the tree WITHOUT touching your real place — build a throwaway file:
+# 2. install the exact dependency graph pinned in wally.lock
+wally install
+
+# 3. VERIFY the tree WITHOUT touching your real place — build a throwaway file:
 rojo build default.project.json --output GaxiaTest.rbxl
 #    open GaxiaTest.rbxl in Studio and confirm:
-#      ReplicatedStorage.Gaxia_Packages  is a ModuleScript with children: Shared, Client, Features
-#      ServerStorage.Gaxia_Packages_Server.AntiCheat  is a ModuleScript with 15 detector children
+#      ReplicatedStorage.Gaxia_Packages  is a ModuleScript with children: Shared, Client, Features, Packages
+#      ServerStorage.Gaxia_Packages_Server  has a ServerPackages child holding ProfileStore
+#      ServerStorage.Gaxia_Packages_Server.AntiCheat  is a ModuleScript with one child per detector file
 #    (if the structure is right, the live sync below is safe)
 ```
 
@@ -45,6 +54,7 @@ live; edit in your editor (VS Code / Cursor with the Rojo + luau-lsp extensions)
   Luau releases on PATH, or `LUAU_AST=/path/to/luau-ast`)
 - `node tools/run-game.mjs --game <dir>` — run the framework and your game scripts headless (no Studio)
   and list every error; see [tools/harness/README.md](tools/harness/README.md)
+- `wally install` — restore the dependency graph pinned in `wally.lock`
 - `rojo build default.project.json -o GaxiaPackages.rbxm` — build a distributable model
 
 ## Installing only some packages

@@ -64,7 +64,7 @@ function ToolDuplicationGuard.Init(orchestrator: DetectorHost): ()
 	ToolService.OnDuplicate:Connect(function(dupe: Tool)
 		local owner = findOwner(dupe)
 		if owner and orchestratorRef then
-			orchestratorRef.Flag(owner, "ToolDupe", Config.AntiCheat.ToolDupe.Severity)
+			orchestratorRef.Flag(owner, "ToolDupe", Config.AntiCheat.ToolDupe.Severity, "server")
 		end
 	end)
 

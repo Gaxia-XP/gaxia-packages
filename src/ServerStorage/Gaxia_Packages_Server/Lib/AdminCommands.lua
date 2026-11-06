@@ -9,7 +9,8 @@
 --
 -- Lifecycle: Init reads Config.Admin, opens the Roles store, registers the
 --            built-in commands (+ their chat bridge), wires the role hooks, the
---            creator auto-grant and the Admin Panel remotes (Events/Admin), then
+--            creator auto-grant and the Admin Panel surface (Net gateway RPCs
+--            Admin.* + the outbound Events/Admin/Inbound notifications), then
 --            installs the role resolvers BanService and ChatCommandSystem use.
 -- ─────────────────────────────────────────────────────────────
 
@@ -20,6 +21,7 @@ local ReplicatedStorage    = game:GetService("ReplicatedStorage")
 -- ── Dependencies ──
 local Shared                = ReplicatedStorage.Gaxia_Packages.Shared
 local Signal                = require(Shared.Signal)
+local Net                   = require(Shared.NetService)
 local Lifecycle             = require(script.Parent.ServiceLifecycle)
 local Config                = require(script.Parent.Parent.Config)
 local EConfig               = require(script.Parent.EffectiveConfig)
@@ -131,6 +133,10 @@ type CommandEntry = {
 }
 
 local commands : { [string]: CommandEntry } = {}
+-- Set once the Admin Panel gateway exists (Init). Keeping the registration hook
+-- next to the command registry means extensions that call Register() later
+-- (AntiCheatAdmin, game commands) receive their own canonical RPC too.
+local registerCommandGateway: ((entry: CommandEntry) -> ())? = nil
 
 local AdminCommands = {}
 -- (caller, name, args, success, message) after every Run: name as passed in;
@@ -255,13 +261,18 @@ function AdminCommands.Register(
 ): ()
 	if not ADMIN_ENABLED then return end
 	local lname = name:lower()
-	commands[lname] = {
+	local entry: CommandEntry = {
 		name    = lname,
 		role    = opts.role,
 		args    = opts.args or {},
 		help    = opts.help or "",
 		handler = handler,
 	}
+	commands[lname] = entry
+	local registerGateway = registerCommandGateway
+	if registerGateway then
+		registerGateway(entry)
+	end
 
 	-- Forward into chat. The bridge handler returns Run's descriptive message so
 	-- ChatCommandSystem.reply delivers the real outcome — success line, guard
@@ -424,7 +435,7 @@ end
 -- place owner, or anyone of equal-or-higher rank. Returns an error string to
 -- show the caller when the action is blocked, or nil when it's allowed. This is
 -- the SINGLE guard for both chat commands and the Admin Panel — the panel's
--- `run` envelope re-enters these same handlers, so the protection covers both.
+-- Admin.Command.<name> RPCs re-enter these same handlers, so it covers both.
 -- WHY each rule:
 --   • self      — stops the classic "I banned myself and got locked out" footgun.
 --   • creator   — the place owner must never be bannable by a delegated admin
@@ -795,100 +806,225 @@ local function nameForUserId(userId: number): string?
 	return nil
 end
 
--- ── Admin Panel RemoteFunction/RemoteEvent surface ──
--- Mirrors the Friend/Guild/Party Remote blocks (Phase 26). The GUI is pure
--- convenience: every `run` goes through AdminCommands.Run, which performs the
--- authoritative role check. A spoofed client cannot escalate.
--- Skipped entirely when the Admin kill switch is off: no Events/Admin remotes
--- are created, so a disabled build exposes no admin surface to clients at all.
+-- ── Admin Panel Net gateway + outbound notification surface ──
+-- The GUI is pure convenience. Each operation has its own gateway RPC with its
+-- own schema and access check, run before any potentially expensive work, and
+-- AdminCommands.Run repeats its authoritative role check (defence in depth). A
+-- spoofed client cannot escalate. There is deliberately no generic "run"
+-- envelope: each canonical command owns one RPC (Admin.Command.<name>), so a
+-- client cannot pick an arbitrary operation inside a shared payload; aliases stay
+-- a chat / direct-Run convenience and never get an endpoint.
+-- Skipped entirely when the Admin kill switch is off: no Admin.* RPCs and no
+-- Events/Admin folder exist, so a disabled build exposes no admin surface at all.
+type RpcReply = { ok: boolean, data: any }
+
+local MAX_COMMAND_ARGS : number = 16
+local MAX_COMMAND_ARG_LENGTH : number = 256
+local MAX_COMMAND_ARGUMENT_BYTES : number = 1_024
+
+-- The panel keeps its (ok, data) convention inside the gateway's outer result.
+local function reply(ok: boolean, data: any): RpcReply
+	return { ok = ok, data = data }
+end
+
+local function hasOnlyKeys(payload: any, allowed: { [string]: boolean }): boolean
+	if typeof(payload) ~= "table" then
+		return false
+	end
+	for key in pairs(payload) do
+		if typeof(key) ~= "string" or allowed[key] ~= true then
+			return false
+		end
+	end
+	return true
+end
+
+local function isEmptyPayload(payload: any): boolean
+	return hasOnlyKeys(payload, {})
+end
+
+-- Every command endpoint accepts only a contiguous `args` array of bounded
+-- single-line strings. The command's declared signature caps the count;
+-- required/optional semantics stay in AdminCommands.Run, so chat and panel calls
+-- share exactly the same behaviour.
+local function isCommandArguments(value: any, maxArgs: number): boolean
+	if typeof(value) ~= "table" then
+		return false
+	end
+	local count = 0
+	local totalBytes = 0
+	for index, argument in pairs(value) do
+		if typeof(index) ~= "number" or index % 1 ~= 0 or index < 1 or index > maxArgs then
+			return false
+		end
+		if typeof(argument) ~= "string" or #argument > MAX_COMMAND_ARG_LENGTH then
+			return false
+		end
+		if string.find(argument, "[\r\n%z]") ~= nil then
+			return false
+		end
+		count += 1
+		totalBytes += #argument
+		if totalBytes > MAX_COMMAND_ARGUMENT_BYTES then
+			return false
+		end
+	end
+	for index = 1, count do
+		if value[index] == nil then
+			return false
+		end
+	end
+	return true
+end
+
+local function isLivePlayer(player: Player): boolean
+	return player.Parent == Players
+end
+
+local function validateModerator(context: Net.RpcContext, _payload: any): boolean
+	return isLivePlayer(context.player) and AdminCommands.IsAtLeast(context.player, "moderator")
+end
+
+local function validateAdmin(context: Net.RpcContext, _payload: any): boolean
+	return isLivePlayer(context.player) and AdminCommands.IsAtLeast(context.player, "admin")
+end
+
+local function registerRead(
+	name: string,
+	validate: (context: Net.RpcContext, payload: any) -> boolean,
+	handler: (player: Player) -> (boolean, any)
+): ()
+	Net.Server.RegisterFunction(name, {
+		schema = isEmptyPayload,
+		validate = validate,
+		handler = function(context: Net.RpcContext, _payload: any): RpcReply
+			local ok, data = handler(context.player)
+			return reply(ok, data)
+		end,
+		rate = 3,
+		burst = 6,
+		budget = "tiny",
+		concurrency = 1,
+	})
+end
+
+local registeredCommandEndpoints: { [string]: boolean } = {}
+
+local function commandPayloadIsValid(canonicalName: string, payload: any): boolean
+	local command = commands[canonicalName]
+	if command == nil or not hasOnlyKeys(payload, { args = true }) then
+		return false
+	end
+	return isCommandArguments(payload.args, math.min(#command.args, MAX_COMMAND_ARGS))
+end
+
+local function validateCommand(context: Net.RpcContext, canonicalName: string): boolean
+	local command = commands[canonicalName]
+	return isLivePlayer(context.player)
+		and command ~= nil
+		and DISABLED[canonicalName] ~= true
+		and AdminCommands.IsAtLeast(context.player, command.role)
+end
+
+local function runCommand(player: Player, canonicalName: string, payload: any): RpcReply
+	local argList: { string } = table.clone(payload.args)
+	-- Strip trailing blanks: untouched panel TextBoxes submit "" which is
+	-- truthy in Luau, so every `args[i] or <default>` fallback was dead
+	-- from the panel (bans persisted with reason ""). Trailing only — a
+	-- blank slot between filled slots must keep positions stable.
+	while #argList > 0 and argList[#argList]:match("^%s*$") do
+		table.remove(argList)
+	end
+	-- Surface the handler's descriptive message so the panel toast shows
+	-- the real outcome ("Banned X" / "You can't target yourself" / …)
+	-- rather than a generic line. Falls back to a generic reason when a
+	-- handler returned nothing.
+	local ok, message = AdminCommands.Run(player, canonicalName, argList)
+	return reply(ok, message or (if ok then nil else "Command failed or role insufficient."))
+end
+
+local function registerCommandEndpoint(entry: CommandEntry): ()
+	local canonicalName = entry.name
+	if registeredCommandEndpoints[canonicalName] then
+		return
+	end
+	Net.Server.RegisterFunction(`Admin.Command.{canonicalName}`, {
+		schema = function(payload: any): boolean
+			return commandPayloadIsValid(canonicalName, payload)
+		end,
+		validate = function(context: Net.RpcContext, _payload: any): boolean
+			return validateCommand(context, canonicalName)
+		end,
+		mutation = true,
+		handler = function(context: Net.RpcContext, payload: any): RpcReply
+			return runCommand(context.player, canonicalName, payload)
+		end,
+		rate = 2,
+		burst = 4,
+		budget = "small",
+		concurrency = 1,
+	})
+	registeredCommandEndpoints[canonicalName] = true
+end
+
 local function createPanelRemotes(): ()
+	-- Outbound only (server → client): audit lines and the role hint. RemoteTrap
+	-- watches it for wrong-direction fires.
 	local Events = ReplicatedStorage:FindFirstChild("Events") or Instance.new("Folder")
 	Events.Name = "Events"
 	Events.Parent = ReplicatedStorage
 	local AdminFolder = Events:FindFirstChild("Admin") or Instance.new("Folder")
 	AdminFolder.Name = "Admin"
 	AdminFolder.Parent = Events
-	local Action = AdminFolder:FindFirstChild("Action") or Instance.new("RemoteFunction")
-	Action.Name = "Action"
-	Action.Parent = AdminFolder
 	local Inbound = AdminFolder:FindFirstChild("Inbound") or Instance.new("RemoteEvent")
 	Inbound.Name = "Inbound"
 	Inbound.Parent = AdminFolder
 
-	Action.OnServerInvoke = function(player: Player, envelope: any): (boolean, any)
-		if typeof(envelope) ~= "table" or typeof(envelope.type) ~= "string" then
-			return false, "bad envelope"
+	-- "Admin.Role" stays open to every player: it only returns the invoker's own
+	-- role, which the client needs pre-gate to decide whether to show the toolbar
+	-- button. The read endpoints are gated: listPlayers includes each player's
+	-- admin role, which is NOT otherwise visible in-game — ungated, any client
+	-- could enumerate the live staff roster to evade or target moderators.
+	registerRead("Admin.Role", function(context: Net.RpcContext, _payload: any): boolean
+		return isLivePlayer(context.player)
+	end, function(player: Player): (boolean, any)
+		return true, {
+			role = AdminCommands.GetRole(player),
+			isModerator = AdminCommands.IsAtLeast(player, "moderator"),
+		}
+	end)
+
+	registerRead("Admin.Schema", validateModerator, function(player: Player): (boolean, any)
+		return true, describeFor(player)
+	end)
+
+	registerRead("Admin.Players", validateModerator, function(_player: Player): (boolean, any)
+		return true, listPlayers()
+	end)
+
+	registerRead("Admin.Bans", validateAdmin, function(_player: Player): (boolean, any)
+		-- Same tier as /unban, the command this list feeds. Returns active ban
+		-- records with resolved usernames (resolved only after the gateway's admin
+		-- check, since every lookup may yield) so the panel renders a
+		-- click-to-unban list instead of a raw userId box.
+		local limit = tonumber(EConfig.Get(
+			"Admin.BanListLimit",
+			AdminConfig.BanListLimit or 50
+		)) or 50
+		local bans: { { [string]: any } } = {}
+		for _, b in ipairs(BanService.ListBans(limit)) do
+			local row: { [string]: any } = table.clone(b)
+			row.name = nameForUserId(b.userId)
+			table.insert(bans, row)
 		end
-		local t = envelope.type
-		-- Gate the read endpoints: listPlayers includes each player's admin role,
-		-- which is NOT otherwise visible in-game — ungated, any client could
-		-- enumerate the live staff roster to evade or target moderators. "role"
-		-- stays open (it only returns the invoker's own role, which the client
-		-- needs pre-gate to decide whether to show the toolbar button); "run"
-		-- gates itself inside AdminCommands.Run.
-		if t == "schema" then
-			if not AdminCommands.IsAtLeast(player, "moderator") then
-				return false, "forbidden"
-			end
-			return true, describeFor(player)
-		end
-		if t == "players" then
-			if not AdminCommands.IsAtLeast(player, "moderator") then
-				return false, "forbidden"
-			end
-			return true, listPlayers()
-		end
-		if t == "bans" then
-			-- Same tier as /unban, the command this list feeds. Returns active
-			-- ban records with resolved usernames so the panel renders a
-			-- click-to-unban list instead of a raw userId box.
-			if not AdminCommands.IsAtLeast(player, "admin") then
-				return false, "forbidden"
-			end
-			local limit = tonumber(EConfig.Get(
-				"Admin.BanListLimit",
-				AdminConfig.BanListLimit or 50
-			)) or 50
-			local bans: { { [string]: any } } = {}
-			for _, b in ipairs(BanService.ListBans(limit)) do
-				local row: { [string]: any } = table.clone(b)
-				row.name = nameForUserId(b.userId)
-				table.insert(bans, row)
-			end
-			return true, bans
-		end
-		if t == "role" then
-			return true,
-				{
-					role = AdminCommands.GetRole(player),
-					isModerator = AdminCommands.IsAtLeast(player, "moderator"),
-				}
-		end
-		if t == "run" then
-			if typeof(envelope.name) ~= "string" then
-				return false, "bad command name"
-			end
-			local argList: { string } = {}
-			if typeof(envelope.args) == "table" then
-				for _, v in ipairs(envelope.args) do
-					table.insert(argList, tostring(v))
-				end
-			end
-			-- Strip trailing blanks: untouched panel TextBoxes submit "" which is
-			-- truthy in Luau, so every `args[i] or <default>` fallback was dead
-			-- from the panel (bans persisted with reason ""). Trailing only — a
-			-- blank slot between filled slots must keep positions stable.
-			while #argList > 0 and argList[#argList]:match("^%s*$") do
-				table.remove(argList)
-			end
-			-- Surface the handler's descriptive message so the panel toast shows
-			-- the real outcome ("Banned X" / "You can't target yourself" / …)
-			-- rather than a generic line. Falls back to a generic reason when a
-			-- handler returned nothing.
-			local ok, message = AdminCommands.Run(player, envelope.name, argList)
-			return ok, message or (if ok then nil else "Command failed or role insufficient.")
-		end
-		return false, "unknown action"
+		return true, bans
+	end)
+
+	-- One endpoint per canonical command: the ones registered so far, and (via
+	-- the hook) every command registered from now on.
+	registerCommandGateway = registerCommandEndpoint
+	for _, command in pairs(commands) do
+		registerCommandEndpoint(command)
 	end
 
 	-- Audit: broadcast every command result to moderator+ clients only.

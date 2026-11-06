@@ -50,8 +50,18 @@ export type Entry = {
     reason: string,
     severity: string,
     count: number?,
-    kind: Types.ActionKind?, -- set for action entries
-    action: boolean,    -- true = OnAction entry, false = OnFlag entry
+    kind: Types.ActionKind?, -- set for candidate / enforcement entries
+    -- Where the evidence came from: server | transport | trap | client |
+    -- client_liveness | unknown (only the first three can ever be acted on).
+    source: Types.EvidenceSource,
+    -- "flag" = OnFlag, "candidate" = OnAction, "enforcement" = a decision.
+    event: "flag" | "candidate" | "enforcement",
+    -- true for a threshold candidate (OnAction), or an enforcement decision that
+    -- actually applied a Kick/Ban; false for a flag. Kept for existing sinks.
+    action: boolean,
+    decision: string?,  -- observe | kick | temp_ban | perm_ban | deduped | exempt
+    applied: boolean?,  -- enforcement entries: whether a Kick/Ban was applied
+    strikeCount: number?,
     time: number,       -- os.time()
 }
 ```

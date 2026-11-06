@@ -1,0 +1,15 @@
+--!strict
+-- ─────────────────────────────────────────────────────────────
+-- Observers.lua
+-- Location: ReplicatedStorage/Gaxia_Packages/Shared/Observers
+-- Purpose : sleitnick/observers (Wally, pinned in wally.toml): run a callback for
+--           every tagged instance / player / character / attribute value that
+--           exists now or appears later; the callback's returned function runs
+--           when it goes away. No first-party module replaces it.
+--
+-- Access  : Gaxia.Observers  (shared)
+--   local stop = Gaxia.Observers.observeTag("Lava", function(part)
+--       return function() --[[ untagged or destroyed ]] end
+--   end)
+-- ─────────────────────────────────────────────────────────────
+return require(script.Parent.Parent.Packages.Observers)

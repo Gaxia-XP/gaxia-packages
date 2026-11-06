@@ -1,0 +1,15 @@
+[package]
+name = "gaxia-xp/gaxia-packages"
+version = "1.0.0"
+registry = "https://github.com/UpliftGames/wally-index"
+realm = "shared"
+private = true
+
+# Only libraries the first-party code does not replace live here. Signal, Trove,
+# Promise, Symbol, Spring, Guard, Util.Table, Zone, Janitor and Component are
+# first-party modules under src/ReplicatedStorage/Gaxia_Packages/Shared.
+[dependencies]
+Observers = "sleitnick/observers@=1.0.0"
+
+[server-dependencies]
+ProfileStore = "lm-loleris/profilestore@=1.0.3"

@@ -34,7 +34,7 @@ function WorldBoundsDetector.Sample(player: Player, snapshot: Snapshot): Flag?
 		return nil
 	end
 	if pos.Y < MIN_Y or math.abs(pos.X) > MAX_XZ or math.abs(pos.Z) > MAX_XZ then
-		return { reason = "WorldBounds", severity = SEVERITY }
+		return { reason = "WorldBounds", severity = SEVERITY, source = "server" }
 	end
 	return nil
 end

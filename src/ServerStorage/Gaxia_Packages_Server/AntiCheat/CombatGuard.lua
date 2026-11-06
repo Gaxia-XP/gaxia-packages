@@ -81,7 +81,7 @@ local function attachHumanoid(player: Player, humanoid: Humanoid)
 		-- health changes on a player's humanoid must always be server-authored
 		-- through the official pathway.
 		if orchestratorRef then
-			orchestratorRef.Flag(player, "Combat", Config.AntiCheat.Combat.Severity)
+			orchestratorRef.Flag(player, "Combat", Config.AntiCheat.Combat.Severity, "server")
 		end
 	end))
 end
