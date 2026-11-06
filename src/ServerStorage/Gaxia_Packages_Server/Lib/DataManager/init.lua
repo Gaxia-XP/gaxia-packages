@@ -2,12 +2,12 @@
 --[[
 	Module : DataManager
 	Location: ServerStorage.Gaxia_Packages_Server.Lib.DataManager
-	Purpose : ProfileService wrapper exposing simple Get / Set / Save API per player.
-	          Loads on PlayerAdded, releases on PlayerRemoving, fires Signals on lifecycle and changes.
+	Purpose : ProfileStore wrapper exposing simple Get / Set / Save API per player.
+	          Loads on PlayerAdded, ends sessions on PlayerRemoving, and fires lifecycle/change Signals.
 	          Phase 17.2: resilient safeWrite helper (pcall + exponential backoff + request-budget wait)
 	          for any external DataStore write — degrades gracefully when no real DataStore exists (Studio stub).
-	          Phase 17.3: game:BindToClose() flushes every loaded profile (Save + Release) within the
-	          shutdown deadline, as defense-in-depth on top of ProfileService's own internal BindToClose,
+	          Phase 17.3: game:BindToClose() flushes every loaded profile (Save + EndSession) within the
+	          shutdown deadline, as defense-in-depth on top of ProfileStore's own internal BindToClose,
 	          and (optionally) writes a disaster-recovery backup — OFF by default.
 	          Phase 17.4: DataMigration.Migrate runs on load (after Reconcile) to upgrade old schemas.
 	          SetDefaults: game code adds default values for its own saved fields; they are
@@ -26,7 +26,8 @@ local Table         = require(Shared.Util.Table)
 local Lifecycle     = require(script.Parent.ServiceLifecycle)
 local Config        = require(script.Parent.Parent.Config)
 local DataMigration = require(script.Parent.DataMigration)
--- ProfileService (bundled child, loleris STANDALONE) stays lazily required on the
+-- ProfileStore (loleris; a server-only Wally dependency that `wally install` puts in
+-- ServerStorage.Gaxia_Packages_Server.ServerPackages) stays lazily required on the
 -- first profile load: its module body probes the DataStore API, connects Heartbeat
 -- and registers its own BindToClose, which must not happen just because something
 -- required DataManager.
@@ -102,23 +103,27 @@ local KICK_SESSION_TAKEN = "Your data was opened on another server. Please rejoi
 -- ── Signals ──
 -- (player, data) once the player's profile is loaded, reconciled and migrated
 DataManager.OnLoaded      = Signal.new() :: Signal.Signal<Player, PlayerData>
--- (player) after the player's profile is released (leave or shutdown)
+-- (player) after the player's profile session ends (leave or shutdown)
 DataManager.OnReleased    = Signal.new() :: Signal.Signal<Player>
 -- (player, key, value) after DataManager.Set
 DataManager.OnDataChanged = Signal.new() :: Signal.Signal<Player, string, any>
 
 -- ── Internal state ──
--- profileStore is resolved lazily (see the ProfileService note above) on the first
--- player load. GetProfileStore is called with a DOT (not colon): it is declared as
--- a plain function; calling with `:` would pass the module as the first arg and
--- trigger "Missing or invalid Name parameter".
+-- profileStore is resolved lazily (see the ProfileStore note above) on the first
+-- player load. ProfileStore.New is a module constructor called with a dot.
+-- Games already save player data with ProfileStore: keep the store name and key
+-- prefix (Config.Data) unchanged so their saves keep loading.
 local profileStore: any = nil
 local function getProfileStore(): any
 	if profileStore then
 		return profileStore
 	end
-	local ProfileService = require(script.ProfileService)
-	profileStore = ProfileService.GetProfileStore(PROFILE_STORE_NAME, DataManager.DEFAULT_PROFILE)
+	local serverPackages = script.Parent.Parent:FindFirstChild("ServerPackages")
+	if not (serverPackages and serverPackages:FindFirstChild("ProfileStore")) then
+		error("Gaxia_Packages_Server.ServerPackages.ProfileStore is missing (run `wally install`)", 0)
+	end
+	local ProfileStore: any = require(script.Parent.Parent.ServerPackages.ProfileStore)
+	profileStore = ProfileStore.New(PROFILE_STORE_NAME, DataManager.DEFAULT_PROFILE)
 	return profileStore
 end
 local loadedProfiles: { [number]: any } = {}
@@ -247,7 +252,7 @@ function DataManager.IsLoaded(player: Player): boolean
 	return loadedProfiles[player.UserId] ~= nil
 end
 
--- Force-save (ProfileService persists periodically, this just nudges it).
+-- Force-save (ProfileStore persists periodically, this just nudges it).
 function DataManager.Save(player: Player): ()
 	local profile = loadedProfiles[player.UserId]
 	if profile and typeof(profile.Save) == "function" then
@@ -446,13 +451,18 @@ local function onPlayerAdded(player: Player)
 	end
 	local key = `{PROFILE_KEY_PREFIX}{player.UserId}`
 	local loadOk, loaded = pcall(function()
-		return getProfileStore():LoadProfileAsync(key)
+		return getProfileStore():StartSessionAsync(key, {
+			-- Stop retrying once the player left or the server is shutting down.
+			Cancel = function(): boolean
+				return player.Parent == nil or isClosing
+			end,
+		})
 	end)
 	local profile = if loadOk then loaded else nil
 	if not profile then
-		-- No profile (session lock held elsewhere, server shutting down, or an error):
+		-- No profile (the player left, server shutting down, or an error):
 		-- kick so the player never plays on unsaved data. Details go to the server log only.
-		warn(`[DataManager] Could not load profile {key} for {player.Name}: {if loadOk then "no profile returned (session locked or shutting down)" else loaded}`)
+		warn(`[DataManager] Could not start profile session {key} for {player.Name}: {if loadOk then "no profile returned (cancelled or shutting down)" else loaded}`)
 		if player.Parent then
 			player:Kick(KICK_LOAD_FAILED)
 		end
@@ -473,24 +483,24 @@ local function onPlayerAdded(player: Player)
 	-- migrations up to DataMigration's currentVersion; no-op when already current.
 	DataMigration.Migrate(profile.Data)
 
-	profile:ListenToRelease(function()
-		-- Our own releases (PlayerRemoving, shutdown flush) clear the map entry BEFORE
-		-- calling Release, so only a release we did not start — another server taking
-		-- the session — still finds this profile in the map. Kick only in that case;
-		-- before, every normal leave kicked the departing player too.
+	profile.OnSessionEnd:Connect(function()
+		-- Our own session ends (PlayerRemoving, shutdown flush) clear the map entry
+		-- BEFORE calling EndSession, so only an end we did not start — another server
+		-- taking the session — still finds this profile in the map. Kick only in that
+		-- case; a normal leave must not kick the departing player.
 		if loadedProfiles[player.UserId] ~= profile then
 			return
 		end
 		loadedProfiles[player.UserId] = nil
 		if player.Parent then
-			warn(`[DataManager] Profile of {player.Name} was released by another server; kicked`)
+			warn(`[DataManager] Profile session of {player.Name} was ended by another server; kicked`)
 			player:Kick(KICK_SESSION_TAKEN)
 		end
 	end)
 
 	if player.Parent == nil then
 		-- Player left before we finished loading.
-		profile:Release()
+		profile:EndSession()
 		return
 	end
 
@@ -502,9 +512,9 @@ end
 local function onPlayerRemoving(player: Player)
 	local profile = loadedProfiles[player.UserId]
 	if profile then
-		-- Claim before releasing so the ListenToRelease handler treats this as ours.
+		-- Claim before ending the session so the OnSessionEnd handler treats this as ours.
 		loadedProfiles[player.UserId] = nil
-		profile:Release()
+		profile:EndSession()
 		-- Fire INSIDE the guard so the claim (nil-ing the map) also gates the signal:
 		-- prevents a double OnReleased when BindToClose races PlayerRemoving on shutdown.
 		DataManager.OnReleased:Fire(player)
@@ -512,33 +522,41 @@ local function onPlayerRemoving(player: Player)
 end
 
 -- ── Phase 17.3 — shutdown flush (defense-in-depth) ──
--- WHY: the real loleris ProfileService registers its OWN game:BindToClose that saves+releases
--- every active session, so the core save guarantee already exists in production. This block is
+-- WHY: ProfileStore registers its OWN game:BindToClose that saves and ends every active
+-- session, so the core save guarantee already exists in production. This block is
 -- belt-and-suspenders: it (1) makes the Studio in-memory stub flush deterministically, (2) fires
 -- our DataManager.OnReleased Signal for every player (loleris does not), and (3) flushes profiles
--- CONCURRENTLY inside the deadline. Double-release is prevented by nil-ing loadedProfiles[uid]
--- BEFORE releasing, so any concurrent onPlayerRemoving / ListenToRelease becomes a no-op.
+-- CONCURRENTLY inside the deadline. Double-ending is prevented by nil-ing loadedProfiles[uid]
+-- BEFORE ending, so any concurrent onPlayerRemoving / OnSessionEnd becomes a no-op.
 local function flushProfileOnClose(userId: number, profile: any): ()
-	-- Claim the profile: clearing the map first makes a racing release a no-op.
+	-- Claim the profile: clearing the map first makes a racing session end a no-op.
 	loadedProfiles[userId] = nil
 
-	-- Optional disaster-recovery snapshot BEFORE release (data is still in hand).
+	-- Optional disaster-recovery snapshot BEFORE ending the session (data is still in hand).
 	if typeof(profile.Data) == "table" then
 		writeBackup(userId, profile.Data)
 	end
 
 	-- Force a final persist, then hand the session back. Both are pcall-guarded: a stub that
 	-- lacks Save must not abort the shutdown loop for the other players. (In production this
-	-- doubles with loleris's own save-on-release — acceptable for a shutdown-only path; it makes
-	-- the Studio stub flush deterministically.)
-	if typeof(profile.Save) == "function" then
+	-- doubles with ProfileStore's own final save — acceptable for a shutdown-only path; it makes
+	-- the Studio stub flush deterministically.) A session that ProfileStore's own BindToClose
+	-- already ended is skipped: saving an inactive profile only warns.
+	local active = true
+	if typeof(profile.IsActive) == "function" then
+		local okActive, isActive = pcall(function()
+			return profile:IsActive()
+		end)
+		active = okActive and isActive == true
+	end
+	if active and typeof(profile.Save) == "function" then
 		pcall(function()
 			profile:Save()
 		end)
 	end
-	if typeof(profile.Release) == "function" then
+	if active and typeof(profile.EndSession) == "function" then
 		pcall(function()
-			profile:Release()
+			profile:EndSession()
 		end)
 	end
 
@@ -560,7 +578,7 @@ local function onClose(): ()
 		return
 	end
 
-	-- Flush every profile concurrently so N async releases overlap inside the deadline.
+	-- Flush every profile concurrently so N async session ends overlap inside the deadline.
 	local remaining = #pending
 	for _, userId in ipairs(pending) do
 		local profile = loadedProfiles[userId]
@@ -589,7 +607,7 @@ local function onClose(): ()
 end
 
 -- Test-only seed: install a synthetic profile so MockPlayer calls don't throw
--- "profile not loaded". Real Player profiles still go through ProfileService.
+-- "profile not loaded". Real Player profiles still go through ProfileStore.
 -- Use ONLY from run_script_in_play_mode tests / repl — never from production code.
 function DataManager._SeedForTest(player: any, data: { [string]: any }?): ()
 	if loadedProfiles[player.UserId] then

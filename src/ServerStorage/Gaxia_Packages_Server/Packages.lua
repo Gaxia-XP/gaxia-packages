@@ -37,6 +37,7 @@ local Packages: Types.PackageManifest = {
 		Replicated = {
 			"Features", "Shared/Constants", "Shared/Logger", "Shared/NetService", "Shared/Flags",
 			"Shared/ReplicatedState", "Shared/Serializer", "Shared/Signal", "Shared/Trove",
+			"Shared/NetProtocol", "Shared/RemoteObfuscator",
 		},
 	},
 
@@ -54,7 +55,7 @@ local Packages: Types.PackageManifest = {
 		-- ── Data & players ───────────────────────────────────
 		{
 			Name = "Data", Category = "Data & players", Boot = true,
-			Description = "Player save data (ProfileService): Get / Set / Save, session locking, auto-save.",
+			Description = "Player save data (ProfileStore, Wally): Get / Set / Save, session locking, auto-save.",
 			Server = { "Lib/DataManager" },
 			Requires = { "Migration", "Util" },
 		},
@@ -72,8 +73,9 @@ local Packages: Types.PackageManifest = {
 		},
 		{
 			Name = "Settings", Category = "Data & players", Boot = true,
-			Description = "Per-player settings saved in the profile, with a client remote to read and change them.",
+			Description = "Per-player settings saved in the profile, with Net RPCs (Settings.Read / Settings.Set) and a client module to read and change them.",
 			Server = { "Lib/SettingsService" },
+			Replicated = { "Shared/Settings" },
 			Requires = { "Data" },
 		},
 		{
@@ -364,8 +366,8 @@ local Packages: Types.PackageManifest = {
 		},
 		{
 			Name = "Ban", Category = "Moderation & safety", Boot = true,
-			Description = "Saved bans and an auto-escalation policy for AntiCheat actions.",
-			Server = { "Lib/BanService" },
+			Description = "Saved bans, and AntiCheat enforcement (GaxiaServer.Enforcement): the only automatic kick / ban decisions, from trusted evidence only.",
+			Server = { "Lib/BanService", "Lib/AntiCheatEnforcement" },
 			Requires = {},
 		},
 		{
@@ -431,6 +433,12 @@ local Packages: Types.PackageManifest = {
 			Description = "Sequenced cutscenes: camera tweens, dialog, fades.",
 			Replicated = { "Client/CutsceneSystem" },
 			Requires = { "Dialog", "Promise" },
+		},
+		{
+			Name = "Prompt", Category = "Client systems",
+			Description = "Tracks the active ProximityPrompt, manual hold controls (touch buttons) and a highlight on its model (Gaxia.Prompt).",
+			Replicated = { "Client/PromptManager" },
+			Requires = {},
 		},
 		{
 			Name = "Tooltip", Category = "Client systems",
@@ -602,6 +610,18 @@ local Packages: Types.PackageManifest = {
 			Name = "Pool", Category = "Shared utilities",
 			Description = "Object pool for reusable instances.",
 			Replicated = { "Shared/Pool" },
+			Requires = {},
+		},
+		{
+			Name = "Central", Category = "Shared utilities",
+			Description = "Named periodic tasks on one Heartbeat connection: Register, Pause, Resume, Cancel (Gaxia.Central).",
+			Replicated = { "Shared/CentralManager" },
+			Requires = {},
+		},
+		{
+			Name = "Observers", Category = "Shared utilities",
+			Description = "sleitnick/observers (Wally): observe tags, attributes, properties, players and characters (Gaxia.Observers).",
+			Replicated = { "Shared/Observers" },
 			Requires = {},
 		},
 		{

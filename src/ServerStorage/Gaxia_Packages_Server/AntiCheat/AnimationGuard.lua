@@ -87,7 +87,7 @@ local function attachHumanoid(player: Player, humanoid: Humanoid)
 			if orchestratorRef then
 				-- "soft" because Roblox plays default animations whose ids may
 				-- not be in user assets; threshold accumulation catches real abuse.
-				orchestratorRef.Flag(player, "Animation", Config.AntiCheat.Animation.Severity)
+				orchestratorRef.Flag(player, "Animation", Config.AntiCheat.Animation.Severity, "server")
 			end
 		end
 	end))

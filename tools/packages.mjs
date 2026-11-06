@@ -34,7 +34,7 @@ const SERVER_DIR = 'src/ServerStorage/Gaxia_Packages_Server'
 const REPLICATED_DIR = 'src/ReplicatedStorage/Gaxia_Packages'
 const MANIFEST = path.join(ROOT, SERVER_DIR, 'Packages.lua')
 // Same exclusions as default.project.json's globIgnorePaths.
-const IGNORED = /(\.spec\.luau?|\.test\.luau?|jest\.config\.luau|wally\.toml)$/
+const IGNORED = /(\.spec\.luau?|\.test\.luau?|jest\.config\.luau|wally\.toml|ProfileStoreTest\.server\.luau)$/
 export const ATTRIBUTE = 'GaxiaPackages'
 
 // Requires of a variable that are deliberate (not a static dependency):
@@ -43,6 +43,7 @@ const DYNAMIC_REQUIRES = {
   [`${SERVER_DIR}/init.lua`]: ['mod'], // the loader's lazy key lookup
   [`${REPLICATED_DIR}/init.lua`]: ['mod'], // the loader's lazy key lookup
   [`${SERVER_DIR}/AntiCheat/init.lua`]: ['child'], // game-added detector modules
+  [`${REPLICATED_DIR}/Client/ClientAntiCheat.lua`]: ['netModule'], // Shared/NetService (Core), looked up lazily
 }
 
 // Instance-path prefixes (also the side names used in Packages.lua).
@@ -50,6 +51,15 @@ const SIDES = {
   Server: { inst: 'ServerStorage.Gaxia_Packages_Server', dir: SERVER_DIR },
   Replicated: { inst: 'ReplicatedStorage.Gaxia_Packages', dir: REPLICATED_DIR },
 }
+
+// Wally-installed libraries (`wally install`), mounted inside the package roots by
+// default.project.json. They are not catalogue modules: a require into them is an
+// external dependency, and every build ships both folders whole.
+const WALLY = [
+  { dir: 'Packages', inst: 'ReplicatedStorage.Gaxia_Packages.Packages' },
+  { dir: 'ServerPackages', inst: 'ServerStorage.Gaxia_Packages_Server.ServerPackages' },
+]
+const isWally = (inst) => WALLY.some((w) => within(inst, w.inst))
 
 // ── Packages.lua reader (the table literal subset the catalogue uses) ─────────
 export function parseLuauTable(src, from) {
@@ -162,6 +172,7 @@ export function readGraph() {
       const a = arg.trim()
       const r = resolve(a, inst, aliases)
       if (r && r in nodes) out.add(r)
+      else if (r && isWally(r)) return
       else if (a !== '...' && !dynamicOk.includes(a)) unresolved.push(`${inst}: require(${a})`)
     }
     // `require(x)`, the vendored `(require :: any)(x)` form, and `pcall(require, x)`
@@ -447,6 +458,12 @@ function cmdBuild(args) {
     folders('')
     const loader = path.join(ROOT, dir, 'init.lua')
     fs.writeFileSync(path.join(to, 'init.lua'), pruneTypeLines(fs.readFileSync(loader, 'utf8'), kept[side]))
+  }
+  for (const w of WALLY) {
+    const from = path.join(ROOT, w.dir)
+    if (!fs.existsSync(from)) throw new Error(`${w.dir}/ is missing: run \`wally install\` in the Gaxia repo first`)
+    fs.rmSync(path.join(out, w.dir), { recursive: true, force: true })
+    copyTree(from, path.join(out, w.dir))
   }
   for (const f of ['ServerScriptService/Gaxia_ServerBootstrap.server.lua', 'StarterPlayer/StarterPlayerScripts/Gaxia_ClientBootstrap.client.lua']) {
     fs.mkdirSync(path.dirname(path.join(srcOut, f)), { recursive: true })

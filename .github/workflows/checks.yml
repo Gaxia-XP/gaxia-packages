@@ -30,6 +30,8 @@ jobs:
         id: install
         run: bash tools/ci/install-tools.sh "$RUNNER_TEMP/gaxia-tools"
 
+      - name: Wally libraries (wally install)
+        run: wally install
       - name: Architecture (check-architecture)
         run: node tools/check-architecture.mjs
 

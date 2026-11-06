@@ -682,35 +682,72 @@ function PetService.RegisterEgg(def: EggRegistration): (boolean, string?)
 	return true, nil
 end
 
--- ── Init: register client-facing remotes (anti-exploit via Net + Guard) ──
+-- ── Init: register client-facing RPCs (gateway-owned + server authoritative) ──
 
 local function registerRemotes(): ()
-	-- Initial state pull (RemoteFunction).
-	Net.OnInvoke("PetGetState", function(player: Player): PetSnapshot
-		return PetService.Snapshot(player)
-	end, { rate = 10 })
+	-- A state change only for a player still in the game.
+	local function activePlayer(context: any): boolean
+		return context.player.Parent == Players
+	end
+
+	-- Initial state pull.
+	Net.Server.RegisterFunction("PetGetState", {
+		schema = Guard.strictInterface({}),
+		budget = "small",
+		rate = 10,
+		concurrency = 1,
+		handler = function(context: any): PetSnapshot
+			return PetService.Snapshot(context.player)
+		end,
+	})
 
 	-- Buy egg. Server is authoritative: it spends, rolls, grants, then re-syncs.
 	-- BuyEgg itself sends PetHatch + PetSync.
-	Net.OnServer("PetBuyEgg", function(player: Player, payload: any)
-		local egg = EGGS[payload.egg]
-		if egg and not egg.panel then
-			return -- sold only by server code (RegisterEgg panel = false)
-		end
-		PetService.BuyEgg(player, payload.egg)
-	end, { rate = 4, validators = { Guard.strictInterface({ egg = Guard.string }) } })
+	Net.Server.RegisterEvent("PetBuyEgg", {
+		schema = Guard.strictInterface({ egg = Guard.string }),
+		budget = "tiny",
+		rate = 4,
+		concurrency = 1,
+		mutation = true,
+		validate = activePlayer,
+		handler = function(context: any, payload: any)
+			local egg = EGGS[payload.egg]
+			if egg and not egg.panel then
+				return -- sold only by server code (RegisterEgg panel = false)
+			end
+			PetService.BuyEgg(context.player, payload.egg)
+		end,
+	})
 
 	-- Equip / unequip by owned uid. Equip/Unequip re-validate ownership + slots.
 	-- A refused click still resyncs, so the panel drops its stale view.
-	Net.OnServer("PetEquip", function(player: Player, payload: any)
-		PetService.Equip(player, payload.uid)
-		schedulePush(player)
-	end, { rate = 10, validators = { Guard.strictInterface({ uid = Guard.string }) } })
+	Net.Server.RegisterEvent("PetEquip", {
+		schema = Guard.strictInterface({ uid = Guard.string }),
+		budget = "tiny",
+		rate = 10,
+		concurrency = 1,
+		mutation = true,
+		validate = activePlayer,
+		handler = function(context: any, payload: any)
+			local player = context.player
+			PetService.Equip(player, payload.uid)
+			schedulePush(player)
+		end,
+	})
 
-	Net.OnServer("PetUnequip", function(player: Player, payload: any)
-		PetService.Unequip(player, payload.uid)
-		schedulePush(player)
-	end, { rate = 10, validators = { Guard.strictInterface({ uid = Guard.string }) } })
+	Net.Server.RegisterEvent("PetUnequip", {
+		schema = Guard.strictInterface({ uid = Guard.string }),
+		budget = "tiny",
+		rate = 10,
+		concurrency = 1,
+		mutation = true,
+		validate = activePlayer,
+		handler = function(context: any, payload: any)
+			local player = context.player
+			PetService.Unequip(player, payload.uid)
+			schedulePush(player)
+		end,
+	})
 
 	-- Pre-create the server→client remotes so a client's OnClient subscription
 	-- (which WaitForChilds the remote) resolves at join even before the first real

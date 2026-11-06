@@ -20,21 +20,40 @@ local Net = Gaxia.Net
 ### Functions
 
 - `Net.SetViolationHandler(handler: ViolationHandler?): ()`
-  Server: route rate-limit ("soft") and argument-validation (opts.validationSeverity, default "soft") violations to `handler`. The AntiCheat orchestrator installs this in its Init.
+  Server: route remote violations to `handler` as (player, reason, severity, "client"). Rate limits, malformed / oversized / replayed requests, busy endpoints and failed context checks are "soft"; argument validators use opts.validationSeverity (default "soft"). The AntiCheat orchestrator installs this in its Init.
 - `Net.OnServer(name: string, handler: (player: Player, ...any) -> (), opts: RemoteOpts?): RemoteEvent`
-  Server: run `handler` for each client FireServer of `name` (rate-limited, validated). Register once per name: a second registration warns and both handlers run.
+  Server: run `handler` for each client FireServer of `name` (rate-limited, validated). Register once per name: a second registration warns and both handlers run. A handler error is red in Output (remote name + traceback).
 - `Net.OnInvoke(name: string, handler: (player: Player, ...any) -> ...any, opts: RemoteOpts?): RemoteFunction`
   Server: answer client InvokeServer calls of `name`. If `handler` errors, the error (remote name + traceback) is reported in Output and the client gets nil. A second registration warns and replaces the first.
 - `Net.DeclareEvent(name: string, opts: RemoteOpts?): RemoteEvent`
   Server: create RemoteEvent `name` without a server handler, for events only the server fires (FireClient / FireAllClients). Clients can then Net.OnClient it at once. Client FireServer calls are drained (rate-limited by `opts`) so they never queue up. A later Net.OnServer for the same name takes over.
 - `Net.FireClient(player: Player, name: string, ...: any): ()`
+  Server: fire `name` to one client.
 - `Net.FireAllClients(name: string, ...: any): ()`
+  Server: fire `name` to every client (each gets its own session-keyed envelope).
 - `Net.FireOtherClients(exceptPlayer: Player, name: string, ...: any): ()`
+  Server: fire `name` to every client except `exceptPlayer`.
+- `Net.Server.GetMetrics(name: string?): { [string]: any }`
+  Server: per-RPC counters (received, accepted, rejected by code, in-flight, handler errors, idempotent hits, handler time). No request payloads are kept. With `name`, that RPC's counters ({} if none); without, a map of every RPC.
 - `Net.OnClient(name: string, handler: (...any) -> ()): RemoteEvent`
   Client: run `handler` for each server FireClient / FireAllClients of `name`. Waits (yields) until the server has created the remote; after 5 s it warns once, naming the remote.
 - `Net.FireServer(name: string, ...: any): ()`
+  Client: fire `name` to the server's Net.OnServer handler.
 - `Net.InvokeServer(name: string, ...: any): ...any`
-  Returns whatever the server's OnInvoke handler returned (all values).
+  Returns whatever the server's OnInvoke handler returned (all values); nil when the server rejected the request or its handler errored.
+- `Net.Server.RegisterEvent(name: string, definition: RpcDefinition): RegistrationHandle`
+  Server: register client → server event `name`. The payload must pass `definition.schema`, then `definition.validate` (if any), before `handler` runs. Errors on a duplicate name, a missing schema/handler, or a mutation endpoint without `validate` / with `concurrency ~= 1`.
+- `Net.Server.RegisterFunction(name: string, definition: RpcDefinition): RegistrationHandle`
+  Server: register client → server function `name`. The client's Net.Client.Invoke gets `{ ok = true, data = handler(...) }`, or `{ ok = false, code = ... }` when a gate rejects or the handler errors.
+- `Net.Client.Fire(name: string, payload: any, requestId: string?): ()`
+  Client: fire definition-API event `name` with one payload table. Pass the same `requestId` to retry a mutation without running it twice.
+- `Net.Client.Invoke(name: string, payload: any, requestId: string?): RpcResult`
+  Client: invoke definition-API function `name`. Returns `{ ok = true, data = ... }` or `{ ok = false, code = ... }` (never errors on a server rejection).
+
+### Fields
+
+- `Net.Server = {}`
+- `Net.Client = {}`
 
 ### Types
 
@@ -42,8 +61,10 @@ Exported types (use them in annotations: `local x: Module.TypeName`).
 
 ```lua
 export type RemoteOpts = {
-    rate  : number?,                        -- requests per second (token refill rate)
-    burst : number?,                        -- bucket capacity (max queue before throttle)
+    rate: number?, -- requests per second (token refill rate)
+    burst: number?, -- bucket capacity (max queue before throttle)
+    budget: string?, -- NetProtocol payload profile: "tiny" | "small" (default) | "medium"
+    concurrency: number?, -- max in-flight handlers per player/RPC (default 4)
     -- One predicate per positional arg; a falsy first return rejects (drop + a
     -- `RemoteValidation:<name>` flag of `validationSeverity`). A predicate that
     -- errors also rejects (no flag; a warning names the remote). Gaxia.Guard checks
@@ -51,10 +72,47 @@ export type RemoteOpts = {
     -- For a single table payload validate its SHAPE:
     --   { validators = { Guard.strictInterface({ id = Guard.string, qty = Guard.integer }) } }
     -- (typed `-> (boolean, ...any)` so both plain predicates and Guard checks fit)
-    validators : { (any) -> (boolean, ...any) }?,
+    validators: { (any) -> (boolean, ...any) }?,
     -- Severity of the AntiCheat flag when a validator rejects: "soft" (default,
     -- counts toward the threshold ladder) or "hard" (escalates at once).
-    validationSeverity : ("soft" | "hard")?,
+    validationSeverity: ("soft" | "hard")?,
+    -- Internal (definition API): builds the response a rejected invoke returns.
+    -- Without it a rejected Net.InvokeServer returns nil, as it always has.
+    reject: ((code: string) -> ...any)?,
+    -- Internal (definition API): exact positional argument count.
+    argumentCount: number?,
 }
-export type ViolationHandler = (player: Player, reason: string, severity: "soft" | "hard") -> ()
+export type ViolationSource = "client"
+export type ViolationHandler = (player: Player, reason: string, severity: "soft" | "hard", source: ViolationSource) -> ()
+export type RpcContext = {
+    player: Player,
+    name: string,
+}
+export type RpcDefinition = {
+    schema: (payload: any) -> (boolean, ...any), -- a Gaxia.Guard check fits
+    handler: (context: RpcContext, payload: any) -> ...any,
+    validate: ((context: RpcContext, payload: any) -> boolean)?,
+    mutation: boolean?,
+    rate: number?,
+    burst: number?,
+    budget: string?,
+    concurrency: number?,
+}
+export type RpcResult = { [string]: any }
+export type RegistrationHandle = {
+    -- Stops the endpoint; the same name can then be registered again.
+    Destroy: (self: RegistrationHandle) -> (),
+    IsActive: (self: RegistrationHandle) -> boolean,
+}
+export type RpcMetrics = {
+    received: number,
+    accepted: number,
+    rejected: number,
+    inFlight: number,
+    handlerErrors: number,
+    idempotentHits: number,
+    totalHandlerSeconds: number,
+    maxHandlerSeconds: number,
+    reasons: { [string]: number },
+}
 ```

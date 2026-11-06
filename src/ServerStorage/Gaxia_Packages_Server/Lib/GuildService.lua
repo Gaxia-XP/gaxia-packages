@@ -46,6 +46,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- ── Dependencies ──
 local Signal               = require(ReplicatedStorage.Gaxia_Packages.Shared.Signal)
+local Net                  = require(ReplicatedStorage.Gaxia_Packages.Shared.NetService)
 local Lifecycle            = require(script.Parent.ServiceLifecycle)
 local Config               = require(script.Parent.Parent.Config)
 local EConfig              = require(script.Parent.EffectiveConfig)
@@ -107,6 +108,19 @@ local function getGuildStore(): any
 	return guildStore
 end
 
+-- GetAsync options that bypass the DataStore cache, for reads that authorize a
+-- mutation (see loadGuildFresh). Made on first use.
+local freshReadOptions: DataStoreGetOptions? = nil
+local function getFreshReadOptions(): DataStoreGetOptions
+	if freshReadOptions == nil then
+		local options = Instance.new("DataStoreGetOptions")
+		options.UseCache = false
+		freshReadOptions = options
+		return options
+	end
+	return freshReadOptions :: DataStoreGetOptions
+end
+
 -- Per-process cache of currently-loaded guilds for this server (read-mostly).
 -- Invalidated implicitly through guildCache[gid] = nil on disband, and via
 -- CrossServerMessaging "guild:vault" subscription in the vault block (Task 6).
@@ -145,6 +159,29 @@ local guildInvites: { [number]: { [string]: GuildInvite } } = {}
 -- declared here so the PlayerRemoving hook can clear it.
 type RemoteBucket = { tokens: number, last: number }
 local remoteBuckets: { [number]: RemoteBucket } = {}
+
+local membershipMutations: { [number]: boolean } = {}
+
+-- Serialize same-player membership mutations in this server. GuildLock still
+-- serializes the guild record across servers; this closes the local Create vs
+-- AcceptInvite race where both operations could pass the profile check while
+-- the other was yielding.
+local function withMembershipMutation(player: any, fn: () -> (any, any)): (boolean, any)
+	local userId = player and player.UserId
+	if typeof(userId) ~= "number" then
+		return false, "invalid player"
+	end
+	if membershipMutations[userId] then
+		return false, "membership mutation in progress"
+	end
+	membershipMutations[userId] = true
+	local ok, a, b = pcall(fn)
+	membershipMutations[userId] = nil
+	if not ok then
+		return false, a
+	end
+	return a, b
+end
 
 -- ── Lock helper (every mutation goes through this) ──
 -- Code inside `fn` fails with error(reason, 0): level 0 keeps the script position
@@ -197,6 +234,22 @@ local function loadGuild(guildId: string): GuildData?
 	end
 	local ok, raw = pcall(function()
 		return getGuildStore():GetAsync("guild:" .. guildId)
+	end)
+	local data = if ok then decodeGuild(raw) else nil
+	if not data then
+		return nil
+	end
+	guildCache[guildId] = data
+	return data
+end
+
+-- Mutations must never authorize from guildCache: a different server can have
+-- changed roles or membership while this server was waiting for GuildLock.
+-- Refresh after the lock is owned, then replace the local cache with that
+-- exact snapshot before changing it.
+local function loadGuildFresh(guildId: string): GuildData?
+	local ok, raw = pcall(function()
+		return getGuildStore():GetAsync("guild:" .. guildId, getFreshReadOptions())
 	end)
 	local data = if ok then decodeGuild(raw) else nil
 	if not data then
@@ -262,6 +315,19 @@ local function rankOf(role: string?): number
 	return (role and ROLE_RANK[role]) or 0
 end
 
+-- The member record of `userId` in `guild`, or nil when there is none (or its
+-- role is unknown).
+local function memberRecord(guild: any, userId: number): GuildMember?
+	if typeof(guild) ~= "table" or typeof(guild.Members) ~= "table" then
+		return nil
+	end
+	local member = guild.Members[userId]
+	if typeof(member) ~= "table" or rankOf(member.role) == 0 then
+		return nil
+	end
+	return member
+end
+
 -- ── Argument checks (game code and the Guild remote share them) ──
 -- A whole number (NaN, ±inf and fractions are not). UserIds and vault counts.
 local function isWholeNumber(v: any): boolean
@@ -325,11 +391,18 @@ function Guild.Create(leader: any, name: string, tag: string): (boolean, string)
 		},
 		Description = "",
 	}
-	local ok, err = withGuildLock(guildId, function()
-		if not saveGuild(guildId, data) then
-			error("save failed", 0)
-		end
-		return true
+	local ok, err = withMembershipMutation(leader, function()
+		return withGuildLock(guildId, function()
+			-- The profile may have changed while waiting for the lock. Creating a
+			-- second guild for the same actor would break the GuildId invariant.
+			if playerGuildId(leader) then
+				error("already in a guild", 0)
+			end
+			if not saveGuild(guildId, data) then
+				error("save failed", 0)
+			end
+			return true
+		end)
 	end)
 	if not ok then
 		return false, tostring(err)
@@ -403,27 +476,9 @@ function Guild.Invite(officer: any, targetUserId: number): (boolean, string?)
 	if officer.UserId == targetUserId then
 		return false, "cannot invite self"
 	end
-	local role = Guild.RoleOf(officer)
-	if rankOf(role) < ROLE_RANK.Officer then
-		return false, "officer required"
-	end
 	local gid = playerGuildId(officer)
 	if not gid then
 		return false, "not in a guild"
-	end
-	local g = loadGuild(gid)
-	if not g then
-		return false, "guild not loaded"
-	end
-	if g.Members[targetUserId] then
-		return false, "already a member"
-	end
-	local memberCount = 0
-	for _ in pairs(g.Members) do
-		memberCount += 1
-	end
-	if memberCount >= gget("MaxMembers", Config.Social.Guild.MaxMembers, 50) then
-		return false, "guild full"
 	end
 
 	-- Block check (best-effort: only a blocker in this server is known).
@@ -431,23 +486,56 @@ function Guild.Invite(officer: any, targetUserId: number): (boolean, string?)
 		return false, "could not invite"
 	end
 
+	-- An invite changes pending-invite state. Check the actor's role and the
+	-- target's membership against a DataStore snapshot read *after* the guild
+	-- lock is owned, rather than trusting an earlier cached read.
+	local fresh: GuildInvite? = nil
+	local ok, err = withGuildLock(gid, function()
+		if playerGuildId(officer) ~= gid then
+			error("not in a guild", 0)
+		end
+		local g = loadGuildFresh(gid)
+		if not g then
+			error("guild not loaded", 0)
+		end
+		local actor = memberRecord(g, officer.UserId)
+		if not actor or rankOf(actor.role) < ROLE_RANK.Officer then
+			error("officer required", 0)
+		end
+		if memberRecord(g, targetUserId) then
+			error("already a member", 0)
+		end
+		local memberCount = 0
+		for _ in pairs(g.Members) do
+			memberCount += 1
+		end
+		if memberCount >= gget("MaxMembers", Config.Social.Guild.MaxMembers, 50) then
+			error("guild full", 0)
+		end
+		fresh = {
+			kind = "guild",
+			guildId = gid,
+			name = g.Name,
+			tag = g.Tag,
+			fromUserId = officer.UserId,
+			fromName = officer.Name,
+			at = os.time(),
+		}
+		return true
+	end)
+	if not ok or not fresh then
+		return false, tostring(err)
+	end
+	local item: GuildInvite = fresh
+
 	-- Deliver invite. Same-server: direct on the in-RAM pending set + OnInvite
 	-- signal. Cross-server: durable InviteQueue entry, drained at PlayerAdded.
 	local Players = game:GetService("Players")
-	local item: GuildInvite = {
-		kind = "guild",
-		guildId = gid,
-		name = g.Name,
-		tag = g.Tag,
-		fromUserId = officer.UserId,
-		fromName = officer.Name,
-		at = os.time(),
-	}
 	local target = Players:GetPlayerByUserId(targetUserId)
 	if target then
 		guildInvites[target.UserId] = guildInvites[target.UserId] or {}
 		guildInvites[target.UserId][gid] = item
-		Guild.OnInvite:Fire(target, gid, g.Name, officer.Name)
+		Guild.OnInvite:Fire(target, gid, item.name, officer.Name)
 	else
 		-- For MockPlayer / cross-server: ALSO write into the in-RAM map so the
 		-- same-server test flow (AcceptInvite immediately after Invite) works
@@ -499,23 +587,36 @@ function Guild.AcceptInvite(player: any, guildId: string): (boolean, string?)
 	if playerGuildId(player) then
 		return false, "already in a guild"
 	end
-	local ok, err = withGuildLock(guildId, function()
-		local g = loadGuild(guildId)
-		if not g then
-			error("guild gone", 0)
-		end
-		local count = 0
-		for _ in pairs(g.Members) do
-			count += 1
-		end
-		if count >= gget("MaxMembers", Config.Social.Guild.MaxMembers, 50) then
-			error("guild full", 0)
-		end
-		g.Members[player.UserId] = { name = player.Name, role = "Member", joined = os.time() }
-		if not saveGuild(guildId, g) then
-			error("save failed", 0)
-		end
-		return true
+	local ok, err = withMembershipMutation(player, function()
+		return withGuildLock(guildId, function()
+			-- Both the invite and the player's membership can have changed while
+			-- Acquire waited. Check them again before adding a member.
+			if not (guildInvites[player.UserId] or {})[guildId] then
+				error("no such invite", 0)
+			end
+			if playerGuildId(player) then
+				error("already in a guild", 0)
+			end
+			local g = loadGuildFresh(guildId)
+			if not g then
+				error("guild gone", 0)
+			end
+			if memberRecord(g, player.UserId) then
+				error("already in a guild", 0)
+			end
+			local count = 0
+			for _ in pairs(g.Members) do
+				count += 1
+			end
+			if count >= gget("MaxMembers", Config.Social.Guild.MaxMembers, 50) then
+				error("guild full", 0)
+			end
+			g.Members[player.UserId] = { name = player.Name, role = "Member", joined = os.time() }
+			if not saveGuild(guildId, g) then
+				error("save failed", 0)
+			end
+			return true
+		end)
 	end)
 	if not ok then
 		return false, tostring(err)
@@ -537,14 +638,17 @@ function Guild.DeclineInvite(player: any, guildId: string): (boolean, string?)
 	if not invs[guildId] then
 		return false, "no such invite"
 	end
+	-- This only removes the caller's in-memory invite and does not yield or
+	-- change shared guild state, so there is no post-lock authorization window.
 	invs[guildId] = nil
 	return true, nil
 end
 
 -- ── mutateGuild: shared wrapper for every role/membership write ──
--- Acquires the lock, loads the guild, runs the mutator, saves, releases. The
--- mutator returns (true) or (false, errString) — false aborts the save AND
--- propagates the error string out as the second return value.
+-- Acquires the lock, refreshes the guild directly from DataStore, runs the
+-- mutator, saves, then releases. The mutator returns (true) or
+-- (false, errString) — false aborts the save AND propagates the error string
+-- out as the second return value.
 --
 -- Side-effects (signals, setPlayerGuildId) MUST be deferred via the `post`
 -- callback so they only fire if the save actually succeeds; otherwise observers
@@ -564,7 +668,10 @@ local function mutateGuild(
 	end
 
 	local ok, err = withGuildLock(gid, function()
-		local g = loadGuild(gid)
+		if playerGuildId(actor) ~= gid then
+			error("not in a guild", 0)
+		end
+		local g = loadGuildFresh(gid)
 		if not g then
 			error("guild gone", 0)
 		end
@@ -607,11 +714,15 @@ function Guild.Kick(actor: any, targetUserId: number): (boolean, string?)
 		return false, "use Leave to remove yourself"
 	end
 	return mutateGuild(actor, function(g, post)
-		local victim = g.Members[targetUserId]
+		local freshActor = memberRecord(g, actor.UserId)
+		if not freshActor or rankOf(freshActor.role) < ROLE_RANK.Officer then
+			return false, "officer required"
+		end
+		local victim = memberRecord(g, targetUserId)
 		if not victim then
 			return false, "not a member"
 		end
-		if rankOf(victim.role) >= rankOf(actorRole) then
+		if rankOf(victim.role) >= rankOf(freshActor.role) then
 			return false, "cannot kick equal or higher rank"
 		end
 		g.Members[targetUserId] = nil
@@ -639,7 +750,11 @@ function Guild.Promote(owner: any, userId: number): (boolean, string?)
 		return false, "owner only"
 	end
 	return mutateGuild(owner, function(g, post)
-		local rec = g.Members[userId]
+		local freshOwner = memberRecord(g, owner.UserId)
+		if not freshOwner or freshOwner.role ~= "Owner" then
+			return false, "owner only"
+		end
+		local rec = memberRecord(g, userId)
 		if not rec then
 			return false, "not a member"
 		end
@@ -675,7 +790,11 @@ function Guild.Demote(owner: any, userId: number): (boolean, string?)
 		return false, "owner only"
 	end
 	return mutateGuild(owner, function(g, post)
-		local rec = g.Members[userId]
+		local freshOwner = memberRecord(g, owner.UserId)
+		if not freshOwner or freshOwner.role ~= "Owner" then
+			return false, "owner only"
+		end
+		local rec = memberRecord(g, userId)
 		if not rec then
 			return false, "not a member"
 		end
@@ -702,7 +821,11 @@ function Guild.Transfer(owner: any, newOwnerUserId: number): (boolean, string?)
 		return false, "owner only"
 	end
 	return mutateGuild(owner, function(g, post)
-		if not g.Members[newOwnerUserId] then
+		local freshOwner = memberRecord(g, owner.UserId)
+		if not freshOwner or freshOwner.role ~= "Owner" then
+			return false, "owner only"
+		end
+		if not memberRecord(g, newOwnerUserId) then
 			return false, "target not a member"
 		end
 		g.Members[owner.UserId].role = "Officer"
@@ -729,6 +852,13 @@ function Guild.Leave(player: any): (boolean, string?)
 		return false, "owner must transfer or disband first"
 	end
 	return mutateGuild(player, function(g, post)
+		local freshMember = memberRecord(g, player.UserId)
+		if not freshMember then
+			return false, "not in a guild"
+		end
+		if freshMember.role == "Owner" then
+			return false, "owner must transfer or disband first"
+		end
 		g.Members[player.UserId] = nil
 		post(function()
 			Guild.OnMemberLeave:Fire(g.Id, player.UserId, "left")
@@ -751,9 +881,16 @@ function Guild.Disband(player: any): (boolean, string?)
 		return false, "not in a guild"
 	end
 	local ok, err = withGuildLock(gid, function()
-		local g = loadGuild(gid)
+		if playerGuildId(player) ~= gid then
+			error("not in a guild", 0)
+		end
+		local g = loadGuildFresh(gid)
 		if not g then
 			error("guild gone", 0)
+		end
+		local freshOwner = memberRecord(g, player.UserId)
+		if not freshOwner or freshOwner.role ~= "Owner" then
+			error("owner only", 0)
 		end
 		local memberIds = {}
 		for uid in pairs(g.Members) do
@@ -801,6 +938,10 @@ function Guild.SetDescription(actor: any, text: string): (boolean, string?)
 	end
 	local trimmed = trimString(text, gget("MaxDescLen", Config.Social.Guild.MaxDescLen, 280))
 	return mutateGuild(actor, function(g, _post)
+		local freshActor = memberRecord(g, actor.UserId)
+		if not freshActor or rankOf(freshActor.role) < ROLE_RANK.Officer then
+			return false, "officer required"
+		end
 		g.Description = trimmed
 		return true
 	end)
@@ -907,6 +1048,28 @@ local function loadVault(guildId: string): { [string]: number }
 	return v
 end
 
+-- Like loadVault, but read past the DataStore cache (for writes under the lock).
+-- nil when the read failed; an empty vault when there is none yet.
+local function loadVaultFresh(guildId: string): { [string]: number }?
+	local ok, data = pcall(function()
+		return getVaultStore():GetAsync("vault:" .. guildId, getFreshReadOptions())
+	end)
+	if not ok then
+		return nil
+	end
+	if data == nil then
+		local empty: { [string]: number } = {}
+		vaultCache[guildId] = empty
+		return empty
+	end
+	if typeof(data) ~= "table" then
+		return nil
+	end
+	local v = data :: { [string]: number }
+	vaultCache[guildId] = v
+	return v
+end
+
 local function saveVault(guildId: string, vault: { [string]: number }): boolean
 	local ok, err = pcall(function()
 		getVaultStore():UpdateAsync("vault:" .. guildId, function(_old)
@@ -981,7 +1144,20 @@ function Guild.VaultDeposit(player: any, itemId: string, count: number?): (boole
 	end
 
 	local ok, err = withGuildLock(gid, function()
-		local v = loadVault(gid)
+		if playerGuildId(player) ~= gid then
+			error("not in a guild", 0)
+		end
+		local g = loadGuildFresh(gid)
+		if not g then
+			error("guild gone", 0)
+		end
+		if not memberRecord(g, player.UserId) then
+			error("not a member", 0)
+		end
+		local v = loadVaultFresh(gid)
+		if not v then
+			error("vault unavailable", 0)
+		end
 		local cap = gget("VaultCapacity", Config.Social.Guild.VaultCapacity, 500)
 		if vaultUsed(v) + n > cap then
 			error("vault full", 0)
@@ -1027,7 +1203,21 @@ function Guild.VaultWithdraw(player: any, itemId: string, count: number?): (bool
 	end
 
 	local ok, err = withGuildLock(gid, function()
-		local v = loadVault(gid)
+		if playerGuildId(player) ~= gid then
+			error("not in a guild", 0)
+		end
+		local g = loadGuildFresh(gid)
+		if not g then
+			error("guild gone", 0)
+		end
+		local member = memberRecord(g, player.UserId)
+		if not member or rankOf(member.role) < ROLE_RANK.Officer then
+			error("officer required to withdraw", 0)
+		end
+		local v = loadVaultFresh(gid)
+		if not v then
+			error("vault unavailable", 0)
+		end
 		local have = v[itemId] or 0
 		if have < n then
 			error("not enough", 0)
@@ -1063,12 +1253,19 @@ local function subscribeVault(): ()
 	end)
 end
 
--- ── Remote guard for Events/Guild/Action ──
--- The same rules Net applies to its remotes (RemoteOpts rate / burst /
--- validators), for this RemoteFunction: a per-player token bucket
--- (Social.Guild.RemoteRate per second, up to RemoteBurst at once), then a check
--- of every field of the envelope. A refused request returns (false, "rate
--- limited") or (false, "bad request") before any guild code runs.
+-- ── Net gateway + outbound notification surface ──
+-- Each client operation gets its own logical RPC (Gaxia.Net.Client.Invoke)
+-- rather than a broad action envelope; the legacy Events/Guild/Action
+-- RemoteFunction is not created or handled. The gateway owns the RemoteFunction,
+-- transport, size budget, rate/concurrency gates, and replay handling; this
+-- module owns only domain schema and state/role validation. Inbound data is
+-- never coerced with tostring: a malformed request stops before a Guild API can
+-- observe it.
+--
+-- On top of Net's per-RPC gates, every Guild RPC first spends a token from the
+-- per-player bucket shared by all of them (Social.Guild.RemoteRate per second,
+-- up to RemoteBurst at once); a refused request is rejected by Net's `validate`
+-- step before any DataStore read.
 local function remoteAllowed(player: Player): boolean
 	local rate = gget("RemoteRate", Config.Social.Guild.RemoteRate, 4)
 	local burst = gget("RemoteBurst", Config.Social.Guild.RemoteBurst, 10)
@@ -1087,140 +1284,346 @@ local function remoteAllowed(player: Player): boolean
 	return true
 end
 
-local function nameField(v: any): boolean
-	return typeof(v) == "string" and #v <= 200
-end
-local function tagField(v: any): boolean
-	return typeof(v) == "string" and #v <= 50
-end
-local function descField(v: any): boolean
-	return v == nil or (typeof(v) == "string" and #v <= 2000)
-end
-local function countField(v: any): boolean
-	return v == nil or isWholeNumber(v)
-end
-local function guildIdField(v: any): boolean
-	return isId(v, MAX_ID_LEN)
-end
-local function itemIdField(v: any): boolean
-	return isId(v, MAX_ITEM_ID_LEN)
+type RpcReply = { ok: boolean, data: any }
+type RpcValidate = (context: any, payload: any) -> boolean
+
+local MAX_USER_ID = 9_007_199_254_740_991
+local MAX_CONFIGURED_TEXT_LENGTH = 2_048
+
+local function reply(ok: boolean, data: any): RpcReply
+	return { ok = ok, data = data }
 end
 
--- action -> { field -> check }. An action not listed here is "unknown action".
-local ACTION_FIELDS: { [string]: { [string]: (any) -> boolean } } = {
-	create = { name = nameField, tag = tagField },
-	disband = {},
-	leave = {},
-	invite = { target = isUserId },
-	accept = { guildId = guildIdField },
-	decline = { guildId = guildIdField },
-	kick = { target = isUserId },
-	promote = { target = isUserId },
-	demote = { target = isUserId },
-	transfer = { target = isUserId },
-	desc = { text = descField },
-	get = {},
-	members = {},
-	pending = {},
-	vault_get = {},
-	vault_dep = { itemId = itemIdField, count = countField },
-	vault_with = { itemId = itemIdField, count = countField },
-}
+local function isPositiveFiniteInteger(value: any): boolean
+	return typeof(value) == "number"
+		and value == value
+		and value ~= math.huge
+		and value ~= -math.huge
+		and value % 1 == 0
+		and value > 0
+end
 
--- nil when the envelope may run; else the (false, why) reason.
-local function checkEnvelope(player: Player, e: any): string?
-	if not remoteAllowed(player) then
-		return "rate limited"
+local function configuredPositiveInteger(key: string, configured: number?, fallback: number, ceiling: number): number
+	local value = gget(key, configured, fallback)
+	if not isPositiveFiniteInteger(value) then
+		return fallback
 	end
-	if typeof(e) ~= "table" or typeof(e.type) ~= "string" then
-		return "bad envelope"
+	return math.min(value, ceiling)
+end
+
+local function hasOnlyKeys(payload: any, allowed: { [string]: boolean }): boolean
+	if typeof(payload) ~= "table" then
+		return false
 	end
-	local fields = ACTION_FIELDS[e.type]
-	if not fields then
-		return "unknown action"
-	end
-	for field, check in pairs(fields) do
-		if not check(e[field]) then
-			return "bad request"
+	for key in pairs(payload) do
+		if typeof(key) ~= "string" or allowed[key] ~= true then
+			return false
 		end
 	end
-	return nil
+	return true
 end
 
--- ── RemoteFunction surface (created in Init) ──
+local function isEmptyPayload(payload: any): boolean
+	return hasOnlyKeys(payload, {})
+end
+
+local function isSafeText(value: any, minimum: number, maximum: number): boolean
+	return typeof(value) == "string"
+		and #value >= minimum
+		and #value <= maximum
+		and string.find(value, "[\r\n%z]") == nil
+end
+
+-- A userId sent by a client: a positive whole number (stricter than isUserId,
+-- which game code and Studio's negative test-player ids also go through).
+local function isPayloadUserId(value: any): boolean
+	return isPositiveFiniteInteger(value) and value <= MAX_USER_ID
+end
+
+local function guildIdSchema(payload: any): boolean
+	return hasOnlyKeys(payload, { guildId = true })
+		and isSafeText(payload.guildId, 1, MAX_ID_LEN)
+end
+
+local function targetSchema(payload: any): boolean
+	return hasOnlyKeys(payload, { target = true }) and isPayloadUserId(payload.target)
+end
+
+local function isLivePlayer(player: Player): boolean
+	return player.Parent == game:GetService("Players")
+end
+
+local function freshMembership(player: Player): (GuildData?, boolean)
+	if not isLivePlayer(player) then
+		return nil, true
+	end
+	local gid = playerGuildId(player)
+	if not gid then
+		return nil, true
+	end
+	local ok, raw = pcall(function()
+		return getGuildStore():GetAsync("guild:" .. gid, getFreshReadOptions())
+	end)
+	if not ok then
+		return nil, false
+	end
+	-- The DataStore read yielded. A membership mutation may have completed
+	-- while it was in flight; never reconcile against a stale GuildId.
+	if not isLivePlayer(player) or playerGuildId(player) ~= gid then
+		return nil, false
+	end
+	local guild = decodeGuild(raw)
+	if not guild then
+		setPlayerGuildId(player, nil)
+		return nil, true
+	end
+	guildCache[gid] = guild
+	if memberRecord(guild, player.UserId) == nil then
+		-- A cross-server kick/revocation is authoritative. Reconcile only after
+		-- a successful fresh read; never clear on DataStore failure.
+		setPlayerGuildId(player, nil)
+		return nil, true
+	end
+	return guild, true
+end
+
+local function currentGuild(player: Player): GuildData?
+	local guild = freshMembership(player)
+	return guild
+end
+
+local function roleInCurrentGuild(player: Player, minimum: number): GuildData?
+	local guild = currentGuild(player)
+	if not guild then
+		return nil
+	end
+	local member = guild.Members[player.UserId]
+	if typeof(member) ~= "table" or rankOf(member.role) < minimum then
+		return nil
+	end
+	return guild
+end
+
+local function validateCreate(context: any, _payload: any): boolean
+	return isLivePlayer(context.player) and Guild.GetGuild(context.player) == nil
+end
+
+local function validateOfficer(context: any, _payload: any): boolean
+	return roleInCurrentGuild(context.player, ROLE_RANK.Officer) ~= nil
+end
+
+local function validateOwner(context: any, _payload: any): boolean
+	return roleInCurrentGuild(context.player, ROLE_RANK.Owner) ~= nil
+end
+
+local function validateLeave(context: any, _payload: any): boolean
+	local guild = currentGuild(context.player)
+	return guild ~= nil and guild.Members[context.player.UserId].role ~= "Owner"
+end
+
+local function validateInvite(context: any, payload: any): boolean
+	local guild = roleInCurrentGuild(context.player, ROLE_RANK.Officer)
+	return guild ~= nil
+		and payload.target ~= context.player.UserId
+		and guild.Members[payload.target] == nil
+end
+
+local function validatePendingInvite(context: any, payload: any): boolean
+	return isLivePlayer(context.player)
+		and Guild.GetGuild(context.player) == nil
+		and (guildInvites[context.player.UserId] or {})[payload.guildId] ~= nil
+end
+
+local function validateDecline(context: any, payload: any): boolean
+	return isLivePlayer(context.player)
+		and (guildInvites[context.player.UserId] or {})[payload.guildId] ~= nil
+end
+
+local function validateKick(context: any, payload: any): boolean
+	local guild = roleInCurrentGuild(context.player, ROLE_RANK.Officer)
+	if not guild or payload.target == context.player.UserId then
+		return false
+	end
+	local actor = guild.Members[context.player.UserId]
+	local target = guild.Members[payload.target]
+	return typeof(target) == "table" and rankOf(target.role) < rankOf(actor.role)
+end
+
+local function validatePromote(context: any, payload: any): boolean
+	local guild = roleInCurrentGuild(context.player, ROLE_RANK.Owner)
+	local target = guild and guild.Members[payload.target]
+	return typeof(target) == "table" and target.role == "Member"
+end
+
+local function validateDemote(context: any, payload: any): boolean
+	local guild = roleInCurrentGuild(context.player, ROLE_RANK.Owner)
+	local target = guild and guild.Members[payload.target]
+	return typeof(target) == "table" and target.role == "Officer"
+end
+
+local function validateTransfer(context: any, payload: any): boolean
+	local guild = roleInCurrentGuild(context.player, ROLE_RANK.Owner)
+	return guild ~= nil and guild.Members[payload.target] ~= nil
+end
+
+local function validateCurrentGuild(context: any, _payload: any): boolean
+	return isLivePlayer(context.player) and currentGuild(context.player) ~= nil
+end
+
+-- The shared per-player bucket first (cheap, no yield), then the RPC's own check.
+local function budgeted(validate: RpcValidate): RpcValidate
+	return function(context: any, payload: any): boolean
+		return remoteAllowed(context.player) and validate(context, payload)
+	end
+end
+
+local function registerRead(
+	name: string,
+	schema: (payload: any) -> boolean,
+	handler: (player: Player, payload: any) -> (boolean, any),
+	validate: RpcValidate?
+): ()
+	Net.Server.RegisterFunction(name, {
+		schema = schema,
+		validate = budgeted(validate or function(context: any, _payload: any): boolean
+			return isLivePlayer(context.player)
+		end),
+		handler = function(context: any, payload: any): RpcReply
+			local ok, data = handler(context.player, payload)
+			return reply(ok, data)
+		end,
+		rate = 4,
+		burst = 8,
+		budget = "tiny",
+		concurrency = 2,
+	})
+end
+
+local function registerMutation(
+	name: string,
+	schema: (payload: any) -> boolean,
+	validate: RpcValidate,
+	handler: (player: Player, payload: any) -> (boolean, any)
+): ()
+	Net.Server.RegisterFunction(name, {
+		schema = schema,
+		validate = budgeted(validate),
+		mutation = true,
+		handler = function(context: any, payload: any): RpcReply
+			local ok, data = handler(context.player, payload)
+			return reply(ok, data)
+		end,
+		rate = 2,
+		burst = 4,
+		budget = "small",
+		concurrency = 1,
+	})
+end
+
+-- Runs in Init (createRemotes).
+local function registerRpcs(): ()
+	registerRead("Guild.Get", isEmptyPayload, function(player: Player, _payload: any): (boolean, any)
+		local guild = currentGuild(player)
+		return true, guild
+	end, validateCurrentGuild)
+
+	registerRead("Guild.Members", isEmptyPayload, function(player: Player, _payload: any): (boolean, any)
+		local guild = currentGuild(player)
+		return true, if guild then Guild.GetMembers(guild.Id) else {}
+	end, validateCurrentGuild)
+
+	registerRead("Guild.PendingInvites", isEmptyPayload, function(player: Player, _payload: any): (boolean, any)
+		return true, Guild.GetPendingInvites(player)
+	end)
+
+	registerRead("Guild.VaultContents", isEmptyPayload, function(player: Player, _payload: any): (boolean, any)
+		return true, Guild.VaultGetContents(player)
+	end, validateCurrentGuild)
+
+	registerMutation("Guild.Create", function(payload: any): boolean
+		return hasOnlyKeys(payload, { name = true, tag = true })
+			and isSafeText(
+				payload.name,
+				2,
+				configuredPositiveInteger("MaxNameLen", Config.Social.Guild.MaxNameLen, 24, MAX_CONFIGURED_TEXT_LENGTH)
+			)
+			and isSafeText(
+				payload.tag,
+				2,
+				configuredPositiveInteger("MaxTagLen", Config.Social.Guild.MaxTagLen, 4, MAX_CONFIGURED_TEXT_LENGTH)
+			)
+	end, validateCreate, function(player: Player, payload: any): (boolean, any)
+		return Guild.Create(player, payload.name, payload.tag)
+	end)
+
+	registerMutation("Guild.Disband", isEmptyPayload, validateOwner, function(player: Player, _payload: any): (boolean, any)
+		return Guild.Disband(player)
+	end)
+
+	registerMutation("Guild.Leave", isEmptyPayload, validateLeave, function(player: Player, _payload: any): (boolean, any)
+		return Guild.Leave(player)
+	end)
+
+	registerMutation("Guild.Invite", targetSchema, validateInvite, function(player: Player, payload: any): (boolean, any)
+		return Guild.Invite(player, payload.target)
+	end)
+
+	registerMutation("Guild.AcceptInvite", guildIdSchema, validatePendingInvite, function(player: Player, payload: any): (boolean, any)
+		return Guild.AcceptInvite(player, payload.guildId)
+	end)
+
+	registerMutation("Guild.DeclineInvite", guildIdSchema, validateDecline, function(player: Player, payload: any): (boolean, any)
+		return Guild.DeclineInvite(player, payload.guildId)
+	end)
+
+	registerMutation("Guild.Kick", targetSchema, validateKick, function(player: Player, payload: any): (boolean, any)
+		return Guild.Kick(player, payload.target)
+	end)
+
+	registerMutation("Guild.Promote", targetSchema, validatePromote, function(player: Player, payload: any): (boolean, any)
+		return Guild.Promote(player, payload.target)
+	end)
+
+	registerMutation("Guild.Demote", targetSchema, validateDemote, function(player: Player, payload: any): (boolean, any)
+		return Guild.Demote(player, payload.target)
+	end)
+
+	registerMutation("Guild.Transfer", targetSchema, validateTransfer, function(player: Player, payload: any): (boolean, any)
+		return Guild.Transfer(player, payload.target)
+	end)
+
+	registerMutation("Guild.SetDescription", function(payload: any): boolean
+		return hasOnlyKeys(payload, { text = true })
+			and isSafeText(
+				payload.text,
+				0,
+				configuredPositiveInteger("MaxDescLen", Config.Social.Guild.MaxDescLen, 280, MAX_CONFIGURED_TEXT_LENGTH)
+			)
+	end, validateOfficer, function(player: Player, payload: any): (boolean, any)
+		return Guild.SetDescription(player, payload.text)
+	end)
+
+	-- VaultDeposit/VaultWithdraw intentionally have no client RPC registration yet.
+	-- The package has no authoritative inventory transfer adapter, so exposing these
+	-- ledger-only mutations would let a client mint or remove vault contents without
+	-- changing player inventory. Keep the server API available for a future
+	-- inventory-backed transaction, but fail closed at the transport boundary.
+end
+
+-- ── Net RPCs + Events/Guild/Inbound (created in Init) ──
+-- Events/Guild/Inbound stays only for server-to-client invite/membership notices.
 local function createRemotes(): ()
+	registerRpcs()
+
 	local Events = ReplicatedStorage:FindFirstChild("Events") or Instance.new("Folder")
 	Events.Name = "Events"
 	Events.Parent = ReplicatedStorage
 	local GuildFolder = Events:FindFirstChild("Guild") or Instance.new("Folder")
 	GuildFolder.Name = "Guild"
 	GuildFolder.Parent = Events
-	local Action = GuildFolder:FindFirstChild("Action") or Instance.new("RemoteFunction")
-	Action.Name = "Action"
-	Action.Parent = GuildFolder
 	local Inbound = GuildFolder:FindFirstChild("Inbound") or Instance.new("RemoteEvent")
 	Inbound.Name = "Inbound"
 	Inbound.Parent = GuildFolder
-
-	Action.OnServerInvoke = function(player: Player, e: any): (boolean, any)
-		local refused = checkEnvelope(player, e)
-		if refused then
-			return false, refused
-		end
-		if e.type == "create" then
-			return Guild.Create(player, e.name, e.tag)
-		end
-		if e.type == "disband" then
-			return Guild.Disband(player)
-		end
-		if e.type == "leave" then
-			return Guild.Leave(player)
-		end
-		if e.type == "invite" then
-			return Guild.Invite(player, e.target)
-		end
-		if e.type == "accept" then
-			return Guild.AcceptInvite(player, e.guildId)
-		end
-		if e.type == "decline" then
-			return Guild.DeclineInvite(player, e.guildId)
-		end
-		if e.type == "kick" then
-			return Guild.Kick(player, e.target)
-		end
-		if e.type == "promote" then
-			return Guild.Promote(player, e.target)
-		end
-		if e.type == "demote" then
-			return Guild.Demote(player, e.target)
-		end
-		if e.type == "transfer" then
-			return Guild.Transfer(player, e.target)
-		end
-		if e.type == "desc" then
-			return Guild.SetDescription(player, tostring(e.text or ""))
-		end
-		if e.type == "get" then
-			return true, Guild.GetGuild(player)
-		end
-		if e.type == "members" then
-			local g = Guild.GetGuild(player)
-			return true, g and Guild.GetMembers(g.Id) or {}
-		end
-		if e.type == "pending" then
-			return true, Guild.GetPendingInvites(player)
-		end
-		if e.type == "vault_get" then
-			return true, Guild.VaultGetContents(player)
-		end
-		if e.type == "vault_dep" then
-			return Guild.VaultDeposit(player, tostring(e.itemId), e.count)
-		end
-		if e.type == "vault_with" then
-			return Guild.VaultWithdraw(player, tostring(e.itemId), e.count)
-		end
-		return false, "unknown action"
-	end
 
 	Guild.OnInvite:Connect(function(toPlayer, guildId, name, fromName)
 		Inbound:FireClient(

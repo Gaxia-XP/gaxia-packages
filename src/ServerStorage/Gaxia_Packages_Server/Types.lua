@@ -21,7 +21,7 @@ export type ServiceName =
 	| "Event" | "Visit" | "Teleport" | "Memory" | "Trade" | "Party" | "VFX" | "SFX" | "Anim"
 	| "Motion3D" | "Ragdoll" | "Admin" | "Chat" | "Quest" | "Achievement" | "Level"
 	| "Migration" | "Leaderboard" | "Messages" | "Friend" | "Guild" | "GuildLock"
-	| "InviteQueue" | "Pet" | "AntiCheat"
+	| "InviteQueue" | "Pet" | "AntiCheat" | "Enforcement"
 
 -- Every GaxiaServer.<Key> the loader resolves: services plus framework utilities.
 export type ModuleKey = ServiceName | "Lifecycle" | "EConfig"
@@ -60,6 +60,9 @@ export type PackageManifest = {
 export type Severity = "soft" | "hard"
 -- "observe" = would have been "hard" while Config.AntiCheat.Enforce is false.
 export type ActionKind = "soft" | "hard" | "observe"
+-- Who produced a flag. Only "server", "transport" and "trap" can lead to an action;
+-- the rest (client reports, client liveness, unknown) are journal-only.
+export type EvidenceSource = "server" | "transport" | "trap" | "client" | "client_liveness" | "unknown"
 
 -- The AntiCheat detector contract. They live here because a detector cannot
 -- require the orchestrator (the orchestrator requires the detectors);
@@ -70,6 +73,7 @@ export type ActionKind = "soft" | "hard" | "observe"
 export type AntiCheatFlag = {
 	reason: string,
 	severity: Severity | string,
+	source: EvidenceSource?,
 }
 
 -- Built once per player per sampler tick and shared by every detector's Sample.
@@ -88,14 +92,14 @@ export type AntiCheatSnapshot = {
 -- of the contract). Its Flag is the detector's own: ignored while that detector
 -- is disabled (AntiCheat.SetDetectorEnabled / Config.AntiCheat.<Name>.Enabled).
 export type DetectorHost = {
-	Flag: (player: Player, reason: string, severity: (Severity | string)?) -> (),
+	Flag: (player: Player, reason: string, severity: (Severity | string)?, source: EvidenceSource?) -> (),
 	IsEnforcing: () -> boolean,
 	IsDetectorEnabled: (name: string) -> boolean,
 }
 
 -- Cycle-breaking hooks (installed by the higher-level module's Init):
 -- NetService → AntiCheat: NetService reports rate-limit / validation violations.
-export type ViolationHandler = (player: Player, reason: string, severity: Severity) -> ()
+export type ViolationHandler = (player: Player, reason: string, severity: Severity, source: EvidenceSource?) -> ()
 -- BanService → AdminCommands: is this userId at or above `role`? (escalation exemption)
 export type UserRoleResolver = (userId: number, role: string) -> boolean
 -- ChatCommandSystem → AdminCommands: is this player at or above `role`? (command gating)

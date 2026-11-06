@@ -123,7 +123,7 @@ function dirNode(dir, name, ignore, notes) {
     const p = path.join(dir, e.name)
     const rel = p.split(path.sep).join('/')
     if (ignore.some((re) => re.test(rel) || re.test(e.name))) continue
-    if (e.isDirectory()) node.k.push(dirNode(p, e.name, ignore, notes))
+    if (e.isDirectory()) node.k.push(pathNode(p, e.name, ignore, notes))
     else if (/^init\.(server\.|client\.)?luau?$/.test(e.name) || e.name.endsWith('.meta.json') || e.name === 'init.meta.json') continue
     else {
       const child = fileNode(p, undefined, notes)
@@ -135,7 +135,16 @@ function dirNode(dir, name, ignore, notes) {
 
 function pathNode(p, name, ignore, notes) {
   if (!fs.existsSync(p)) throw new Error(`project path does not exist: ${p}`)
-  return fs.statSync(p).isDirectory() ? dirNode(p, name, ignore, notes) : fileNode(p, name, notes)
+  if (!fs.statSync(p).isDirectory()) return fileNode(p, name, notes)
+  // Like Rojo: a folder with its own default.project.json is that project (Wally
+  // packages ship one, e.g. ProfileStore's maps the folder to ProfileStore.luau).
+  const nested = path.join(p, 'default.project.json')
+  if (fs.existsSync(nested)) {
+    const proj = JSON.parse(fs.readFileSync(nested, 'utf8'))
+    const own = [...ignore, ...(proj.globIgnorePaths || []).map(globToRegex)]
+    return projectNode(proj.tree, name, p, own, notes)
+  }
+  return dirNode(p, name, ignore, notes)
 }
 
 function projectNode(spec, name, dir, ignore, notes) {

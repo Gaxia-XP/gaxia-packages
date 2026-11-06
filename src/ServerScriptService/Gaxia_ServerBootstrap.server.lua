@@ -6,9 +6,11 @@
 	            • GaxiaServer.Boot() starts the services listed in Config/Features
 	              (or the game-owned ServerStorage.GaxiaFeatures) in dependency
 	              order. Services not listed start on first use.
-	            • Wire AntiCheat.OnAction into the default action handler (kick on
-	              "hard"; AntiCheat runs in observe mode until
-	              Config.AntiCheat.Enforce = true, so it only reports "observe").
+	            • Make sure the single AntiCheat enforcement owner
+	              (AntiCheatEnforcement, GaxiaServer.Enforcement) is running: it alone
+	              kicks/bans on "hard" candidates. AntiCheat runs in observe mode
+	              until Config.AntiCheat.Enforce = true, so it only reports "observe".
+	            • Log soft AntiCheat actions to Output.
 ]]
 
 -- ── Single-boot guard ─────────────────────────────────────────
@@ -26,66 +28,41 @@ if script.Parent ~= game:GetService("ServerScriptService") then
 	return
 end
 
-
-local Players       = game:GetService("Players")
 local ServerStorage = game:GetService("ServerStorage")
 
 -- ── Master loader + boot ──────────────────────────────────────
 local GaxiaServer = require(ServerStorage:WaitForChild("Gaxia_Packages_Server"))
 GaxiaServer.Boot()
 
--- ── AntiCheat default action handler ──────────────────────────
+-- ── AntiCheat action handling ─────────────────────────────────
 -- Only when AntiCheat is running (it is in Features by default); touching
 -- GaxiaServer.AntiCheat otherwise would load it just to wire this handler.
 if not GaxiaServer.IsEnabled("AntiCheat") then
 	print("[Gaxia_ServerBootstrap] complete — AntiCheat not enabled in Features")
 	return
 end
--- GaxiaServer's type lists only the installed packages, and AntiCheat / Ban may
--- not be installed: read them untyped.
+-- GaxiaServer's type lists only the installed packages, and AntiCheat /
+-- Enforcement may not be installed: read them untyped.
 local optional: any = GaxiaServer
 local AntiCheat = optional.AntiCheat
-type BanApi = { IsEscalationExempt: (userId: number) -> boolean }
 
--- ── Default OnAction handler ──────────────────────────────────
--- Soft action  → warn the player via output + game console.
--- Hard action  → kick. Use a guard so we don't kick twice in a row for the
--- same reason while the orchestrator is still emitting follow-up flags.
-local kickedReasons: { [number]: { [string]: boolean } } = {}
+-- ── Single enforcement owner ──────────────────────────────────
+-- Detectors only emit evidence and action candidates. AntiCheatEnforcement owns
+-- every automatic Kick/Ban (exemptions, strikes, cooldown, Config.AntiCheat
+-- .Enforcement.Actions); Ban starts it, and touching it here starts it too. There
+-- is deliberately no second kick handler here: two enforcing consumers drifted
+-- apart (exemption, dedupe) before.
+if optional.Enforcement == nil then
+	warn("[Gaxia_ServerBootstrap] AntiCheatEnforcement unavailable — automatic AntiCheat actions are disabled")
+end
 
+-- Soft action → warn via Output. Plug in your own warning UI / log here.
+-- ("hard" / "observe" candidates: AntiCheatEnforcement decides, the Journal
+-- records them.)
 AntiCheat.OnAction:Connect(function(player: Player, reason: string, kind: string)
-	if kind == "hard" then
-		local uid = player.UserId
-		-- Same exemption as BanService.escalate — OnAction has two enforcing
-		-- consumers and both must skip the creator/high roles, or this one
-		-- still kicks the very user the escalation exemption protects.
-		local Ban: BanApi? = optional.Ban
-		if Ban and Ban.IsEscalationExempt(uid) then
-			warn(`[Gaxia_AntiCheat] HARD action against {player.Name}: {reason} — exempt (high role), not kicking`)
-			return
-		end
-		kickedReasons[uid] = kickedReasons[uid] or {}
-		if kickedReasons[uid][reason] then return end
-		kickedReasons[uid][reason] = true
-		warn(`[Gaxia_AntiCheat] HARD action against {player.Name}: {reason} — kicking`)
-		-- Brief delay so the kick reason reaches the client before disconnect.
-		task.delay(0.1, function()
-			if player.Parent then
-				player:Kick(`Kicked by Gaxia_AntiCheat (reason: {reason})`)
-			end
-		end)
-	elseif kind == "soft" then
-		-- soft: print only. Plug in your own warning UI / log here.
+	if kind == "soft" then
 		warn(`[Gaxia_AntiCheat] soft action against {player.Name}: {reason}`)
 	end
-	-- kind == "observe": would have been "hard", but Config.AntiCheat.Enforce is
-	-- false — the orchestrator already warned once; nothing to enforce here.
-end)
-
-Players.PlayerRemoving:Connect(function(player: Player)
-	-- Clean up per-player kick-dedupe state so a rejoining player can be
-	-- re-kicked if they cheat again.
-	kickedReasons[player.UserId] = nil
 end)
 
 print("[Gaxia_ServerBootstrap] complete — services + AntiCheat online")

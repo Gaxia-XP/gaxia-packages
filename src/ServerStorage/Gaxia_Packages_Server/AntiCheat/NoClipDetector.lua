@@ -94,7 +94,7 @@ function NoClipDetector.Sample(player: Player, snapshot: Snapshot): Flag?
 		streaks[player.UserId] = streak
 		if streak >= STREAK_REQUIRED then
 			streaks[player.UserId] = 0
-			return { reason = "NoClip", severity = NOCLIP_SEVERITY }
+			return { reason = "NoClip", severity = NOCLIP_SEVERITY, source = "server" }
 		end
 	else
 		streaks[player.UserId] = 0

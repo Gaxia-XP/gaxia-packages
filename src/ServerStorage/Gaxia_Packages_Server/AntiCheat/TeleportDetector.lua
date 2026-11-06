@@ -111,7 +111,7 @@ function TeleportDetector.Sample(player: Player, snapshot: Snapshot): Flag?
 	if move.Magnitude > maxDelta then
 		-- Teleport is "hard" right away — there is no benign reason for a
 		-- 50+ stud single-tick jump under normal physics.
-		return { reason = "Teleport", severity = TELEPORT_SEVERITY }
+		return { reason = "Teleport", severity = TELEPORT_SEVERITY, source = "server" }
 	end
 	return nil
 end

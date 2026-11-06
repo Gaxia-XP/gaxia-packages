@@ -4,12 +4,21 @@
 	Location: ServerStorage.Gaxia_Packages_Server.AntiCheat.init
 	Purpose : Anti-cheat orchestrator. Runs a single shared sampler loop that
 	          builds a per-player snapshot every Config.AntiCheat.SamplerInterval,
-	          then dispatches it to every registered detector. Detectors that
-	          flag a player accumulate severity; passing thresholds triggers
-	          OnFlag (soft) → warning, or OnFlag (hard) → action (kick).
+	          then dispatches it to every registered detector. It records bounded
+	          evidence from detectors and transports (OnFlag); an action
+	          candidate (OnAction) is emitted only after its threshold is
+	          reached, and the separate AntiCheatEnforcement service decides
+	          whether to kick or ban.
 
-	OnAction(player, reason, kind) — kind is "soft", "hard", or "observe" (a
-	would-be "hard" action while Config.AntiCheat.Enforce is false; see there).
+	OnFlag(player, reason, severity, count, source) — every flag.
+	OnAction(player, reason, kind, count, source) — kind is "soft", "hard", or
+	"observe" (a would-be "hard" action while Config.AntiCheat.Enforce is false;
+	see there). Fired only for trusted evidence (source "server", "transport" or
+	"trap") once that reason's count AT THAT SEVERITY reaches its threshold
+	(SoftFlagThreshold / HardFlagThreshold): a single "hard" flag is not an
+	action, and soft flags never add up to a hard action. Client reports,
+	client-liveness silence and flags without a known source are journaled
+	(OnFlag) but never become a candidate.
 
 	Lifecycle: AutoStart = false. Requiring this module, touching
 	GaxiaServer.AntiCheat or calling Flag / Whitelist / OnFlag never starts the
@@ -23,7 +32,10 @@
 		  Init    : (orchestrator: DetectorHost) -> ()?   -- optional, called once on start
 		  Sample  : (player, snapshot: Snapshot) -> Flag? -- optional, called each tick
 		}
-	Flag = { reason: string, severity: "soft" | "hard" }
+	Flag = { reason: string, severity: "soft" | "hard", source: EvidenceSource? }
+
+	A detector must name its source ("server" for evidence the server observed
+	itself): a flag without one counts as "unknown" — journaled, never acted on.
 
 	The host a detector's Init receives is the orchestrator's API with its own
 	Flag: a flag raised through it is dropped while that detector is disabled
@@ -83,6 +95,10 @@ end
 export type Severity = Types.Severity
 -- "soft" | "hard" | "observe"
 export type ActionKind = Types.ActionKind
+-- Where a flag's evidence came from. Only "server", "transport" and "trap" can
+-- become an action candidate; "client", "client_liveness" and "unknown" are
+-- journal-only telemetry.
+export type EvidenceSource = Types.EvidenceSource
 
 -- A detector's verdict for one sample, the per-tick snapshot, and what a
 -- detector's Init receives. Defined in Types.lua (the detectors cannot require
@@ -96,7 +112,7 @@ export type DetectorHost = Types.DetectorHost
 -- only rely on the DetectorHost subset (Flag, IsEnforcing, IsDetectorEnabled); a
 -- game detector may use the rest.
 export type Host = {
-	Flag: (player: Player, reason: string, severity: (Types.Severity | string)?) -> (),
+	Flag: (player: Player, reason: string, severity: (Types.Severity | string)?, source: Types.EvidenceSource?) -> (),
 	IsEnforcing: () -> boolean,
 	IsDetectorEnabled: (name: string) -> boolean,
 	IsEnabled: () -> boolean,
@@ -105,8 +121,8 @@ export type Host = {
 	ClearFlags: (player: Player, reason: string?) -> (),
 	GetDetector: (name: string) -> any?,
 	GetDetectorNames: () -> { string },
-	OnFlag: Signal.Signal<Player, string, Types.Severity | string, number>,
-	OnAction: Signal.Signal<Player, string, Types.ActionKind>,
+	OnFlag: Signal.Signal<Player, string, Types.Severity | string, number, Types.EvidenceSource>,
+	OnAction: Signal.Signal<Player, string, Types.ActionKind, number, Types.EvidenceSource>,
 }
 
 export type Detector = {
@@ -133,6 +149,7 @@ local DETECTORS: { DetectorModule } = {
 	{ Module = "HumanoidStateGuard",      Load = function() return require(script.HumanoidStateGuard) end },
 	{ Module = "NoClipDetector",          Load = function() return require(script.NoClipDetector) end },
 	{ Module = "RemoteRateLimiter",       Load = function() return require(script.RemoteRateLimiter) end },
+	{ Module = "RemoteTrap",              Load = function() return require(script.RemoteTrap) end },
 	{ Module = "SpeedDetector",           Load = function() return require(script.SpeedDetector) end },
 	{ Module = "StatGuard",               Load = function() return require(script.StatGuard) end },
 	{ Module = "TeleportDetector",        Load = function() return require(script.TeleportDetector) end },
@@ -154,6 +171,7 @@ export type DetectorAccess = {
 	HumanoidState: typeof(require(script.HumanoidStateGuard))?,
 	NoClip: typeof(require(script.NoClipDetector))?,
 	RemoteRate: typeof(require(script.RemoteRateLimiter))?,
+	RemoteTrap: typeof(require(script.RemoteTrap))?,
 	Speed: typeof(require(script.SpeedDetector))?,
 	Stat: typeof(require(script.StatGuard))?,
 	Teleport: typeof(require(script.TeleportDetector))?,
@@ -164,11 +182,13 @@ export type DetectorAccess = {
 -- ── Module ──
 local AntiCheat = {}
 
--- (player, reason, severity, count) — fires every flag; consumers may dedupe.
-AntiCheat.OnFlag = Signal.new() :: Signal.Signal<Player, string, Types.Severity | string, number>
--- (player, reason, kind) — fires when a threshold is hit; kind "observe" = a
--- would-be "hard" action while Config.AntiCheat.Enforce is false.
-AntiCheat.OnAction = Signal.new() :: Signal.Signal<Player, string, Types.ActionKind>
+-- (player, reason, severity, count, source) — fires every flag; consumers may dedupe.
+AntiCheat.OnFlag = Signal.new() :: Signal.Signal<Player, string, Types.Severity | string, number, Types.EvidenceSource>
+-- (player, reason, kind, count, source) — fires when trusted evidence reaches a
+-- threshold; kind "observe" = a would-be "hard" action while
+-- Config.AntiCheat.Enforce is false. A candidate, not proof that anyone was
+-- punished: AntiCheatEnforcement decides that.
+AntiCheat.OnAction = Signal.new() :: Signal.Signal<Player, string, Types.ActionKind, number, Types.EvidenceSource>
 
 -- ── Internal state ──
 local detectors: { Detector } = {}
@@ -179,6 +199,10 @@ local detectors: { Detector } = {}
 -- orchestrator's __index metamethod (e.g. `AntiCheat.Combat.RegisterDamage(...)`).
 local detectorsByName: { [string]: Detector } = {}
 local flagCounts: { [number]: { [string]: number } } = {} -- userId → reason → count
+-- userId → reason → severity → count of TRUSTED evidence only. Client and
+-- client-liveness telemetry never moves a player closer to an action threshold:
+-- a spoofed client report must not count toward an automatic action.
+local candidateCounts: { [number]: { [string]: { [string]: number } } } = {}
 -- "uid:reason" → true once the observe-mode warning was printed (cleared on leave).
 local observeWarned : { [string]: boolean } = {}
 local whitelists: { [number]: { [string]: number } } = {} -- userId → reason → expiresAtClock
@@ -196,6 +220,7 @@ local cleanupConnection: RBXScriptConnection? = nil
 local function onPlayerRemoving(player: Player)
 	-- Drop per-player state so leavers don't linger in memory.
 	flagCounts[player.UserId] = nil
+	candidateCounts[player.UserId] = nil
 	whitelists[player.UserId] = nil
 	local prefix = `{player.UserId}:`
 	for key in pairs(observeWarned) do
@@ -254,8 +279,20 @@ local function buildSnapshot(player: Player): Snapshot
 	}
 end
 
+-- Missing or misspelled provenance is still journaled, but fails closed for
+-- automatic action ("unknown").
+local KNOWN_SOURCES: { [string]: boolean } = {
+	server = true, transport = true, trap = true, client = true, client_liveness = true,
+}
+local function normalizeSource(source: any): Types.EvidenceSource
+	if typeof(source) == "string" and KNOWN_SOURCES[source] then
+		return source :: Types.EvidenceSource
+	end
+	return "unknown"
+end
+
 -- Record a flag and emit signals when thresholds cross.
-local function recordFlag(player: Player, reason: string, severity: Types.Severity | string)
+local function recordFlag(player: Player, reason: string, severity: Types.Severity | string, source: Types.EvidenceSource?)
 	-- Master kill-switch: when AntiCheat is disabled (live), drop EVERY flag —
 	-- sampler-driven and external AntiCheat.Flag() alike. Detectors keep sampling
 	-- so they stay warm and re-enabling is seamless.
@@ -266,24 +303,52 @@ local function recordFlag(player: Player, reason: string, severity: Types.Severi
 	flagCounts[uid] = flagCounts[uid] or {}
 	flagCounts[uid][reason] = (flagCounts[uid][reason] or 0) + 1
 	local count = flagCounts[uid][reason]
-	AntiCheat.OnFlag:Fire(player, reason, severity, count)
+	local evidenceSource: Types.EvidenceSource = normalizeSource(source)
+	AntiCheat.OnFlag:Fire(player, reason, severity, count, evidenceSource)
 
-	-- Hard severity escalates immediately if past the hard threshold OR was already explicitly "hard".
-	if severity == "hard" or count >= HARD_THRESHOLD then
+	-- Client-controlled telemetry is useful for an operator's journal but can
+	-- never become an action candidate: a compromised client may fabricate,
+	-- suppress or replay it at will.
+	if
+		evidenceSource ~= "server"
+		and evidenceSource ~= "transport"
+		and evidenceSource ~= "trap"
+	then
+		return
+	end
+
+	-- Trusted evidence counts per severity: "hard" needs HARD_THRESHOLD hard flags
+	-- (one hard flag is not an action) and soft flags never add up to "hard".
+	local normalizedSeverity = if severity == "hard" then "hard" else "soft"
+	local byReason = candidateCounts[uid]
+	if not byReason then
+		byReason = {}
+		candidateCounts[uid] = byReason
+	end
+	local bySeverity = byReason[reason]
+	if not bySeverity then
+		bySeverity = {}
+		byReason[reason] = bySeverity
+	end
+	local candidateCount = (bySeverity[normalizedSeverity] or 0) + 1
+	bySeverity[normalizedSeverity] = candidateCount
+
+	if normalizedSeverity == "hard" then
+		if candidateCount < HARD_THRESHOLD then return end
 		if isEnforcing() then
-			AntiCheat.OnAction:Fire(player, reason, "hard")
+			AntiCheat.OnAction:Fire(player, reason, "hard", candidateCount, evidenceSource)
 		else
-			-- Observe mode: publish what WOULD have been a hard action. Consumers that
-			-- enforce (BanService, the bootstrap kick handler) only act on "hard".
+			-- Observe mode: publish what WOULD have been a hard action. The one
+			-- enforcing consumer (AntiCheatEnforcement) only acts on "hard".
 			local key = `{uid}:{reason}`
 			if not observeWarned[key] then
 				observeWarned[key] = true
 				warn(`[AntiCheat] observe mode — would take HARD action against {player.Name} ({uid}): {reason}. Not enforced (Config.AntiCheat.Enforce = false).`)
 			end
-			AntiCheat.OnAction:Fire(player, reason, "observe")
+			AntiCheat.OnAction:Fire(player, reason, "observe", candidateCount, evidenceSource)
 		end
-	elseif count >= SOFT_THRESHOLD then
-		AntiCheat.OnAction:Fire(player, reason, "soft")
+	elseif candidateCount >= SOFT_THRESHOLD then
+		AntiCheat.OnAction:Fire(player, reason, "soft", candidateCount, evidenceSource)
 	end
 end
 
@@ -295,11 +360,11 @@ end
 local function hostFor(detector: Detector): Host
 	local name = detector.Name
 	local host = setmetatable({
-		Flag = function(player: Player, reason: string, severity: (Types.Severity | string)?)
+		Flag = function(player: Player, reason: string, severity: (Types.Severity | string)?, source: Types.EvidenceSource?)
 			if not isDetectorEnabled(name) then
 				return
 			end
-			recordFlag(player, reason, severity or "soft")
+			recordFlag(player, reason, severity or "soft", source)
 		end,
 	}, { __index = AntiCheat })
 	return host :: any
@@ -326,9 +391,13 @@ end
 
 -- Flag a player from game code (or a detector that kept the module instead of its
 -- host). Never tied to a detector's enabled switch: the master switch, the
--- whitelists and the thresholds apply as for every flag.
-function AntiCheat.Flag(player: Player, reason: string, severity: (Types.Severity | string)?)
-	recordFlag(player, reason, severity or "soft")
+-- whitelists and the thresholds apply as for every flag. `source` must name a
+-- trusted source ("server" for something the server observed itself,
+-- "transport", "trap") for the flag to count toward an action; "client",
+-- "client_liveness" and an omitted or unknown source are journal-only:
+--     AntiCheat.Flag(player, "Speed", "soft", "server")
+function AntiCheat.Flag(player: Player, reason: string, severity: (Types.Severity | string)?, source: Types.EvidenceSource?)
+	recordFlag(player, reason, severity or "soft", source)
 end
 
 -- ── Runtime enable/disable (live, no redeploy — flips a Gaxia.Flags override) ──
@@ -359,11 +428,19 @@ function AntiCheat.SetDetectorEnabled(name: string, on: boolean): ()
 end
 
 -- Drop runtime overrides so enable-state falls back to the Config defaults.
+-- Also clears the enforcement overrides, so `/ac reset` truly reverts to the
+-- Config defaults (observe mode) instead of re-enabling the master switch with a
+-- stale enforce / punish setting.
 function AntiCheat.ClearOverrides(): ()
 	EConfig.Clear("AntiCheat.Enabled")
 	for _, d in ipairs(detectors) do
 		EConfig.Clear(`AntiCheat.Detector.{d.Name}.Enabled`)
 	end
+	EConfig.Clear("AntiCheat.Enforce")
+	EConfig.Clear("AntiCheat.Enforcement.ActionCooldownSeconds")
+	EConfig.Clear("AntiCheat.Enforcement.Actions.Kick")
+	EConfig.Clear("AntiCheat.Enforcement.Actions.TempBan")
+	EConfig.Clear("AntiCheat.Enforcement.Actions.PermBan")
 end
 
 -- Names of every registered detector (for /ac list + admin tooling).
@@ -404,26 +481,33 @@ function AntiCheat.GetFlagCount(player: Player, reason: string): number
 	return entry and entry[reason] or 0
 end
 
+-- Remove `reason` and its family from a reason-keyed map. Family clear, mirroring
+-- isWhitelisted: clearing "HumanoidState" also wipes pending
+-- "HumanoidState:Climbing" etc.
+local function clearReasonFamily(entry: { [string]: any }?, reason: string): ()
+	if not entry then
+		return
+	end
+	entry[reason] = nil
+	local prefix = reason .. ":"
+	local familyKeys: { string } = {}
+	for key in pairs(entry) do
+		if key:sub(1, #prefix) == prefix then
+			table.insert(familyKeys, key)
+		end
+	end
+	for _, key in ipairs(familyKeys) do
+		entry[key] = nil
+	end
+end
+
 function AntiCheat.ClearFlags(player: Player, reason: string?)
 	if reason then
-		local entry = flagCounts[player.UserId]
-		if entry then
-			entry[reason] = nil
-			-- Family clear, mirroring isWhitelisted: clearing "HumanoidState"
-			-- also wipes pending "HumanoidState:Climbing" etc.
-			local prefix = reason .. ":"
-			local familyKeys: { string } = {}
-			for key in pairs(entry) do
-				if key:sub(1, #prefix) == prefix then
-					table.insert(familyKeys, key)
-				end
-			end
-			for _, key in ipairs(familyKeys) do
-				entry[key] = nil
-			end
-		end
+		clearReasonFamily(flagCounts[player.UserId], reason)
+		clearReasonFamily(candidateCounts[player.UserId], reason)
 	else
 		flagCounts[player.UserId] = nil
+		candidateCounts[player.UserId] = nil
 	end
 end
 
@@ -463,14 +547,26 @@ end
 -- ── Flag-count time-decay (Phase 21.6) ──
 -- Old flags age out so a long, legitimate session doesn't slowly accumulate
 -- enough soft flags to cross a threshold. Exposed as _decayFlags for testing.
+local function decayCounts(counts: { [string]: number }, amount: number): ()
+	for key, count in pairs(counts) do
+		local n = count - amount
+		if n <= 0 then
+			counts[key] = nil
+		else
+			counts[key] = n
+		end
+	end
+end
+
 function AntiCheat._decayFlags(amount: number): ()
 	for _, reasons in pairs(flagCounts) do
-		for reason, count in pairs(reasons) do
-			local n = count - amount
-			if n <= 0 then
+		decayCounts(reasons, amount)
+	end
+	for _, reasons in pairs(candidateCounts) do
+		for reason, bySeverity in pairs(reasons) do
+			decayCounts(bySeverity, amount)
+			if next(bySeverity) == nil then
 				reasons[reason] = nil
-			else
-				reasons[reason] = n
 			end
 		end
 	end
@@ -540,7 +636,10 @@ local function samplePlayer(player: Player): ()
 			if not ok then
 				warn(`[AntiCheat] {detector.Name}.Sample errored: {tostring(flag)}`)
 			elseif flag then
-				recordFlag(player, flag.reason, flag.severity or "soft")
+				-- Every source must be explicit, sampled detectors included: a
+				-- custom detector that omits it is journal-only rather than
+				-- silently gaining escalation authority.
+				recordFlag(player, flag.reason, flag.severity or "soft", flag.source)
 			end
 		end
 	end
@@ -600,44 +699,6 @@ local function startFlagDecay()
 	end)
 end
 
--- ── Remote channel bootstrap ──
--- WHY: ExploitSignatureScanner binds to ReplicatedStorage.Events.AntiCheat_Report
--- and HeartbeatGuard to ReplicatedStorage.Events.System_Heartbeat. NetService only
--- ever creates remotes under Events.Net, so nothing created these two — both
--- detectors self-disabled on every boot, silently killing the whole client-side
--- defence layer. Create them idempotently in Init, before loadDetectors() runs, so
--- each detector's Init finds its channel (the client side WaitForChild's them).
-local ANTICHEAT_REMOTES: { string } = { "AntiCheat_Report", "System_Heartbeat" }
-
-local function getOrCreateEvents(): Instance
-	local events = ReplicatedStorage:FindFirstChild("Events")
-	if events then return events end
-	local folder = Instance.new("Folder")
-	folder.Name = "Events"
-	folder.Parent = ReplicatedStorage
-	return folder
-end
-
-local function ensureAntiCheatRemotes(): ()
-	local events = getOrCreateEvents()
-	local ready: { string } = {}
-	for _, name in ipairs(ANTICHEAT_REMOTES) do
-		local existing = events:FindFirstChild(name)
-		if existing and existing:IsA("RemoteEvent") then
-			table.insert(ready, name)
-		elseif existing then
-			warn(`[AntiCheat] Events.{name} is a {existing.ClassName}, not RemoteEvent — channel broken`)
-		else
-			local remote = Instance.new("RemoteEvent")
-			remote.Name = name
-			remote.Parent = events
-			table.insert(ready, name)
-		end
-	end
-	-- Boot self-check: positive confirmation replaces the old silent "disabled" warns.
-	print(`[AntiCheat] remote channels ready: {table.concat(ready, ", ")}`)
-end
-
 -- ── Detector access via metatable ──
 -- Installed in Init, after loadDetectors(): a __index that resolves any unknown
 -- key (i.e. not OnFlag/OnAction/Flag/Whitelist/etc.) to a registered detector
@@ -664,11 +725,14 @@ Lifecycle.Define(AntiCheat, {
 	Needs = {},
 	Init = function()
 		ensureCleanup()
-		ensureAntiCheatRemotes() -- create channels BEFORE detectors Init (Phase 17.1)
+		-- The client channels (AntiCheat.Report, AntiCheat.Heartbeat) are Net RPCs
+		-- the detectors register in their Init; no raw Events remotes are created.
 		-- NetService reports rate-limit / argument-validation violations through this
-		-- hook (it does not require this module from the shared side).
-		Net.SetViolationHandler(function(player: Player, reason: string, severity: Types.Severity)
-			recordFlag(player, reason, severity)
+		-- hook (it does not require this module from the shared side). A rejected
+		-- request is client-controlled input, so NetService names it "client":
+		-- journaled, never an action candidate.
+		Net.SetViolationHandler(function(player: Player, reason: string, severity: Types.Severity, source: Types.EvidenceSource?)
+			recordFlag(player, reason, severity, source or "client")
 		end)
 		-- Detectors game code registered before AntiCheat started are registered
 		-- again after the built-in ones, as when the built-ins always loaded first:

@@ -3,29 +3,36 @@
 -- SettingsService.lua
 -- Location: ServerStorage/Gaxia_Packages_Server/Lib/SettingsService
 -- Purpose : Server-authoritative bridge to Profile.Data.Settings with a
---           key + type WHITELIST, plus a client RemoteFunction so the (already
---           built) settings UI can read/write. Persisted Settings (Music/SFX…)
---           were previously dead — no endpoint reached them. Unknown keys and
---           bad-typed values are rejected (anti-exploit).
+--           key + type whitelist. Client requests use the registered Net
+--           RPCs below; this service never owns a raw RemoteFunction.
 --
 -- Access  : Gaxia.Settings  (server) — list "Settings" in Features (or touch it at
---           boot) to create the client bridge before a client invokes it:
---   Gaxia.Settings.RegisterSetting("Quality", function(v) return typeof(v)=="number" end)
+--           boot) to register the client RPCs before a client invokes them:
+--   Gaxia.Settings.RegisterSetting("Quality", function(v) return typeof(v) == "number" end)
 --   Gaxia.Settings.Set(player, "Music", false)
--- Client  : RemoteFunction ReplicatedStorage.Events.Gaxia_Settings
---   remote:InvokeServer("get"|"getAll"|"set", key, value)
---           Rate-limited per player (token bucket, REMOTE_RATE / REMOTE_BURST):
---           over budget the call returns nil. Rejection warnings are throttled.
+-- Client  : Shared.Settings (client)
+--   Settings.Get("Music") / Settings.GetAll() / Settings.Set("Music", false)
+--
+-- Transport contract:
+--   Settings.Read { key = string? }  -- omitted key returns all settings
+--   Settings.Set  { key = string, value = any }
+--           Net applies its per-RPC rate / schema / concurrency gates, then a
+--           per-player token bucket shared by both RPCs (REMOTE_RATE /
+--           REMOTE_BURST) rejects calls over budget. Rejection warnings are
+--           throttled.
 -- ─────────────────────────────────────────────────────────────
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players           = game:GetService("Players")
 
 -- ── Dependencies ──
+local Net         = require(ReplicatedStorage.Gaxia_Packages.Shared.NetService)
 local Lifecycle   = require(script.Parent.ServiceLifecycle)
 local DataManager = require(script.Parent.DataManager)
 
 local SETTINGS_KEY : string = "Settings"        -- Profile.Data.Settings
-local REMOTE_NAME  : string = "Gaxia_Settings"
+local READ_RPC     : string = "Settings.Read"
+local SET_RPC      : string = "Settings.Set"
+local MAX_SETTING_KEY_BYTES: number = 64
 local REMOTE_RATE  : number = 5                -- client calls refilled per second, per player
 local REMOTE_BURST : number = 10               -- bucket capacity (calls in a burst)
 local WARN_INTERVAL: number = 10               -- seconds between two warnings of one kind
@@ -34,12 +41,13 @@ local MAX_KEY_SHOWN: number = 40               -- chars of a rejected key shown 
 local SettingsService = {}
 
 -- key → validator(value) -> boolean. Defaults mirror DataManager.DEFAULT_PROFILE.Settings.
-local function isBool(v: any): boolean
-	return typeof(v) == "boolean"
+local function isBool(value: any): boolean
+	return typeof(value) == "boolean"
 end
+
 local whitelist: { [string]: (value: any) -> boolean } = {
 	Music = isBool,
-	SFX   = isBool,
+	SFX = isBool,
 }
 
 -- Warnings a client can trigger are throttled per kind. The kinds are bounded
@@ -56,7 +64,7 @@ local function throttledWarn(kind: string, message: string): ()
 	warn(message)
 end
 
--- ── Public API ──
+-- ── Public server API ──
 
 function SettingsService.RegisterSetting(key: string, validator: (value: any) -> boolean): ()
 	if type(key) ~= "string" or #key == 0 or type(validator) ~= "function" then
@@ -77,15 +85,15 @@ function SettingsService.GetAll(player: Player): { [string]: any }
 	local settings = DataManager.Get(player, SETTINGS_KEY)
 	local out: { [string]: any } = {}
 	if typeof(settings) == "table" then
-		for k, v in pairs(settings) do
-			out[k] = v
+		for key, value in pairs(settings) do
+			out[key] = value
 		end
 	end
 	return out
 end
 
--- Validate against the whitelist, then persist. Returns false on unknown key /
--- bad value / profile-not-loaded.
+-- Validate against the whitelist, then persist. Returns false on unknown key,
+-- bad value, or profile-not-loaded.
 function SettingsService.Set(player: Player, key: string, value: any): boolean
 	local check = whitelist[key]
 	if not check then
@@ -105,21 +113,9 @@ function SettingsService.Set(player: Player, key: string, value: any): boolean
 	return DataManager.Set(player, SETTINGS_KEY, settings) == true
 end
 
--- ── Client bridge (RemoteFunction) ──
--- Created in Init (no yield: FindFirstChild + Instance.new), so the service must
--- start before the client invokes (list "Settings" in Features).
-local function getOrCreateEvents(): Instance
-	local events = ReplicatedStorage:FindFirstChild("Events")
-	if events then
-		return events
-	end
-	local folder = Instance.new("Folder")
-	folder.Name = "Events"
-	folder.Parent = ReplicatedStorage
-	return folder
-end
+-- ── Registered Net RPCs (registered in Init) ──
 
--- Per-player token bucket for the remote. Weak keys + PlayerRemoving cleanup.
+-- Per-player token bucket shared by both RPCs. Weak keys + PlayerRemoving cleanup.
 type Bucket = { tokens: number, lastClock: number }
 local buckets: { [Player]: Bucket } = setmetatable({}, { __mode = "k" }) :: any
 
@@ -139,38 +135,95 @@ local function consume(player: Player): boolean
 	return false
 end
 
-local function onServerInvoke(player: Player, op: any, key: any, value: any): any
+local function isSettingKey(value: any): boolean
+	return typeof(value) == "string" and #value > 0 and #value <= MAX_SETTING_KEY_BYTES
+end
+
+local function hasOnlyFields(payload: { [any]: any }, allowed: { [string]: boolean }): boolean
+	for field in pairs(payload) do
+		if typeof(field) ~= "string" or allowed[field] ~= true then
+			return false
+		end
+	end
+	return true
+end
+
+-- A read either targets one bounded key or uses an empty payload to request a
+-- copy of the caller's complete settings table. Reject surplus fields instead
+-- of silently accepting a future client-controlled protocol extension.
+local function isReadPayload(payload: any): boolean
+	if typeof(payload) ~= "table" or not hasOnlyFields(payload, { key = true }) then
+		return false
+	end
+	return payload.key == nil or isSettingKey(payload.key)
+end
+
+-- `value` must be present. NetProtocol's tiny budget bounds its supported
+-- primitive/table contents before this endpoint-specific shape check runs;
+-- the setting's own whitelist remains the domain validator.
+local function isSetPayload(payload: any): boolean
+	if typeof(payload) ~= "table" or not hasOnlyFields(payload, { key = true, value = true }) then
+		return false
+	end
+	return isSettingKey(payload.key) and payload.value ~= nil
+end
+
+-- The shared per-player budget; over it the request is rejected by Net.
+local function withinBudget(context: any, _payload: any): boolean
+	local player = context.player
 	if not consume(player) then
-		throttledWarn("rate", `[SettingsService] {player.Name} is calling {REMOTE_NAME} too fast; extra calls return nil`)
-		return nil
+		throttledWarn("rate", `[SettingsService] {player.Name} is calling the Settings RPCs too fast; extra calls are rejected`)
+		return false
 	end
-	if op == "get" and typeof(key) == "string" then
-		return SettingsService.Get(player, key)
-	elseif op == "getAll" then
-		return SettingsService.GetAll(player)
-	elseif op == "set" and typeof(key) == "string" then
-		return SettingsService.Set(player, key, value)
-	end
-	return nil
+	return true
+end
+
+-- Net supplies this Player from Roblox, never from the payload. Still require
+-- a currently connected player for a state-changing request so a request that
+-- races PlayerRemoving cannot mutate detached profile state.
+local function maySetOwnSettings(context: any, payload: any): boolean
+	local player = context.player
+	return typeof(player) == "Instance"
+		and player:IsA("Player")
+		and player.Parent == Players
+		and withinBudget(context, payload)
+end
+
+local function registerRpcs(): ()
+	Net.Server.RegisterFunction(READ_RPC, {
+		schema = isReadPayload,
+		validate = withinBudget,
+		handler = function(context: any, payload: any): any
+			if payload.key == nil then
+				return SettingsService.GetAll(context.player)
+			end
+			return SettingsService.Get(context.player, payload.key)
+		end,
+		rate = 4,
+		burst = 8,
+		budget = "tiny",
+		concurrency = 2,
+	})
+
+	Net.Server.RegisterFunction(SET_RPC, {
+		schema = isSetPayload,
+		validate = maySetOwnSettings,
+		mutation = true,
+		handler = function(context: any, payload: any): boolean
+			return SettingsService.Set(context.player, payload.key, payload.value)
+		end,
+		rate = 2,
+		burst = 4,
+		budget = "tiny",
+		concurrency = 1,
+	})
 end
 
 Lifecycle.Define(SettingsService, {
 	Name = "Settings",
 	Needs = {},
 	Init = function()
-		local events = getOrCreateEvents()
-		local existing = events:FindFirstChild(REMOTE_NAME)
-		if existing and not existing:IsA("RemoteFunction") then
-			existing:Destroy()
-			existing = nil
-		end
-		local remote: RemoteFunction = (existing :: RemoteFunction?) or (function()
-			local r = Instance.new("RemoteFunction")
-			r.Name = REMOTE_NAME
-			r.Parent = events
-			return r
-		end)()
-		remote.OnServerInvoke = onServerInvoke
+		registerRpcs()
 		Players.PlayerRemoving:Connect(function(player: Player)
 			buckets[player] = nil
 		end)

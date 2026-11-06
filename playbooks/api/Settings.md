@@ -2,12 +2,12 @@
 
 # Settings
 
-> Per-player settings saved in the profile, with a client remote to read and change them.
+> Per-player settings saved in the profile, with Net RPCs (Settings.Read / Settings.Set) and a client module to read and change them.
 
 - Package: `Settings` · Category: Data & players
 - Starts at server boot: **yes, whenever installed** (it has work to do before its first call)
 - Installing it also installs: [Data](Data.md)
-- Check it is installed: `GaxiaServer.IsInstalled("Settings")` on the server
+- Check it is installed: `GaxiaServer.IsInstalled("Settings")` on the server; `Gaxia.IsInstalled("Settings")` on the client
 
 ## `GaxiaServer.Settings`
 
@@ -27,4 +27,26 @@ local Settings = GaxiaServer.Settings
 - `Settings.Get(player: Player, key: string): any`
 - `Settings.GetAll(player: Player): { [string]: any }`
 - `Settings.Set(player: Player, key: string, value: any): boolean`
-  Validate against the whitelist, then persist. Returns false on unknown key / bad value / profile-not-loaded.
+  Validate against the whitelist, then persist. Returns false on unknown key, bad value, or profile-not-loaded.
+
+## `Gaxia.Settings`
+
+- Runs: **server and client**
+- Source: `src/ReplicatedStorage/Gaxia_Packages/Shared/Settings.lua`
+
+Get it:
+
+```lua
+local Gaxia = require(game:GetService("ReplicatedStorage").Gaxia_Packages)
+local Settings = Gaxia.Settings
+-- or, to get its types in your own ModuleScript: local Settings = require(game:GetService("ReplicatedStorage").Gaxia_Packages.Shared.Settings)
+```
+
+### Functions
+
+- `Settings.Get(key: string): any`
+  The saved value of setting `key`, or nil (unknown key, rejected or failed).
+- `Settings.GetAll(): { [string]: any }`
+  Every saved setting of this player ({} on rejection or failure).
+- `Settings.Set(key: string, value: any): boolean`
+  Saves setting `key`; true only when the server accepted and stored it.

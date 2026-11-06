@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Installs the pinned tools the framework checks need (Linux x86_64) into one folder:
-#   <dest>/bin/{rojo,lune,luau-lsp,luau-ast}   <dest>/defs/globalTypes.d.luau
+#   <dest>/bin/{rojo,lune,luau-lsp,luau-ast,wally}   <dest>/defs/globalTypes.d.luau
 # Used by .github/workflows/checks.yml; works the same on a dev machine:
 #   bash tools/ci/install-tools.sh /tmp/gaxia-tools
 #   export PATH=/tmp/gaxia-tools/bin:$PATH ROBLOX_DEFS=/tmp/gaxia-tools/defs/globalTypes.d.luau
@@ -18,6 +18,7 @@ ROJO_VERSION=7.4.4         # needs only `rojo sourcemap`; rokit.toml pins 7.7.0-
 LUNE_VERSION=0.10.4        # = rokit.toml
 LUAU_LSP_VERSION=1.70.0    # the version the type checks were last verified with
 LUAU_VERSION=0.744         # luau-ubuntu.zip ships luau-ast (check-architecture.mjs)
+WALLY_VERSION=0.3.2        # = rokit.toml; installs Packages/ (Observers) and ServerPackages/ (ProfileStore)
 
 # name|url|sha256
 ASSETS=(
@@ -25,6 +26,7 @@ ASSETS=(
   "lune.zip|https://github.com/lune-org/lune/releases/download/v${LUNE_VERSION}/lune-${LUNE_VERSION}-linux-x86_64.zip|ffba0bd404ae078c9543ef5ac12479938a741aab255768a11a08517ae963b288"
   "luau-lsp.zip|https://github.com/JohnnyMorganz/luau-lsp/releases/download/${LUAU_LSP_VERSION}/luau-lsp-linux-x86_64.zip|4ff08890ea0d4b6d9de25fdff1a4c87e0dc9f2e45d782c894e83475e51d55813"
   "luau.zip|https://github.com/luau-lang/luau/releases/download/${LUAU_VERSION}/luau-ubuntu.zip|6506f0852c623aaffcb28494aac16c26dc04a269ea0e16cc0aafc8c8ac79f3ec"
+  "wally.zip|https://github.com/UpliftGames/wally/releases/download/v${WALLY_VERSION}/wally-v${WALLY_VERSION}-linux.zip|21fdbb53dfee397fd21ca7fdd208db65cff0f87f0fd045cdb594b951981bd73f"
   # Roblox type definitions from the luau-lsp tag that matches LUAU_LSP_VERSION.
   "globalTypes.d.luau|https://raw.githubusercontent.com/JohnnyMorganz/luau-lsp/${LUAU_LSP_VERSION}/scripts/globalTypes.d.luau|2b0df788dc3fd1b572e71ee7fe9e1c55cc23882afbd5024aecdec30d9bd7520f"
 )
@@ -59,12 +61,14 @@ unzip -oq "$DEST/dl/rojo.zip" rojo -d "$DEST/bin"
 unzip -oq "$DEST/dl/lune.zip" lune -d "$DEST/bin"
 unzip -oq "$DEST/dl/luau-lsp.zip" luau-lsp -d "$DEST/bin"
 unzip -oq "$DEST/dl/luau.zip" luau-ast -d "$DEST/bin"
+unzip -oq "$DEST/dl/wally.zip" wally -d "$DEST/bin"
 chmod +x "$DEST/bin/"*
 cp "$DEST/dl/globalTypes.d.luau" "$DEST/defs/globalTypes.d.luau"
 
 "$DEST/bin/rojo" --version
 "$DEST/bin/lune" --version
 "$DEST/bin/luau-lsp" --version
+"$DEST/bin/wally" --version
 "$DEST/bin/luau-ast" 2>&1 | head -1 || true
 
 if [ -n "${GITHUB_PATH:-}" ]; then

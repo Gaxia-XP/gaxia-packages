@@ -159,12 +159,19 @@ end
 
 -- Destroy every ModuleScript under `root` whose path is not kept (a kept module
 -- keeps its children). Folders stay, so the loaders find Lib / Shared / Client /
--- Client.UI even when nothing in them is installed. Returns the number removed.
+-- Client.UI even when nothing in them is installed. The Wally folders at the top
+-- (Packages: Observers; ServerPackages: ProfileStore) always stay whole: they are
+-- libraries, not catalogue modules. Returns the number removed.
+local WALLY_FOLDERS: { [string]: boolean } = { Packages = true, ServerPackages = true }
+
 function PackageSelect.prune(root: Instance, kept: { string }): number
 	local removed = 0
 	local function visit(parent: Instance, prefix: string)
 		for _, child in ipairs(parent:GetChildren()) do
 			local path = if prefix == "" then child.Name else prefix .. "/" .. child.Name
+			if prefix == "" and WALLY_FOLDERS[child.Name] and not child:IsA("ModuleScript") then
+				continue
+			end
 			if child:IsA("ModuleScript") then
 				if isKept(kept, path) then
 					continue -- kept with everything under it

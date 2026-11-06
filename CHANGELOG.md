@@ -632,6 +632,65 @@ guards (Animation / Backpack / Combat / HumanoidState / Stat), `ZoneService`,
   and function tasks run via `task.spawn`. None of the migrated call sites
   depend on these.
 
+### Merged — networking and anti-cheat hardening, ProfileStore, Wally (from `codex/oss-library-migration`)
+The Sep 2–6 line was merged into this one. Its new modules and hardening were ported into the typed
+lifecycle-service shape; where both lines hardened the same check, both checks were kept.
+
+**Added**
+- `Gaxia.Central` (`Shared/CentralManager`): a named priority scheduler with deterministic task lifecycle
+  and cleanup. The interval option is `intervalSec` (as Cooking Battle uses it; `duration` is still read
+  when `intervalSec` is absent), and a task's elapsed time no longer carries a remainder into the next
+  call, which made short intervals run about 1.4x fast.
+- `Gaxia.Prompt` (`Client/PromptManager`, client only): tracks, highlights and manually holds the current
+  `ProximityPrompt` without leaking prompt connections.
+- `Gaxia.Observers`: the MIT-licensed `sleitnick/observers@1.0.0` Wally package, exposed as is.
+- `Shared/Settings` (client only): `Settings.Get` / `GetAll` / `Set` over the `Settings.Read` /
+  `Settings.Set` Net RPCs, replacing the raw `Gaxia_Settings` RemoteFunction bridge.
+- `NetProtocol`: bounded RPC definitions with payload validation, replay windows, request-id caching,
+  per-RPC concurrency limits, rejection codes and server-only RPC metrics. Settings, Command, Pet, Friend,
+  Party, Guild, Admin, client anti-cheat reports and heartbeats use definition-based Net RPCs.
+- `RemoteObfuscator`: `NetService` wraps event and function arguments in a per-player, per-message
+  XOR-obfuscated envelope in both directions, with depth, node and argument-count limits; logical remote
+  names travel as hashed ids. Malformed envelopes are dropped and reported to AntiCheat. This deters basic
+  RemoteSpy use; it is not authentication, and server validation and rate limits stay authoritative.
+- `RemoteTrap` (AntiCheat): honeypot and wrong-direction remote observation.
+- `AntiCheatEnforcement`: the only owner of automatic actions. Observe mode by default; client reports and
+  client-liveness signals are telemetry only. Only reviewed server or trap evidence (or a transport source
+  you add explicitly) can act, and only after switching to enforce mode.
+- Hardening in AntiCheat and its guards, AdminCommands, BanService, AntiCheatJournal, FriendService,
+  GuildService (fresh membership and vault reads), PartyService, PetService, SettingsService and
+  WebhookService.
+- `ANTICHEAT_HARDENING_PLAN.md`, and offline hardening checks (`tests/hardening.README.md`,
+  `python scripts/test-hardening-local.py`).
+
+**Changed**
+- `DataManager` stores profiles with the server-only ProfileStore 1.0.3 Wally package instead of the
+  bundled ProfileService copy. Store names, keys, schema reconciliation, manual saves and every API from
+  this line (`SetDefaults`, `WaitFor` with its 120 s default, atomic migration, neutral kick messages, no
+  kick on a normal leave) are unchanged.
+- Builds need `wally install` once: it creates `Packages/` (mapped to `Gaxia_Packages.Packages`) and
+  `ServerPackages/` (mapped to `Gaxia_Packages_Server.ServerPackages`), pinned by `wally.lock` and ignored by
+  Git. `default.project.json`, `plugin.project.json` and the new `export.project.json` (distributable model)
+  map them. `wally` was added to `rokit.toml` and `aftman.toml`.
+
+**Behaviour changes for games**
+- `AntiCheat.Flag(player, reason, severity, source)`: only the sources `"server"`, `"transport"` and `"trap"`
+  can lead to an action. A flag without a source (or a custom detector that returns none) is journal-only.
+- Automatic temp and perm bans are off by default (`Config.AntiCheat.Enforcement.Actions`); with
+  `Enforce = true` only kicks happen until you switch them on. `Config.AntiCheat.Enforce` is the one switch.
+- The raw `Events/Gaxia_Settings`, `Events/Friend/Action`, `Events/Guild/Action`, `Events/Party/InviteAction`
+  and `Events/Admin/Action` remotes are gone; their clients use the named Net RPCs.
+- `Net.FireServer` / `InvokeServer` drop Instances and other Roblox datatypes sent by a client (soft flag),
+  every player has a global limit of 60 remote calls/s (burst 100), and remote names in the Explorer are
+  hashed.
+
+**Not taken from that line**
+- `Signal`, `Maid`, `Guard`, `Util.Table`, `ZoneService`, `Symbol` and `ComponentLegacy` keep this line's
+  first-party implementations and APIs (typed, NaN-safe, covered by the headless harness). The other line
+  had replaced them with direct aliases of Wally packages (sleitnick/signal, Janitor, t, TableUtil,
+  ZonePlus, sleitnick/symbol, Component) and dropped their Gaxia-specific methods.
+- `Shared/Comm` stays removed.
+
 ### Added — Pet Coins multiplier wired into the Idle & Quest faucets
 `PetService.GetCoinMultiplier` (built in the Pet MVP) was previously **dead** — no
 faucet consumed it, so equipped pets had no in-game effect. The two **generated**
@@ -645,6 +704,10 @@ coin faucets now apply it:
   multiplying it would mint currency.
 - Lookup is best-effort (`pcall` + NaN guard → `1.0`), so a missing Pet service
   never breaks a grant.
+
+> **Historical note:** Entries below describe older release topology. References
+> to direct `Events/*/Action` C2S remotes or multiple automatic `OnAction`
+> consumers were superseded by the gateway/enforcement migration above.
 
 ### Fixed — high roles can no longer be auto-banned or auto-kicked (escalation banned the owner)
 The AntiCheat auto-escalation had no role awareness: dev-tool teleports
@@ -661,10 +724,11 @@ and then kicked at join by the ban gate — locked out of their own game.
   falling back to creator-only). Known limit: DataStore-granted roles load
   async at join, so a hard-flag burst in the first seconds can still strike a
   non-Bootstrap admin.
-- **Bootstrap kick exemption** — `AntiCheat.OnAction` has TWO enforcing
-  consumers; the default hard-action handler in `Gaxia_ServerBootstrap` used
-  to kick unconditionally, so the creator was still kicked even with the ban
-  exemption. It now consults the new public `Ban.IsEscalationExempt(userId)`.
+- **Bootstrap kick exemption (historical topology)** — at that point
+  `AntiCheat.OnAction` had two enforcing consumers; the default hard-action
+  handler in `Gaxia_ServerBootstrap` could kick unconditionally, so the creator
+  was still kicked even with the ban exemption. The current architecture has
+  only `AntiCheatEnforcement` as the automatic-action owner.
 - **Join-gate self-heal** — a stale ban record on the place creator is
   dropped with a warn instead of kicking (creator only: lower staff can be
   legitimately banned, so their records must still enforce).

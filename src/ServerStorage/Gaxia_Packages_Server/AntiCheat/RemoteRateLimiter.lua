@@ -8,6 +8,12 @@
 	          budget more than BURST per second.
 
 	Public extra API: RemoteRateLimiter.Wrap(remote)  -- attach to ad-hoc remotes.
+
+	Covers the raw RemoteEvents a game still creates under ReplicatedStorage.Events
+	(Net RPCs have their own budgets in NetService; RemoteTrap watches honeypot and
+	wrong-direction remotes). The fire rate is client-controlled input, so its
+	flags carry source "client": journaled, never an action candidate. Wrap only
+	flags — it cannot stop the remote's other OnServerEvent listeners.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -101,7 +107,7 @@ function RemoteRateLimiter.Wrap(remote: RemoteEvent): RemoteEvent
 		-- side state (other listeners still see it; if you want hard block,
 		-- destroy the remote on flag).
 		if orchestratorRef then
-			orchestratorRef.Flag(player, "RemoteRate", RATE_SEVERITY)
+			orchestratorRef.Flag(player, "RemoteRate", RATE_SEVERITY, "client")
 		end
 	end)
 	return remote

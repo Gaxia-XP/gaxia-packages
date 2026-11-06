@@ -2,7 +2,7 @@
 
 # Data
 
-> Player save data (ProfileService): Get / Set / Save, session locking, auto-save.
+> Player save data (ProfileStore, Wally): Get / Set / Save, session locking, auto-save.
 
 - Package: `Data` · Category: Data & players
 - Starts at server boot: **yes, whenever installed** (it has work to do before its first call)
@@ -31,7 +31,7 @@ local Data = GaxiaServer.Data
   Yields until the player's data is loaded and returns the data table. Returns nil when the player leaves or `timeout` seconds pass first (default 120 seconds: Config.Data.WaitForDefaultTimeout).
 - `Data.IsLoaded(player: Player): boolean`
 - `Data.Save(player: Player): ()`
-  Force-save (ProfileService persists periodically, this just nudges it).
+  Force-save (ProfileStore persists periodically, this just nudges it).
 - `Data.SetDefaults(defaults: { [string]: any }): boolean`
   Adds default values for the game's own saved fields. Every player who does not have a field yet gets it when their data loads (new players, and fields added in an update), before Data.WaitFor / Data.OnLoaded return the data. Nested tables are deep-merged: `{ Settings = { Volume = 1 } }` adds `Settings.Volume` and keeps the built-in settings. A list (`{ "Sword", "Bow" }`) is one value: a player gets it only when the field is missing, and a saved list is never merged with it. Values must be saveable: numbers, strings, booleans, and tables of them that use string keys only or are a list 1, 2, 3... (a table that mixes the two is refused). Built-in fields (Coins, Level, Settings.Music, ...) and names starting with "__" are refused (warned). Call it at the top of a Script, before players load. A late call warns and fills the players already loaded too. Calling it again merges into the earlier defaults. Returns false when any field was refused.
 
@@ -42,7 +42,7 @@ Connect with `:Connect(function(...) end)`; the parameters are the payload types
 - `Data.OnLoaded` — `Signal<Player, PlayerData>`
   (player, data) once the player's profile is loaded, reconciled and migrated
 - `Data.OnReleased` — `Signal<Player>`
-  (player) after the player's profile is released (leave or shutdown)
+  (player) after the player's profile session ends (leave or shutdown)
 - `Data.OnDataChanged` — `Signal<Player, string, any>`
   (player, key, value) after DataManager.Set
 

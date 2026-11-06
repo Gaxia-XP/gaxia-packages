@@ -73,7 +73,7 @@ local function inspectAddition(player: Player, child: Instance)
 			child:Destroy()
 		end
 		if orchestratorRef then
-			orchestratorRef.Flag(player, "Backpack", Config.AntiCheat.Backpack.Severity)
+			orchestratorRef.Flag(player, "Backpack", Config.AntiCheat.Backpack.Severity, "server")
 		end
 	end)
 end

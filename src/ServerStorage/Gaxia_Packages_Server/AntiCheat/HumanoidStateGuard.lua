@@ -102,7 +102,7 @@ local function flag(player: Player, kind: string, severity: string)
 	if orchestratorRef.IsDetectorEnabled and not orchestratorRef.IsDetectorEnabled("HumanoidState") then
 		return
 	end
-	orchestratorRef.Flag(player, `HumanoidState:{kind}`, severity)
+	orchestratorRef.Flag(player, `HumanoidState:{kind}`, severity, "server")
 end
 
 local function onStateChanged(player: Player, humanoid: Humanoid, _old: Enum.HumanoidStateType, new: Enum.HumanoidStateType)

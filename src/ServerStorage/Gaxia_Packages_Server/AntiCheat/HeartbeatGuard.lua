@@ -5,22 +5,27 @@
 	Purpose : Detects players whose ClientAntiCheat has been disabled (module
 	          deleted, RemoteEvent removed, script context tampered) by
 	          requiring a periodic heartbeat from the client. Missed heartbeats
-	          past HEARTBEAT_TIMEOUT raise a soft flag — repeated misses escalate
-	          via the orchestrator's threshold ladder to a hard kick.
+	          past HEARTBEAT_TIMEOUT raise telemetry-only evidence (source
+	          "client_liveness"): silence can be spoofed or caused by connection
+	          trouble, so it is journaled but never becomes an action candidate.
 
 	WHY this exists:
-	  An exploiter could delete ReplicatedStorage.Events.AntiCheat_Report or
-	  ReplicatedStorage.Gaxia_Packages.Client.ClientAntiCheat to silence client
-	  reports. The heartbeat channel is independent (System_Heartbeat) and
-	  *expects* presence — silence is itself a signal.
+	  An exploiter could delete ReplicatedStorage.Gaxia_Packages.Client.ClientAntiCheat
+	  to silence client reports. The heartbeat channel is independent
+	  (the AntiCheat.Heartbeat Net RPC) and *expects* presence — silence is
+	  itself a signal.
 ]]
 
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- ── Dependencies ──
+local Net    = require(ReplicatedStorage.Gaxia_Packages.Shared.NetService)
 local Types  = require(script.Parent.Parent.Types)
 local Config = require(script.Parent.Parent.Config)
+
+-- The client fires this (Client/ClientAntiCheat) with an empty table.
+local HEARTBEAT_RPC: string = "AntiCheat.Heartbeat"
 
 -- ── Types ──
 type Snapshot = Types.AntiCheatSnapshot
@@ -46,21 +51,24 @@ local joinTime      : { [Player]: number } = {}
 -- tick (sampler runs at 0.5s, much faster than the timeout window).
 local lastFlagged   : { [Player]: number } = {}
 
-function HeartbeatGuard.Init(_orchestrator: DetectorHost): ()
-	local events = ReplicatedStorage:WaitForChild("Events", 5)
-	local remote = events and events:FindFirstChild("System_Heartbeat")
-	if not remote or not remote:IsA("RemoteEvent") then
-		warn("[HeartbeatGuard] System_Heartbeat RemoteEvent not found — guard disabled")
-		return
-	end
+local function isHeartbeatPayload(payload: any): boolean
+	return typeof(payload) == "table" and next(payload) == nil
+end
 
-	-- Note: we intentionally do NOT validate payload — the *fact* of the fire
-	-- is the signal. A compromised client could spoof these, but if they could
-	-- spoof, they'd also pass other detectors; this guard only catches the
-	-- "disabled" case.
-	remote.OnServerEvent:Connect(function(player)
-		lastHeartbeat[player] = os.clock()
-	end)
+function HeartbeatGuard.Init(_orchestrator: DetectorHost): ()
+	-- Note: the payload carries nothing — the *fact* of the fire is the signal.
+	-- A compromised client could spoof these, but if they could spoof, they'd
+	-- also pass other detectors; this guard only catches the "disabled" case.
+	Net.Server.RegisterEvent(HEARTBEAT_RPC, {
+		schema = isHeartbeatPayload,
+		handler = function(context: any, _payload: any)
+			lastHeartbeat[context.player] = os.clock()
+		end,
+		rate = 2,
+		burst = 4,
+		budget = "tiny",
+		concurrency = 1,
+	})
 
 	local function track(p: Player)
 		joinTime[p] = os.clock()
@@ -91,7 +99,7 @@ function HeartbeatGuard.Sample(player: Player, snapshot: Snapshot): Flag?
 	if lastFlag and (now - lastFlag) < HEARTBEAT_TIMEOUT then return nil end
 	lastFlagged[player] = now
 
-	return { reason = "Heartbeat", severity = HEARTBEAT_SEVERITY }
+	return { reason = "Heartbeat", severity = HEARTBEAT_SEVERITY, source = "client_liveness" }
 end
 
 return HeartbeatGuard

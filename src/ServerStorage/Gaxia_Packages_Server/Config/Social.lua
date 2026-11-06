@@ -7,7 +7,7 @@ return {
 		RequestCooldownSec = 10,
 		OnlineCacheSec     = 60,
 		InviteQueueTTLDays = 7,
-		RemoteRate         = 4,  -- Events/Friend/Action requests per second per player
+		RemoteRate         = 4,  -- Friend.* Net RPC requests per second per player
 		RemoteBurst        = 10, -- requests allowed at once before RemoteRate applies
 	},
 	Guild = {
@@ -21,13 +21,13 @@ return {
 		CreateCost         = 0,
 		VaultLockTTLSec    = 5,
 		InviteQueueTTLDays = 7,
-		RemoteRate         = 4,  -- Events/Guild/Action requests per second per player
+		RemoteRate         = 4,  -- Guild.* Net RPC requests per second per player
 		RemoteBurst        = 10, -- requests allowed at once before RemoteRate applies
 	},
 	Party = {
 		InviteTTL   = 60, -- seconds; ephemeral RAM-only invites
 		MaxPending  = 10, -- per target player across all parties
-		RemoteRate  = 4,  -- Events/Party/InviteAction requests per second per player
+		RemoteRate  = 4,  -- Party.* Net RPC requests per second per player
 		RemoteBurst = 10, -- requests allowed at once before RemoteRate applies
 	},
 }

@@ -173,9 +173,9 @@ local function buildSlot(inst: { [string]: any }, def: { [string]: any }?, isEqu
 
 	btn.Activated:Connect(function()
 		if isEquipped then
-			Net.FireServer("PetUnequip", { uid = inst.uid })
+			Net.Client.Fire("PetUnequip", { uid = inst.uid })
 		else
-			Net.FireServer("PetEquip", { uid = inst.uid })
+			Net.Client.Fire("PetEquip", { uid = inst.uid })
 		end
 	end)
 
@@ -240,14 +240,12 @@ local function rebuild(): ()
 	end
 end
 
--- ── Request fresh state (RemoteFunction) ──
+-- ── Request fresh state (Net RPC PetGetState) ──
 
 local function requestState(): ()
-	local ok, snap = pcall(function()
-		return Net.InvokeServer("PetGetState")
-	end)
-	if ok and typeof(snap) == "table" then
-		snapshot = snap
+	local ok, result = pcall(Net.Client.Invoke, "PetGetState", {})
+	if ok and result.ok == true and typeof(result.data) == "table" then
+		snapshot = result.data
 		rebuild()
 	end
 end
@@ -352,7 +350,7 @@ function PetController.Open(): ()
 	buyButton = bb
 	bb.Activated:Connect(function()
 		local eggId = panelEgg()
-		Net.FireServer("PetBuyEgg", { egg = eggId or DEFAULT_EGG })
+		Net.Client.Fire("PetBuyEgg", { egg = eggId or DEFAULT_EGG })
 	end)
 
 	-- Grid of owned pets.

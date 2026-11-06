@@ -22,6 +22,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- ── Dependencies ──
 local Signal          = require(ReplicatedStorage.Gaxia_Packages.Shared.Signal)
+local Net             = require(ReplicatedStorage.Gaxia_Packages.Shared.NetService)
 local Lifecycle       = require(script.Parent.ServiceLifecycle)
 local Config          = require(script.Parent.Parent.Config)
 local EConfig         = require(script.Parent.EffectiveConfig)
@@ -30,7 +31,7 @@ local TeleportService = require(script.Parent.TeleportService)
 local InviteQueue     = require(script.Parent.InviteQueue)
 local FriendService   = require(script.Parent.FriendService)
 
-local POOL_TTL : number = 120
+local POOL_TTL: number = 120
 
 -- ── Types ──
 -- Party members / leaders are stored as `any`: tests pass MockPlayers (StartMatch
@@ -208,7 +209,11 @@ local function poolName(matchType: string): string
 	return `mm_{matchType}`
 end
 
-function PartyService.QueueForMatch(partyId: string, matchType: string, placeId: number): (boolean, string)
+function PartyService.QueueForMatch(
+	partyId: string,
+	matchType: string,
+	placeId: number
+): (boolean, string)
 	local p = parties[partyId]
 	if not p then
 		return false, "no such party"
@@ -530,12 +535,15 @@ local function hookPlayers(): ()
 	end
 end
 
--- ── Remote guard for Events/Party/InviteAction ──
--- The same rules Net applies to its remotes (RemoteOpts rate / burst /
--- validators), for this RemoteFunction: a per-player token bucket
--- (Social.Party.RemoteRate per second, up to RemoteBurst at once), then a check
--- of every field of the envelope. A refused request returns (false, "rate
--- limited") or (false, "bad request") before any party code runs.
+-- ── Network surface ──
+-- Party mutations and reads use separate logical Net RPCs (Gaxia.Net.Client.Invoke).
+-- The legacy Events/Party/InviteAction RemoteFunction deliberately has no
+-- replacement handler; Events/Party/InviteInbound remains the outbound channel.
+--
+-- Two gates run before any party code: Net's own per-RPC rate / schema /
+-- concurrency gates, then the per-player token bucket shared by every Party RPC
+-- (Social.Party.RemoteRate per second, up to RemoteBurst at once). A refused
+-- request is rejected by Net's `validate` step.
 local function remoteAllowed(player: Player): boolean
 	local rate = inviteCfg("RemoteRate", Config.Social.Party.RemoteRate, 4)
 	local burst = inviteCfg("RemoteBurst", Config.Social.Party.RemoteBurst, 10)
@@ -554,36 +562,104 @@ local function remoteAllowed(player: Player): boolean
 	return true
 end
 
--- action -> { field -> check }. An action not listed here is "unknown action".
-local ACTION_FIELDS: { [string]: { [string]: (any) -> boolean } } = {
-	invite = { target = isUserId },
-	accept = { partyId = isPartyId },
-	decline = { partyId = isPartyId },
-	cancel = { target = isUserId },
-	pending = {},
-}
+local MAX_USER_ID = 9007199254740991 -- largest integer exactly representable by Luau numbers
 
--- nil when the envelope may run; else the (false, why) reason.
-local function checkEnvelope(player: Player, e: any): string?
-	if not remoteAllowed(player) then
-		return "rate limited"
-	end
-	if typeof(e) ~= "table" or typeof(e.type) ~= "string" then
-		return "bad envelope"
-	end
-	local fields = ACTION_FIELDS[e.type]
-	if not fields then
-		return "unknown action"
-	end
-	for field, check in pairs(fields) do
-		if not check(e[field]) then
-			return "bad request"
-		end
-	end
-	return nil
+type FieldValidators = { [string]: (any) -> boolean }
+
+local function isFiniteInteger(value: any): boolean
+	return typeof(value) == "number"
+		and value == value
+		and value ~= math.huge
+		and value ~= -math.huge
+		and value % 1 == 0
 end
 
--- ── RemoteFunction surface (created in Init) ──
+-- Client payload checks: stricter than isUserId / isPartyId above (which game
+-- code and Studio's negative test-player ids also go through).
+local function isPayloadUserId(value: any): boolean
+	return isFiniteInteger(value) and value > 0 and value <= MAX_USER_ID
+end
+
+local function isPayloadPartyId(value: any): boolean
+	return isPartyId(value) and string.match(value, "^party_%d+$") ~= nil
+end
+
+local function exactSchema(fields: FieldValidators): (any) -> boolean
+	return function(payload: any): boolean
+		if typeof(payload) ~= "table" then
+			return false
+		end
+		for key, value in pairs(payload) do
+			if typeof(key) ~= "string" then
+				return false
+			end
+			local validate = fields[key]
+			if not validate or not validate(value) then
+				return false
+			end
+		end
+		for key in pairs(fields) do
+			if payload[key] == nil then
+				return false
+			end
+		end
+		return true
+	end
+end
+
+local EMPTY_SCHEMA = exactSchema({})
+
+local function isCurrentPlayer(context: any, _payload: any): boolean
+	local player = context.player
+	return typeof(player) == "Instance"
+		and player:IsA("Player")
+		and player.Parent == game:GetService("Players")
+end
+
+local function readAllowed(context: any, _payload: any): boolean
+	return remoteAllowed(context.player)
+end
+
+local function mutationAllowed(context: any, payload: any): boolean
+	return isCurrentPlayer(context, payload) and remoteAllowed(context.player)
+end
+
+local function operationResult(ok: boolean, reason: string?): { ok: boolean, reason: string? }
+	return { ok = ok, reason = reason }
+end
+
+local function registerRead(name: string, schema: (any) -> boolean, handler: (any, any) -> any): ()
+	Net.Server.RegisterFunction(name, {
+		schema = schema,
+		handler = handler,
+		validate = readAllowed,
+		rate = 2,
+		burst = 4,
+		budget = "tiny",
+		concurrency = 1,
+	})
+end
+
+local function registerMutation(
+	name: string,
+	schema: (any) -> boolean,
+	handler: (any, any) -> any,
+	rate: number?,
+	burst: number?
+): ()
+	Net.Server.RegisterFunction(name, {
+		schema = schema,
+		handler = handler,
+		validate = mutationAllowed,
+		mutation = true,
+		rate = rate or 3,
+		burst = burst or 4,
+		budget = "tiny",
+		concurrency = 1,
+	})
+end
+
+-- ── Net RPCs + Events/Party/InviteInbound (created in Init) ──
 local function createRemotes(): ()
 	local Events = ReplicatedStorage:FindFirstChild("Events") or Instance.new("Folder")
 	Events.Name = "Events"
@@ -591,36 +667,54 @@ local function createRemotes(): ()
 	local PartyFolder = Events:FindFirstChild("Party") or Instance.new("Folder")
 	PartyFolder.Name = "Party"
 	PartyFolder.Parent = Events
-	local Action = PartyFolder:FindFirstChild("InviteAction") or Instance.new("RemoteFunction")
-	Action.Name = "InviteAction"
-	Action.Parent = PartyFolder
 	local Inbound = PartyFolder:FindFirstChild("InviteInbound") or Instance.new("RemoteEvent")
 	Inbound.Name = "InviteInbound"
 	Inbound.Parent = PartyFolder
 
-	Action.OnServerInvoke = function(player: Player, e: any): (boolean, any)
-		local refused = checkEnvelope(player, e)
-		if refused then
-			return false, refused
-		end
-		if e.type == "invite" then
-			return PartyService.Invite(player, e.target)
-		end
-		if e.type == "accept" then
-			return PartyService.AcceptInvite(player, e.partyId)
-		end
-		if e.type == "decline" then
-			return PartyService.DeclineInvite(player, e.partyId)
-		end
-		if e.type == "cancel" then
-			PartyService.CancelInvite(player, e.target)
-			return true
-		end
-		if e.type == "pending" then
-			return true, PartyService.GetPendingInvites(player)
-		end
-		return false, "unknown action"
-	end
+	registerMutation(
+		"Party.Invite",
+		exactSchema({ targetUserId = isPayloadUserId }),
+		function(context, payload)
+			local ok, reason = PartyService.Invite(context.player, payload.targetUserId)
+			return operationResult(ok, reason)
+		end,
+		0.5,
+		2
+	)
+	registerMutation(
+		"Party.AcceptInvite",
+		exactSchema({ partyId = isPayloadPartyId }),
+		function(context, payload)
+			local ok, reason = PartyService.AcceptInvite(context.player, payload.partyId)
+			return operationResult(ok, reason)
+		end,
+		nil,
+		nil
+	)
+	registerMutation(
+		"Party.DeclineInvite",
+		exactSchema({ partyId = isPayloadPartyId }),
+		function(context, payload)
+			local ok, reason = PartyService.DeclineInvite(context.player, payload.partyId)
+			return operationResult(ok, reason)
+		end,
+		nil,
+		nil
+	)
+	registerMutation(
+		"Party.CancelInvite",
+		exactSchema({ targetUserId = isPayloadUserId }),
+		function(context, payload)
+			PartyService.CancelInvite(context.player, payload.targetUserId)
+			return operationResult(true, nil)
+		end,
+		nil,
+		nil
+	)
+	registerRead("Party.GetPendingInvites", EMPTY_SCHEMA, function(context, _payload)
+		return PartyService.GetPendingInvites(context.player)
+	end)
+
 	PartyService.OnInvite:Connect(function(toPlayer, partyId, fromName)
 		Inbound:FireClient(toPlayer, { type = "invite", partyId = partyId, fromName = fromName })
 	end)

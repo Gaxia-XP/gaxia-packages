@@ -2,7 +2,7 @@
 
 # Ban
 
-> Saved bans and an auto-escalation policy for AntiCheat actions.
+> Saved bans, and AntiCheat enforcement (GaxiaServer.Enforcement): the only automatic kick / ban decisions, from trusted evidence only.
 
 - Package: `Ban` · Category: Moderation & safety
 - Starts at server boot: **yes, whenever installed** (it has work to do before its first call)
@@ -33,9 +33,9 @@ local Ban = GaxiaServer.Ban
 - `Ban.SetRoleResolver(fn: Types.UserRoleResolver): ()`
   Install the (userId, role) -> boolean lookup the escalation exemption uses. AdminCommands does this in its Init; game code does not need to call it.
 - `Ban.IsEscalationExempt(userId: number): boolean`
-  Public: AntiCheat.OnAction has TWO enforcing consumers — escalate() here and the bootstrap's default hard-action kick. Both must answer "is this user machine-punishable?" identically, or the exemption only stops the ban while the other consumer still kicks the creator out of their own game.
+  Public: AntiCheatEnforcement, the one owner of automatic AntiCheat action, calls this before every automatic kick/ban. Manual Ban() deliberately remains a low-level administrator API.
 - `Ban.ResetStrikes(userId: number): ()`
-  Forget a user's auto-escalation strikes in this server (the next hard action starts again at KickAt). Unban calls it; /acclear calls it with ClearFlags.
+  Forget a user's auto-escalation strikes in this server (the next hard action starts again at KickAt). Unban calls it; /acclear calls it with ClearFlags. The strikes live in AntiCheatEnforcement; nothing to reset until it started.
 
 ### Signals
 
@@ -63,4 +63,42 @@ export type BanListEntry = {
     time: number,
     name: string?,       -- resolved username (the Admin panel's ban list adds it)
 }
+```
+
+## `GaxiaServer.Enforcement`
+
+- Runs: **server only (Script / server ModuleScript)**
+- Source: `src/ServerStorage/Gaxia_Packages_Server/Lib/AntiCheatEnforcement.lua`
+
+Get it:
+
+```lua
+local GaxiaServer = require(game:GetService("ServerStorage").Gaxia_Packages_Server)
+local Enforcement = GaxiaServer.Enforcement
+```
+
+### Functions
+
+- `Enforcement.GetMode(): "observe" | "enforce"`
+  "enforce" while Config.AntiCheat.Enforce (flag "AntiCheat.Enforce") is on, else "observe". The same switch the orchestrator reads.
+- `Enforcement.SetMode(mode: "observe" | "enforce"): ()`
+  Runtime switch (a Gaxia.Flags override of "AntiCheat.Enforce"; AntiCheat .ClearOverrides reverts it to the Config default).
+- `Enforcement.GetStrikes(userId: number): number`
+  This server's strike count for a user (server/transport evidence).
+- `Enforcement.ResetStrikes(userId: number): ()`
+  Forget a user's strikes in this server (the next hard action starts again at KickAt). BanService.ResetStrikes (Unban, /acclear) calls this.
+
+### Signals
+
+Connect with `:Connect(function(...) end)`; the parameters are the payload types, in order.
+
+- `Enforcement.OnDecision` — `Signal<Player, string, Types.ActionKind, Types.EvidenceSource, Decision, boolean, number>`
+  (player, reason, kind, source, decision, applied, strikeCount) for every candidate.
+
+### Types
+
+Exported types (use them in annotations: `local x: Module.TypeName`).
+
+```lua
+export type Decision = "observe" | "kick" | "temp_ban" | "perm_ban" | "deduped" | "exempt"
 ```
